@@ -1,5 +1,10 @@
 import { auth, provider } from "./firebase";
-import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
+import {
+  signInWithRedirect,
+  signOut,
+  onAuthStateChanged,
+  getRedirectResult
+} from "firebase/auth";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 import { loadData, saveData } from "./firebase";
@@ -186,7 +191,17 @@ export default function App() {
     return String(h >>> 0);
   }
 
-  useEffect(() => {
+useEffect(() => {
+  const handleRedirect = async () => {
+    try {
+      await getRedirectResult(auth);
+    } catch (error) {
+      console.error("Redirect error:", error);
+    }
+  };
+
+  handleRedirect();
+
   const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
     setUser(currentUser);
   });
@@ -194,9 +209,11 @@ export default function App() {
   return () => unsubscribe();
 }, []);
 
-  const handleLogin = async () => {
+  import { signInWithRedirect } from "firebase/auth";
+
+const handleLogin = async () => {
   try {
-    await signInWithPopup(auth, provider);
+    await signInWithRedirect(auth, provider);
   } catch (error) {
     console.error("Login error:", error);
   }
