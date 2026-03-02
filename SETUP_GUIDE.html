@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>FinTrack v4 — Firebase Setup Guide</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#0d0f14;color:#e2e8f0;font-family:'DM Mono',monospace;padding:20px;line-height:1.6;}
+  .wrap{max-width:720px;margin:0 auto;}
+  h1{font-family:'Syne',sans-serif;font-weight:800;font-size:26px;background:linear-gradient(135deg,#38bdf8,#6366f1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px;}
+  .sub{color:#64748b;font-size:12px;margin-bottom:28px;}
+  .step{background:#161b26;border:1px solid #232b3e;border-radius:14px;padding:18px 20px;margin-bottom:14px;}
+  .num{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#38bdf8,#6366f1);font-family:'Syne',sans-serif;font-weight:800;font-size:12px;color:#fff;margin-bottom:8px;}
+  .stitle{font-family:'Syne',sans-serif;font-weight:700;font-size:14px;margin-bottom:8px;}
+  p{font-size:12px;color:#94a3b8;margin-bottom:6px;}
+  code{background:#0a0c10;border:1px solid #232b3e;border-radius:5px;padding:2px 7px;color:#38bdf8;font-size:11px;}
+  pre{background:#0a0c10;border:1px solid #232b3e;border-radius:10px;padding:14px;font-size:11px;color:#38bdf8;overflow-x:auto;margin:8px 0;line-height:1.8;}
+  .tip{background:#f59e0b10;border:1px solid #f59e0b30;border-radius:8px;padding:10px 14px;font-size:11px;color:#f59e0b;margin-top:8px;}
+  .ok{background:#10b98110;border:1px solid #10b98130;border-radius:8px;padding:10px 14px;font-size:11px;color:#10b981;margin-top:8px;}
+  a{color:#38bdf8;}
+  hr{border:none;border-top:1px solid #232b3e;margin:20px 0;}
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-family:'Syne',sans-serif;font-weight:700;margin-right:6px;}
+  .free{background:#10b98120;color:#10b981;}
+  .new{background:#6366f120;color:#a78bfa;}
+</style>
+</head>
+<body><div class="wrap">
+<h1>🔥 FinTrack v4 — Setup Guide</h1>
+<p class="sub">
+  <span class="badge free">✓ Free</span>
+  <span class="badge new">✦ Firebase Cloud Storage</span>
+  <span class="badge new">✦ PIN Lock</span>
+  <span class="badge new">✦ Auto Salary</span>
+  <span class="badge new">✦ CC EMI Tracking</span>
+</p>
+
+<div class="step">
+  <div class="num">1</div>
+  <div class="stitle">Get your Firebase Config (3 minutes)</div>
+  <p>1. Go to <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a></p>
+  <p>2. Click your existing project (or <b>Add project</b> if needed)</p>
+  <p>3. Click the ⚙️ gear icon → <b>Project Settings</b></p>
+  <p>4. Scroll to <b>"Your apps"</b> → click <b>Web</b> (the <code>&lt;/&gt;</code> icon)</p>
+  <p>5. Register with nickname <code>fintrack</code> → click <b>Register app</b></p>
+  <p>6. Copy the <code>firebaseConfig</code> object — it looks like this:</p>
+  <pre>const firebaseConfig = {
+  apiKey: "AIzaSy...",
+  authDomain: "yourproject.firebaseapp.com",
+  projectId: "yourproject-id",
+  storageBucket: "yourproject.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abc123"
+};</pre>
+  <div class="tip">💡 Keep this config private — don't share it publicly. Your PIN + Firestore rules protect your data.</div>
+</div>
+
+<div class="step">
+  <div class="num">2</div>
+  <div class="stitle">Enable Firestore Database</div>
+  <p>1. In Firebase Console sidebar → click <b>Firestore Database</b></p>
+  <p>2. Click <b>Create database</b></p>
+  <p>3. Choose <b>Start in test mode</b> (we'll secure it next) → <b>Next</b></p>
+  <p>4. Select a region (e.g. <code>asia-south1</code> for India) → <b>Enable</b></p>
+  <div class="ok">✅ Firestore is now active. Your data will sync here from the app.</div>
+</div>
+
+<div class="step">
+  <div class="num">3</div>
+  <div class="stitle">Set Firestore Security Rules (important!)</div>
+  <p>In Firestore Console → click <b>Rules</b> tab → replace the content with:</p>
+  <pre>rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /fintrack_users/{userId} {
+      allow read, write: if true;
+    }
+  }
+}</pre>
+  <p>Click <b>Publish</b>.</p>
+  <div class="tip">💡 This allows your app to read/write its own document. Your PIN provides the user-level security. For extra security, come back later and restrict by IP or add Firebase Auth.</div>
+</div>
+
+<div class="step">
+  <div class="num">4</div>
+  <div class="stitle">Paste your config into the app</div>
+  <p>Open <code>src/firebaseConfig.js</code> and replace the placeholder values:</p>
+  <pre>export const firebaseConfig = {
+  apiKey:            "YOUR_apiKey_HERE",
+  authDomain:        "YOUR_authDomain_HERE",
+  projectId:         "YOUR_projectId_HERE",
+  storageBucket:     "YOUR_storageBucket_HERE",
+  messagingSenderId: "YOUR_messagingSenderId_HERE",
+  appId:             "YOUR_appId_HERE",
+};
+
+// Change this to something unique (e.g. your name)
+export const FINTRACK_USER_ID = "rahul_fintrack_2024";</pre>
+  <div class="tip">💡 Change <code>FINTRACK_USER_ID</code> to something personal and unique. This is your data's document path in Firestore — only someone who knows this exact string can access your data.</div>
+</div>
+
+<div class="step">
+  <div class="num">5</div>
+  <div class="stitle">Upload to GitHub & Deploy on Vercel</div>
+  <p>1. Go to your <b>GitHub repo</b> → delete old files → upload entire <code>fintrack-v4</code> folder contents</p>
+  <p>2. <b>Or</b> if you know git: <code>git add . && git commit -m "v4" && git push</code></p>
+  <p>3. Vercel will <b>auto-redeploy</b> in ~60 seconds when it detects the push</p>
+  <div class="ok">✅ Your app is live with Firebase. Data now survives app updates, incognito mode, device changes — everything.</div>
+</div>
+
+<div class="step">
+  <div class="num">6</div>
+  <div class="stitle">First launch — Set your PIN</div>
+  <p>When you open the app for the first time:</p>
+  <p>1. You'll see a PIN setup screen — enter a 4+ digit PIN</p>
+  <p>2. Confirm it → tap <b>Set PIN & Open App</b></p>
+  <p>3. The PIN is stored in your browser — next time you open the app, you'll need to enter it</p>
+  <div class="tip">💡 The PIN is stored locally (not in Firebase). If you clear browser data, you'll need to set a new PIN — but your financial data is always safe in Firebase.</div>
+</div>
+
+<hr/>
+
+<div class="step">
+  <div class="num">✦</div>
+  <div class="stitle">New Features in v4</div>
+  <p><b>🔐 PIN Lock</b> — App locks every time the browser session ends. Keypad entry on mobile.</p>
+  <p><b>☁️ Firebase Sync</b> — Auto-saves to cloud every ~1 second. Works across devices, survives updates and incognito.</p>
+  <p><b>💰 Auto Salary</b> — Go to ⚙️ Settings → enable Auto Salary → set amount + credit day. Appears automatically every month.</p>
+  <p><b>💳 CC EMI Tracking</b> — When adding a credit card, toggle "Has CC EMI?" to track card EMIs separately from loan EMIs.</p>
+  <p><b>✏️ Edit Transactions</b> — Tap the ✏️ icon on any transaction to edit it.</p>
+  <p><b>🤖 Smart Strategy</b> — App analyses your debts and recommends Avalanche vs Snowball automatically.</p>
+  <p><b>📱 PWA Icon</b> — When you add to home screen, FinTrack shows with the ₹ icon.</p>
+</div>
+
+<div class="step">
+  <div class="num">✦</div>
+  <div class="stitle">Future Updates — Your data is always safe</div>
+  <p>Since data is in Firebase, updating the app code will NEVER affect your data.</p>
+  <p>To update: just replace <code>src/App.jsx</code> on GitHub. Vercel redeploys automatically. Firebase data stays untouched.</p>
+  <div class="ok">✅ You can update the app as many times as you want. Your transactions, loans, CC data — all safe in Firebase forever.</div>
+</div>
+
+</div></body></html>
