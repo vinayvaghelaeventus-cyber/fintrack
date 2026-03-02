@@ -1,3 +1,5 @@
+import { auth, provider } from "./firebase";
+import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 import { loadData, saveData } from "./firebase";
@@ -120,6 +122,7 @@ export default function App() {
   // ── UI state ──
   const [darkMode, setDarkMode] = useState(true);
   const [tab, setTab] = useState("Dashboard");
+  const [user, setUser] = useState(null);
   const [locked, setLocked] = useState(true);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
@@ -183,6 +186,26 @@ export default function App() {
     return String(h >>> 0);
   }
 
+  useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    setUser(currentUser);
+  });
+
+  return () => unsubscribe();
+}, []);
+
+  const handleLogin = async () => {
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (error) {
+    console.error("Login error:", error);
+  }
+};
+
+  const handleLogout = async () => {
+  await signOut(auth);
+};
+  
   useEffect(() => {
     const existing = localStorage.getItem(STORED_PIN_KEY);
     const session  = sessionStorage.getItem(SESSION_KEY);
@@ -550,6 +573,63 @@ Provide (use emoji headers, max 350 words):
     </svg>;
   }
 
+  
+  // ─── GOOGLE LOGIN SCREEN ─────────────────────────────────────────────────
+if (!user) {
+  return (
+    <div style={{
+      minHeight: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: C.bg,
+      color: C.text,
+      fontFamily: "'DM Mono','Courier New',monospace"
+    }}>
+      <style>{css}</style>
+      <div style={{
+        background: C.card,
+        border: `1px solid ${C.border}`,
+        borderRadius: 20,
+        padding: "40px 30px",
+        textAlign: "center",
+        maxWidth: 380,
+        width: "100%"
+      }}>
+        <div style={{fontSize: 40, marginBottom: 12}}>💰</div>
+        <div style={{
+          fontFamily: "'Syne',sans-serif",
+          fontWeight: 800,
+          fontSize: 22,
+          marginBottom: 10
+        }}>
+          FinTrack
+        </div>
+        <div style={{color: C.muted, fontSize: 12, marginBottom: 24}}>
+          Sign in with Google to access your personal finance dashboard
+        </div>
+
+        <button
+          onClick={handleLogin}
+          style={{
+            width: "100%",
+            padding: "12px 18px",
+            borderRadius: 10,
+            border: "none",
+            background: "#4285F4",
+            color: "#fff",
+            fontWeight: 700,
+            fontFamily: "'Syne',sans-serif",
+            cursor: "pointer"
+          }}
+        >
+          Sign in with Google
+        </button>
+      </div>
+    </div>
+  );
+}
+  
   // ─── PIN SCREEN ──────────────────────────────────────────────────────────
   if (locked) {
     const handleKey = (k) => {
