@@ -17,7 +17,7 @@ const MOBILE_TABS = [
   {id:"Dashboard",  icon:"🏠", label:"Home"},
   {id:"Plan",       icon:"🎯", label:"Plan"},
   {id:"Cards",      icon:"💳", label:"Cards"},
-  {id:"Txns",       icon:"📋", label:"Txns"},
+  {id:"Transactions",       icon:"📋", label:"Txns"},
   {id:"Goals",      icon:"🌱", label:"Goals"},
 ];
 const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","Insights"];
