@@ -1,16 +1,37 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
-import { firebaseConfig, FINTRACK_USER_ID } from './firebaseConfig';
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot
+} from 'firebase/firestore';
 
-// Initialize Firebase
+import {
+  getAuth,
+  GoogleAuthProvider
+} from 'firebase/auth';
+
+import { firebaseConfig } from './firebaseConfig';
+
+// ─── Initialize Firebase ─────────────────────────
 const app = initializeApp(firebaseConfig);
-const db  = getFirestore(app);
 
-const userDocRef = () => doc(db, 'fintrack_users', FINTRACK_USER_ID);
+const db   = getFirestore(app);
+const auth = getAuth(app);
+const provider = new GoogleAuthProvider();
 
-// ─── Load all data once ───────────────────────────────────────────────────────
+// ─── Get user-specific document reference ────────
+const userDocRef = () => {
+  if (!auth.currentUser) return null;
+  return doc(db, 'fintrack_users', auth.currentUser.uid);
+};
+
+// ─── Load data ────────────────────────────────────
 export async function loadData() {
   try {
+    if (!auth.currentUser) return null;
+
     const snap = await getDoc(userDocRef());
     if (snap.exists()) return snap.data();
     return null;
@@ -20,9 +41,11 @@ export async function loadData() {
   }
 }
 
-// ─── Save full data object ────────────────────────────────────────────────────
+// ─── Save data ────────────────────────────────────
 export async function saveData(data) {
   try {
+    if (!auth.currentUser) return false;
+
     await setDoc(userDocRef(), data, { merge: true });
     return true;
   } catch (e) {
@@ -31,11 +54,13 @@ export async function saveData(data) {
   }
 }
 
-// ─── Subscribe to real-time changes (optional, for multi-device sync) ─────────
+// ─── Real-time sync ──────────────────────────────
 export function subscribeToData(callback) {
+  if (!auth.currentUser) return;
+
   return onSnapshot(userDocRef(), (snap) => {
     if (snap.exists()) callback(snap.data());
   });
 }
 
-export { db };
+export { db, auth, provider };
