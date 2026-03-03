@@ -1,4 +1,3 @@
-import { migrateOldDataIfNeeded } from "./firebase";
 import { auth, provider } from "./firebase";
 import {
   signInWithRedirect,
@@ -187,7 +186,9 @@ export default function App() {
   const [txBank, setTxBank]     = useState("all");
 
   // ─── PIN MANAGEMENT ──────────────────────────────────────────────────────
-const STORED_PIN_KEY = "ft_pin_hash";
+const getPinKey = () => {
+  return user ? `ft_pin_hash_${user.uid}` : null;
+};
   const SESSION_KEY    = "ft_unlocked";
 
   function hashPin(p) {
@@ -210,10 +211,6 @@ useEffect(() => {
 
 const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
   setUser(currentUser);
-
-  if (currentUser) {
-    migrateOldDataIfNeeded();
-  }
 });
 
   return () => unsubscribe();
@@ -246,7 +243,7 @@ const handleEmailAuth = async () => {
 };
   
   useEffect(() => {
-    const existing = localStorage.getItem(STORED_PIN_KEY);
+    const existing = localStorage.getItem(getPinKey());
     const session  = sessionStorage.getItem(SESSION_KEY);
     if (!existing) { setSetupMode(true); setLocked(true); }
     else if (session === "yes") { setLocked(false); }
@@ -262,7 +259,7 @@ const handleEmailAuth = async () => {
   }
 
   function submitUnlock() {
-    const stored = localStorage.getItem(STORED_PIN_KEY);
+    const stored = localStorage.getItem(getPinKey());
     if (hashPin(pinInput) === stored) {
       sessionStorage.setItem(SESSION_KEY, "yes");
       setLocked(false); setPinInput(""); setPinError("");
@@ -272,7 +269,7 @@ const handleEmailAuth = async () => {
   }
 
   function changePin(oldPin, newPin) {
-    const stored = localStorage.getItem(STORED_PIN_KEY);
+    const stored = localStorage.getItem(getPinKey());
     if (hashPin(oldPin) !== stored) return "Incorrect current PIN";
     if (newPin.length < 4) return "New PIN must be at least 4 digits";
     localStorage.setItem(STORED_PIN_KEY, hashPin(newPin));
@@ -708,7 +705,7 @@ if (user && locked) {
       const next = pinInput+k;
       setPinInput(next);
       if (!setupMode && next.length>=4) {
-        const stored=localStorage.getItem(STORED_PIN_KEY);
+        const stored=localStorage.getItem(getPinKey());
         if(hashPin(next)===stored){ sessionStorage.setItem(SESSION_KEY,"yes"); setLocked(false); setPinInput(""); setPinError(""); }
         else { setPinError("Incorrect PIN"); setTimeout(()=>{setPinInput("");setPinError("");},600); }
       }
