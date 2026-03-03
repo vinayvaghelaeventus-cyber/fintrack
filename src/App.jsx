@@ -608,7 +608,7 @@ if (!user) {
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{ width: 30, height: 30, background: "linear-gradient(135deg,#38bdf8,#6366f1)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 14 }}>₹</div>
         <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15 }}>FinTrack</span>
-        <span><span className="sync-dot" /></span>
+        <span><span className="sync-dot" /></span></div>
     </div>
     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         {health.score > 0 && <span className="tag" style={{ background: health.color + "20", color: health.color }}>{health.score}/100</span>}
