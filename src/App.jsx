@@ -221,17 +221,6 @@ const handleLogin = async () => {
   }
 };
 
-const handleEmailAuth = async () => {
-  try {
-    if (isRegister) {
-      await createUserWithEmailAndPassword(auth, email, password);
-    } else {
-      await signInWithEmailAndPassword(auth, email, password);
-    }
-  } catch (error) {
-    console.error("Email auth error:", error);
-  }
-};
   
   const handleLogout = async () => {
   await signOut(auth);
@@ -656,38 +645,6 @@ if (!user) {
         >
           Sign in with Google
         </button>
-        
-        <div style={{marginTop:20}}>
-  <input
-    type="email"
-    placeholder="Email"
-    value={email}
-    onChange={(e)=>setEmail(e.target.value)}
-    style={{width:"100%",padding:10,marginBottom:10}}
-  />
-
-  <input
-    type="password"
-    placeholder="Password"
-    value={password}
-    onChange={(e)=>setPassword(e.target.value)}
-    style={{width:"100%",padding:10,marginBottom:10}}
-  />
-
-  <button
-    onClick={handleEmailAuth}
-    style={{width:"100%",padding:10}}
-  >
-    {isRegister ? "Register" : "Login"}
-  </button>
-
-  <div
-    style={{marginTop:10,fontSize:12,cursor:"pointer"}}
-    onClick={()=>setIsRegister(!isRegister)}
-  >
-    {isRegister ? "Already have account?" : "Create account"}
-  </div>
-</div>
       </div>
     </div>
   );
