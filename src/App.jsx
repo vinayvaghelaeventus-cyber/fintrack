@@ -125,9 +125,6 @@ function calcCCDetails(cc) {
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 export default function App() {
   // ── UI state ──
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isRegister, setIsRegister] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [tab, setTab] = useState("Dashboard");
   const [user, setUser] = useState(null);
@@ -136,7 +133,7 @@ export default function App() {
   const [pinError, setPinError] = useState("");
   const [setupMode, setSetupMode] = useState(false); // first-time PIN setup
   const [confirmPin, setConfirmPin] = useState("");
-  const [fbStatus, setFbStatus] = useState("loading"); // loading | ok | error | config
+  const [fbStatus, setFbStatus] = useState("loading");
   const C = darkMode ? DARK : LIGHT;
 
   // ── Data ──
@@ -734,9 +731,7 @@ if (!user) {
       </div>
 
       {/* ── Mobile Header ── */}
-      <div style={{borderBottom:`1px solid ${C.border}`,padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,background:C.bg,zIndex:50}} className="dtabs" hidden>
-        {/* hidden, handled above */}
-      </div>
+
       <div style={{borderBottom:`1px solid ${C.border}`,padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,background:C.bg,zIndex:50,gap:8}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:30,height:30,background:"linear-gradient(135deg,#38bdf8,#6366f1)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14}}>₹</div>
