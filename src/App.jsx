@@ -620,12 +620,12 @@ if (!user) {
           ))}
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <button className="btn-ghost btn-sm" onClick={()=>setDarkMode(p=>!p)}>{darkMode?"☀️":"🌙"}</button>
+          <button className="btn-ghost btn-sm" onClick={handleLogout}>Logout</button>
+            <button className="btn-ghost btn-sm" onClick={()=>setDarkMode(p=>!p)}>{darkMode?"☀️":"🌙"}</button>
           <button className="btn-ghost btn-sm" onClick={()=>setShowSettings(true)}>⚙️</button>
           <button className="btn-ghost btn-sm" onClick={()=>setShowImport(true)}>⬆ Import</button>
           <button className="btn-ghost btn-sm" onClick={exportTransactions}>⬇ Export</button>
           <button className="btn btn-p btn-sm" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+ Add</button>
-          <button className="btn-ghost btn-sm" onClick={handleLogout}>Logout</button>
         </div>
       </div>
 
