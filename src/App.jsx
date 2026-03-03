@@ -604,20 +604,14 @@ if (!user) {
       <style>{css}</style>
 
       {/* ── Desktop Header ── */}
-<div style={{ borderBottom: `1px solid ${C.border}`, padding: "11px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, background: C.bg, zIndex: 50, gap: 8 }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ width: 30, height: 30, background: "linear-gradient(135deg,#38bdf8,#6366f1)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 14 }}>₹</div>
-        <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15 }}>FinTrack</span>
-        <span><span className="sync-dot" /></span>
-    </div>
-    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        {health.score > 0 && <span className="tag" style={{ background: health.color + "20", color: health.color }}>{health.score}/100</span>}
-        {overdueCount > 0 && <span className="pulse tag" style={{ background: `${C.expense}15`, color: C.expense }}>⚠{overdueCount}</span>}
-        <button className="btn-ghost btn-sm" onClick={() => setDarkMode(p => !p)} style={{ padding: "4px 8px" }}>{darkMode ? "☀️" : "🌙"}</button>
-        <button className="btn-ghost btn-sm" onClick={() => setShowSettings(true)} style={{ padding: "4px 8px" }}>⚙️</button>
-        <button className="btn-ghost btn-sm" onClick={handleLogout} style={{ padding: "4px 8px" }}>🚪</button>
-    </div>
-</div>
+      <div className="dtabs" style={{borderBottom:`1px solid ${C.border}`,padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,background:C.bg,zIndex:50,gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:32,height:32,background:"linear-gradient(135deg,#38bdf8,#6366f1)",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:15}}>₹</div>
+          <span style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:16}}>FinTrack</span>
+          {health.score>0&&<span className="tag" style={{background:health.color+"20",color:health.color}}>Health {health.score}/100</span>}
+          {overdueCount>0&&<span className="pulse tag" style={{background:`${C.expense}15`,color:C.expense,cursor:"pointer"}} onClick={()=>setTab("Cards")}>⚠ {overdueCount} overdue</span>}
+          <span><span className="sync-dot"/><span style={{fontSize:10,color:C.muted}}>{saving?"Saving…":lastSaved?`Saved ${lastSaved.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}`:"Not saved yet"}</span></span>
+        </div>
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
             <button key={t} className="btn-ghost" onClick={()=>setTab(t)} style={{background:tab===t?C.border:"transparent",color:tab===t?C.accent:C.muted,border:"none",fontSize:11,padding:"6px 10px",borderRadius:8}}>
@@ -631,7 +625,7 @@ if (!user) {
           <button className="btn-ghost btn-sm" onClick={()=>setShowImport(true)}>⬆ Import</button>
           <button className="btn-ghost btn-sm" onClick={exportTransactions}>⬇ Export</button>
           <button className="btn btn-p btn-sm" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+ Add</button>
-          <button className="btn-ghost btn-sm" onClick={handleLogout}> Logout </button>
+          <button className="btn-ghost btn-sm" onClick={handleLogout}>Logout</button>
         </div>
       </div>
 
