@@ -1,6 +1,8 @@
 import { auth, provider } from "./firebase";
 import {
   signInWithRedirect,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   getRedirectResult
@@ -125,6 +127,9 @@ function calcCCDetails(cc) {
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 export default function App() {
   // ── UI state ──
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isRegister, setIsRegister] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [tab, setTab] = useState("Dashboard");
   const [user, setUser] = useState(null);
@@ -181,7 +186,7 @@ export default function App() {
   const [txBank, setTxBank]     = useState("all");
 
   // ─── PIN MANAGEMENT ──────────────────────────────────────────────────────
-  const STORED_PIN_KEY = "ft_pin_hash";
+const STORED_PIN_KEY = user ? `ft_pin_hash_${user.uid}` : "ft_pin_hash";
   const SESSION_KEY    = "ft_unlocked";
 
   function hashPin(p) {
@@ -209,7 +214,7 @@ useEffect(() => {
   return () => unsubscribe();
 }, []);
 
-  import { signInWithRedirect } from "firebase/auth";
+
 
 const handleLogin = async () => {
   try {
@@ -219,6 +224,18 @@ const handleLogin = async () => {
   }
 };
 
+const handleEmailAuth = async () => {
+  try {
+    if (isRegister) {
+      await createUserWithEmailAndPassword(auth, email, password);
+    } else {
+      await signInWithEmailAndPassword(auth, email, password);
+    }
+  } catch (error) {
+    console.error("Email auth error:", error);
+  }
+};
+  
   const handleLogout = async () => {
   await signOut(auth);
 };
@@ -258,8 +275,8 @@ const handleLogin = async () => {
   }
 
   // ─── FIREBASE LOAD ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (locked) return;
+useEffect(() => {
+  if (!user || locked) return;
     async function load() {
       try {
         const data = await loadData();
@@ -286,7 +303,7 @@ const handleLogin = async () => {
       setLoaded(true);
     }
     load();
-  }, [locked]);
+}, [user, locked]);
 
   // ─── AUTO-SAVE TO FIREBASE ───────────────────────────────────────────────
   const saveTimeout = useRef(null);
@@ -642,13 +659,45 @@ if (!user) {
         >
           Sign in with Google
         </button>
+        
+        <div style={{marginTop:20}}>
+  <input
+    type="email"
+    placeholder="Email"
+    value={email}
+    onChange={(e)=>setEmail(e.target.value)}
+    style={{width:"100%",padding:10,marginBottom:10}}
+  />
+
+  <input
+    type="password"
+    placeholder="Password"
+    value={password}
+    onChange={(e)=>setPassword(e.target.value)}
+    style={{width:"100%",padding:10,marginBottom:10}}
+  />
+
+  <button
+    onClick={handleEmailAuth}
+    style={{width:"100%",padding:10}}
+  >
+    {isRegister ? "Register" : "Login"}
+  </button>
+
+  <div
+    style={{marginTop:10,fontSize:12,cursor:"pointer"}}
+    onClick={()=>setIsRegister(!isRegister)}
+  >
+    {isRegister ? "Already have account?" : "Create account"}
+  </div>
+</div>
       </div>
     </div>
   );
 }
   
   // ─── PIN SCREEN ──────────────────────────────────────────────────────────
-  if (locked) {
+if (user && locked) {
     const handleKey = (k) => {
       if (k==="⌫") { setPinInput(p=>p.slice(0,-1)); return; }
       const next = pinInput+k;
