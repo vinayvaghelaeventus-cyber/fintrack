@@ -1,3 +1,4 @@
+import { migrateOldDataIfNeeded } from "./firebase";
 import { auth, provider } from "./firebase";
 import {
   signInWithRedirect,
@@ -207,9 +208,13 @@ useEffect(() => {
 
   handleRedirect();
 
-  const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-    setUser(currentUser);
-  });
+const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+  setUser(currentUser);
+
+  if (currentUser) {
+    migrateOldDataIfNeeded();
+  }
+});
 
   return () => unsubscribe();
 }, []);
