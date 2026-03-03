@@ -128,11 +128,6 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [tab, setTab] = useState("Dashboard");
   const [user, setUser] = useState(null);
-  const [locked, setLocked] = useState(true);
-  const [pinInput, setPinInput] = useState("");
-  const [pinError, setPinError] = useState("");
-  const [setupMode, setSetupMode] = useState(false); // first-time PIN setup
-  const [confirmPin, setConfirmPin] = useState("");
   const [fbStatus, setFbStatus] = useState("loading");
   const C = darkMode ? DARK : LIGHT;
 
@@ -180,18 +175,6 @@ export default function App() {
   const [txMode, setTxMode]     = useState("all");
   const [txBank, setTxBank]     = useState("all");
 
-  // ─── PIN MANAGEMENT ──────────────────────────────────────────────────────
-const getPinKey = () => {
-  return user ? `ft_pin_hash_${user.uid}` : null;
-};
-  const SESSION_KEY    = "ft_unlocked";
-
-  function hashPin(p) {
-    // Simple deterministic hash (not crypto, but good enough for personal app)
-    let h = 5381;
-    for (let i=0; i<p.length; i++) h = ((h<<5)+h)+p.charCodeAt(i);
-    return String(h >>> 0);
-  }
 
 // ✅ REPLACE with this
 useEffect(() => {
@@ -229,43 +212,12 @@ const handleLogin = async () => {
   await signOut(auth);
 };
   
-  useEffect(() => {
-    const existing = localStorage.getItem(getPinKey());
-    const session  = sessionStorage.getItem(SESSION_KEY);
-    if (!existing) { setSetupMode(true); setLocked(true); }
-    else if (session === "yes") { setLocked(false); }
-    else { setLocked(true); }
-  }, []);
 
-  function submitSetupPin() {
-    if (pinInput.length < 4) { setPinError("PIN must be at least 4 digits"); return; }
-    if (pinInput !== confirmPin) { setPinError("PINs don't match"); return; }
-    localStorage.setItem(STORED_PIN_KEY, hashPin(pinInput));
-    sessionStorage.setItem(SESSION_KEY, "yes");
-    setLocked(false); setSetupMode(false); setPinInput(""); setConfirmPin("");
-  }
 
-  function submitUnlock() {
-    const stored = localStorage.getItem(getPinKey());
-    if (hashPin(pinInput) === stored) {
-      sessionStorage.setItem(SESSION_KEY, "yes");
-      setLocked(false); setPinInput(""); setPinError("");
-    } else {
-      setPinError("Incorrect PIN"); setPinInput("");
-    }
-  }
-
-  function changePin(oldPin, newPin) {
-    const stored = localStorage.getItem(getPinKey());
-    if (hashPin(oldPin) !== stored) return "Incorrect current PIN";
-    if (newPin.length < 4) return "New PIN must be at least 4 digits";
-    localStorage.setItem(STORED_PIN_KEY, hashPin(newPin));
-    return "ok";
-  }
 
   // ─── FIREBASE LOAD ───────────────────────────────────────────────────────
 useEffect(() => {
-  if (!user || locked) return;
+  if (!user) return;
     async function load() {
       try {
         const data = await loadData(user.uid);
@@ -292,7 +244,7 @@ useEffect(() => {
       setLoaded(true);
     }
     load();
-}, [user, locked]);
+}, [user]);
 
   // ─── AUTO-SAVE TO FIREBASE ───────────────────────────────────────────────
   const saveTimeout = useRef(null);
@@ -1362,23 +1314,15 @@ if (!user) {
       )}
 
       {/* Settings */}
-      {showSettings&&<SettingsModal C={C} salary={salary} setSalary={setSalary} banks={banks} setBanks={setBanks} changePin={changePin} onClose={()=>setShowSettings(false)} setLocked={setLocked} css={css}/>}
+      {showSettings&&<SettingsModal C={C} salary={salary} setSalary={setSalary} banks={banks} 
+    setBanks={setBanks} onClose={() => setShowSettings(false)} />}
     </div>
   );
 }
 
 // ─── SETTINGS MODAL ──────────────────────────────────────────────────────────
-function SettingsModal({C, salary, setSalary, banks, setBanks, changePin, onClose, setLocked}) {
-  const [oldPin, setOldPin]   = useState("");
-  const [newPin, setNewPin]   = useState("");
-  const [pinMsg, setPinMsg]   = useState("");
+function SettingsModal({ C, salary, setSalary, banks, setBanks, onClose }) {
   const [newBank, setNewBank] = useState("");
-
-  function handleChangePin() {
-    const result = changePin(oldPin, newPin);
-    if (result==="ok") { setPinMsg("✅ PIN changed!"); setOldPin(""); setNewPin(""); }
-    else setPinMsg("❌ "+result);
-  }
 
   return(
     <div className="modal" onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -1423,19 +1367,8 @@ function SettingsModal({C, salary, setSalary, banks, setBanks, changePin, onClos
           </div>
         </div>
 
-        {/* Change PIN */}
-        <div style={{marginBottom:20}}>
-          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13,marginBottom:10,color:C.accent}}>🔐 Change PIN</div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <input className="inp" type="password" inputMode="numeric" placeholder="Current PIN" value={oldPin} onChange={e=>setOldPin(e.target.value)}/>
-            <input className="inp" type="password" inputMode="numeric" placeholder="New PIN (min 4 digits)" value={newPin} onChange={e=>setNewPin(e.target.value)}/>
-            {pinMsg&&<div style={{fontSize:12,color:pinMsg.startsWith("✅")?C.income:C.expense}}>{pinMsg}</div>}
-            <button className="btn btn-p btn-sm" onClick={handleChangePin}>Change PIN</button>
-          </div>
-        </div>
 
         {/* Lock */}
-        <button className="btn btn-danger" style={{width:"100%",marginBottom:10}} onClick={()=>{sessionStorage.removeItem("ft_unlocked");setLocked(true);onClose();}}>🔒 Lock App Now</button>
         <button className="btn-ghost" onClick={onClose} style={{width:"100%",textAlign:"center"}}>Close</button>
       </div>
     </div>
