@@ -1,8 +1,6 @@
 import { auth, provider } from "./firebase";
 import {
   signInWithRedirect,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   getRedirectResult
@@ -209,9 +207,9 @@ useEffect(() => {
 
   handleRedirect();
 
-const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-  setUser(currentUser);
-});
+  const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    setUser(currentUser);
+  });
 
   return () => unsubscribe();
 }, []);
@@ -281,7 +279,7 @@ useEffect(() => {
   if (!user || locked) return;
     async function load() {
       try {
-        const data = await loadData();
+        const data = await loadData(user.uid);
         if (data) {
           if (data.transactions)  setTransactions(data.transactions);
           if (data.debts)         setDebts(data.debts);
@@ -314,7 +312,7 @@ useEffect(() => {
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(async () => {
       setSaving(true);
-      const ok = await saveData({
+      const ok = await saveData(user.uid, {
         transactions, debts, creditCards, savings, budgets, banks, salary,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
         lastUpdated: new Date().toISOString(),
@@ -698,57 +696,6 @@ if (!user) {
   );
 }
   
-  // ─── PIN SCREEN ──────────────────────────────────────────────────────────
-if (user && locked) {
-    const handleKey = (k) => {
-      if (k==="⌫") { setPinInput(p=>p.slice(0,-1)); return; }
-      const next = pinInput+k;
-      setPinInput(next);
-      if (!setupMode && next.length>=4) {
-        const stored=localStorage.getItem(getPinKey());
-        if(hashPin(next)===stored){ sessionStorage.setItem(SESSION_KEY,"yes"); setLocked(false); setPinInput(""); setPinError(""); }
-        else { setPinError("Incorrect PIN"); setTimeout(()=>{setPinInput("");setPinError("");},600); }
-      }
-    };
-    return(
-      <div className="pin-wrap" style={{background:C.bg}}>
-        <style>{css}</style>
-        <div className="pin-box">
-          <div style={{fontSize:40,marginBottom:12}}>💰</div>
-          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:22,background:"linear-gradient(135deg,#38bdf8,#6366f1)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginBottom:6}}>FinTrack</div>
-          <div style={{color:C.muted,fontSize:12,marginBottom:24}}>{setupMode?"Set a PIN to protect your data":"Enter your PIN to unlock"}</div>
-          {setupMode?(
-            <div>
-              <div style={{marginBottom:16}}>
-                <div className="lbl" style={{marginBottom:6}}>New PIN (min 4 digits)</div>
-                <input className="inp pin-input" type="password" inputMode="numeric" value={pinInput} onChange={e=>setPinInput(e.target.value)} placeholder="••••"/>
-              </div>
-              <div style={{marginBottom:16}}>
-                <div className="lbl" style={{marginBottom:6}}>Confirm PIN</div>
-                <input className="inp pin-input" type="password" inputMode="numeric" value={confirmPin} onChange={e=>setConfirmPin(e.target.value)} placeholder="••••"/>
-              </div>
-              {pinError&&<div style={{color:C.expense,fontSize:12,marginBottom:10}}>{pinError}</div>}
-              <button className="btn btn-p" style={{width:"100%"}} onClick={submitSetupPin}>Set PIN & Open App</button>
-            </div>
-          ):(
-            <div>
-              <div style={{display:"flex",justifyContent:"center",gap:12,marginBottom:8}}>
-                {[0,1,2,3].map(i=><div key={i} style={{width:14,height:14,borderRadius:"50%",background:pinInput.length>i?C.accent:C.border,transition:"background 0.2s"}}/>)}
-              </div>
-              {pinError&&<div style={{color:C.expense,fontSize:12,marginBottom:6}}>{pinError}</div>}
-              <div className="pin-pad">
-                {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k,i)=>(
-                  <button key={i} className="pin-key" onClick={()=>k&&handleKey(k)} style={{opacity:k?"1":"0",background:k==="⌫"?C.surface:undefined}}>
-                    {k==="⌫"?"⌫":k}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   // ─── FIREBASE CONFIG WARNING ──────────────────────────────────────────────
   const fbNotConfigured = fbStatus==="error";
@@ -782,6 +729,7 @@ if (user && locked) {
           <button className="btn-ghost btn-sm" onClick={()=>setShowImport(true)}>⬆ Import</button>
           <button className="btn-ghost btn-sm" onClick={exportTransactions}>⬇ Export</button>
           <button className="btn btn-p btn-sm" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+ Add</button>
+          <button className="btn-ghost btn-sm" onClick={handleLogout}> Logout </button>
         </div>
       </div>
 
