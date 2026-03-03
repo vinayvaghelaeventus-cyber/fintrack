@@ -4,7 +4,8 @@ import {
   doc,
   getDoc,
   setDoc,
-  onSnapshot
+  onSnapshot,
+  deleteDoc
 } from 'firebase/firestore';
 
 import {
@@ -61,6 +62,42 @@ export function subscribeToData(callback) {
   return onSnapshot(userDocRef(), (snap) => {
     if (snap.exists()) callback(snap.data());
   });
+}
+
+// ─── Real-time sync ──────────────────────────────
+export function subscribeToData(callback) {
+  if (!auth.currentUser) return;
+
+  return onSnapshot(userDocRef(), (snap) => {
+    if (snap.exists()) callback(snap.data());
+  });
+}
+
+
+// ─── One-time Migration from old PIN-only system ─────────────────────
+export async function migrateOldDataIfNeeded() {
+  try {
+    if (!auth.currentUser) return;
+
+    const oldRef = doc(db, "fintrack_users", "my_fintrack_data");
+    const newRef = doc(db, "fintrack_users", auth.currentUser.uid);
+
+    const [oldSnap, newSnap] = await Promise.all([
+      getDoc(oldRef),
+      getDoc(newRef)
+    ]);
+
+    // If old data exists AND new UID doc doesn't exist → migrate
+    if (oldSnap.exists() && !newSnap.exists()) {
+      await setDoc(newRef, oldSnap.data());
+      console.log("✅ Old data migrated successfully");
+
+      // Optional: delete old document after migration
+      // await deleteDoc(oldRef);
+    }
+  } catch (error) {
+    console.error("Migration error:", error);
+  }
 }
 
 export { db, auth, provider };
