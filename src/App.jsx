@@ -193,22 +193,25 @@ const getPinKey = () => {
     return String(h >>> 0);
   }
 
+// ✅ REPLACE with this
 useEffect(() => {
-  const handleRedirect = async () => {
-    try {
-      await getRedirectResult(auth);
-    } catch (error) {
-      console.error("Redirect error:", error);
-    }
-  };
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+        if (currentUser) {
+            setUser(currentUser);
+        } else {
+            // Handle redirect result when user lands back on page
+            try {
+                const result = await getRedirectResult(auth);
+                if (result?.user) {
+                    setUser(result.user);
+                }
+            } catch (error) {
+                console.error("Redirect error:", error);
+            }
+        }
+    });
 
-  handleRedirect();
-
-  const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-    setUser(currentUser);
-  });
-
-  return () => unsubscribe();
+    return () => unsubscribe();
 }, []);
 
 
