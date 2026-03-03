@@ -187,7 +187,7 @@ export default function App() {
   const [txBank, setTxBank]     = useState("all");
 
   // ─── PIN MANAGEMENT ──────────────────────────────────────────────────────
-const STORED_PIN_KEY = user ? `ft_pin_hash_${user.uid}` : "ft_pin_hash";
+const STORED_PIN_KEY = "ft_pin_hash";
   const SESSION_KEY    = "ft_unlocked";
 
   function hashPin(p) {
