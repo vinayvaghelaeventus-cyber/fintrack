@@ -1,9 +1,8 @@
 import { auth, provider } from "./firebase";
 import {
-  signInWithRedirect,
-  signOut,
-  onAuthStateChanged,
-  getRedirectResult
+    signInWithPopup,
+    signOut,
+    onAuthStateChanged,
 } from "firebase/auth";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
@@ -176,35 +175,23 @@ export default function App() {
   const [txBank, setTxBank]     = useState("all");
 
 
-// ✅ REPLACE with this
+// ✅ REPLACE with this — clean and simple
 useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-        if (currentUser) {
-            setUser(currentUser);
-        } else {
-            // Handle redirect result when user lands back on page
-            try {
-                const result = await getRedirectResult(auth);
-                if (result?.user) {
-                    setUser(result.user);
-                }
-            } catch (error) {
-                console.error("Redirect error:", error);
-            }
-        }
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
     });
-
     return () => unsubscribe();
 }, []);
 
 
 
+// ✅ new
 const handleLogin = async () => {
-  try {
-    await signInWithRedirect(auth, provider);
-  } catch (error) {
-    console.error("Login error:", error);
-  }
+    try {
+        await signInWithPopup(auth, provider);
+    } catch (error) {
+        console.error("Login error:", error);
+    }
 };
 
   
