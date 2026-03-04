@@ -1339,7 +1339,6 @@ if (!user) {
   <div><div className="lbl">Date</div><input className="inp" type="date" value={txForm.date} onChange={e=>setTxForm(p=>({...p,date:e.target.value}))}/></div>
 </div>
 
-// Add this new row right after:
 <div className="g2">
   <div>
     <div className="lbl">Time</div>
