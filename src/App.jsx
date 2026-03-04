@@ -27,9 +27,10 @@ const MOBILE_TABS = [
   {id:"Goals",      icon:"🌱", label:"Goals"},
 ];
 const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","Insights"];
-const EMPTY_TX   = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0]};
+const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0],time:new Date().toTimeString().slice(0,5)};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",hasEMI:false,emiAmount:"",emiMonthsLeft:"",notes:""};
+const EMPTY_CC_EMI = {id:null, cardId:"", description:"", amount:"", monthsLeft:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -127,6 +128,10 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [tab, setTab] = useState("Dashboard");
   const [user, setUser] = useState(null);
+const [ccEmis, setCcEmis] = useState([]);
+    const [dashPeriod, setDashPeriod] = useState("month");
+const [showCCEmiForm, setShowCCEmiForm] = useState(false);
+const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [fbStatus, setFbStatus] = useState("loading");
   const C = darkMode ? DARK : LIGHT;
 
@@ -212,6 +217,7 @@ useEffect(() => {
           if (data.transactions)  setTransactions(data.transactions);
           if (data.debts)         setDebts(data.debts);
           if (data.creditCards)   setCreditCards(data.creditCards);
+            if (data.ccEmis) setCcEmis(data.ccEmis);
           if (data.savings)       setSavings(data.savings);
           if (data.budgets)       setBudgets(data.budgets);
           if (data.banks)         setBanks(data.banks);
@@ -241,7 +247,7 @@ useEffect(() => {
     saveTimeout.current = setTimeout(async () => {
       setSaving(true);
       const ok = await saveData(user.uid, {
-        transactions, debts, creditCards, savings, budgets, banks, salary,
+        transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
         lastUpdated: new Date().toISOString(),
       });
@@ -278,7 +284,7 @@ useEffect(() => {
   const totalEMI       = useMemo(() => activeDebts.reduce((s,d)=>s+(parseFloat(d.emi)||0),0), [activeDebts]);
   const totalOutstanding = useMemo(() => activeDebts.reduce((s,d)=>s+(parseFloat(d.outstanding)||0),0), [activeDebts]);
   const totalCCOut     = useMemo(() => creditCards.reduce((s,c)=>s+(parseFloat(c.outstanding)||0),0), [creditCards]);
-  const totalCCEMI     = useMemo(() => creditCards.filter(c=>c.hasEMI).reduce((s,c)=>s+(parseFloat(c.emiAmount)||0),0), [creditCards]);
+  const totalCCEMI = useMemo(() => ccEmis.reduce((s,e)=>s+(parseFloat(e.amount)||0),0), [ccEmis]);
   const effectiveIncome = parseFloat(monthlyIncome) || totalIncome || 0;
   const savingsTotal   = useMemo(() => savings.reduce((s,g)=>s+g.current,0), [savings]);
   const emergencyMonths = useMemo(() => {
@@ -291,6 +297,21 @@ useEffect(() => {
   const payoffPlan    = useMemo(() => calcPayoffPlan(activeDebts, parseFloat(extraFund)||0, strategy), [activeDebts, extraFund, strategy]);
   const health        = useMemo(() => calcHealthScore({income:effectiveIncome, emi:totalEMI+totalCCEMI, expense:totalExpense, outstanding:totalOutstanding+totalCCOut, savings:savingsTotal, emergency:emergencyMonths}), [effectiveIncome,totalEMI,totalCCEMI,totalExpense,totalOutstanding,totalCCOut,savingsTotal,emergencyMonths]);
 
+
+const filterByPeriod = useCallback((txList, period) => {
+  const now = new Date(); now.setHours(23,59,59,999);
+  return txList.filter(t=>{
+    const d = new Date(t.date);
+    if(period==="today"){ const s=new Date();s.setHours(0,0,0,0);return d>=s&&d<=now; }
+    if(period==="week"){ const s=new Date();s.setDate(s.getDate()-7);s.setHours(0,0,0,0);return d>=s&&d<=now; }
+    if(period==="month"){ return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }
+    if(period==="lastmonth"){ const lm=new Date(now.getFullYear(),now.getMonth()-1,1);return d.getMonth()===lm.getMonth()&&d.getFullYear()===lm.getFullYear(); }
+    if(period==="3months"){ const s=new Date();s.setMonth(s.getMonth()-3);s.setHours(0,0,0,0);return d>=s&&d<=now; }
+    return true;
+  });
+},[]);
+
+    
   const upcomingDues  = useMemo(() => [
     ...activeDebts.filter(d=>d.dueDate).map(d=>({...d,days:daysUntil(d.dueDate),kind:"loan"})),
     ...creditCards.filter(c=>c.dueDate).map(c=>({...c,days:daysUntil(c.dueDate),kind:"cc"})),
@@ -314,25 +335,50 @@ useEffect(() => {
     return {label:lbl,income:inc,expense:exp};
   }), [transactions]);
 
-  const filteredTx = useMemo(() => transactions.filter(t=>{
+  const filteredTx = useMemo(() => transactions
+  .filter(t=>{
     if (txType!=="all"&&t.type!==txType) return false;
     if (txMode!=="all"&&t.paymentMode!==txMode) return false;
     if (txBank!=="all"&&t.bank!==txBank) return false;
     if (txSearch) { const q=txSearch.toLowerCase(); if (!t.category?.toLowerCase().includes(q)&&!(t.note||"").toLowerCase().includes(q)&&!String(t.amount).includes(q)) return false; }
     return true;
-  }), [transactions,txType,txMode,txBank,txSearch]);
+  })
+  .sort((a,b)=>{
+    const da = new Date(`${a.date}T${a.time||"00:00"}`);
+    const db = new Date(`${b.date}T${b.time||"00:00"}`);
+    return db - da; // newest first
+  })
+, [transactions,txType,txMode,txBank,txSearch]);
 
   // ─── ACTIONS ─────────────────────────────────────────────────────────────
   function saveTx() {
-    if (!txForm.amount||isNaN(txForm.amount)) return;
-    const tx = {...txForm, amount:parseFloat(txForm.amount)};
-    if (editTxId) {
-      setTransactions(p=>p.map(t=>t.id===editTxId?{...tx,id:editTxId}:t));
-    } else {
-      setTransactions(p=>[{...tx,id:Date.now()},...p]);
+  if (!txForm.amount||isNaN(txForm.amount)) return;
+  const tx = {...txForm, amount:parseFloat(txForm.amount)};
+
+  // If editing — reverse old CC charge if it was a CC expense
+  if (editTxId) {
+    const oldTx = transactions.find(t=>t.id===editTxId);
+    if (oldTx?.type==="expense" && oldTx.paymentMode==="Credit Card" && oldTx.bank) {
+      setCreditCards(p=>p.map(c=>
+        c.name===oldTx.bank ? {...c, outstanding:Math.max(0,(parseFloat(c.outstanding)||0)-oldTx.amount)} : c
+      ));
     }
-    setTxForm({...EMPTY_TX}); setShowTxForm(false); setEditTxId(null);
+    setTransactions(p=>p.map(t=>t.id===editTxId?{...tx,id:editTxId}:t));
+  } else {
+    setTransactions(p=>[{...tx,id:Date.now()},...p]);
   }
+
+  // Auto-add to CC outstanding if paid by credit card
+  if (tx.type==="expense" && tx.paymentMode==="Credit Card" && tx.bank) {
+    setCreditCards(p=>p.map(c=>
+      c.name===tx.bank ? {...c, outstanding:(parseFloat(c.outstanding)||0)+tx.amount} : c
+    ));
+  }
+
+  setTxForm({...EMPTY_TX}); setShowTxForm(false); setEditTxId(null);
+}
+
+    
   function openEditTx(t) { setTxForm({...t}); setEditTxId(t.id); setShowTxForm(true); }
   function deleteTx(id) { setTransactions(p=>p.filter(t=>t.id!==id)); }
 
@@ -351,6 +397,18 @@ useEffect(() => {
     setTransactions(p=>[{id:Date.now(),type:"expense",amount:amt,category:"Loan EMI",paymentMode:"Net Banking",bank:d?.bank||"",note:`Payment: ${d?.name||""}`,date:today()},...p]);
   }
 
+function saveCCEmi() {
+  if (!ccEmiForm.cardId || !ccEmiForm.amount) return;
+  if (ccEmiForm.id) {
+    setCcEmis(p=>p.map(e=>e.id===ccEmiForm.id?{...ccEmiForm}:e));
+  } else {
+    setCcEmis(p=>[...p,{...ccEmiForm, id:Date.now()}]);
+  }
+  setCcEmiForm({...EMPTY_CC_EMI});
+  setShowCCEmiForm(false);
+}
+function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
+    
   function saveCC() {
     if (!ccForm.name) return;
     if (editCCId) { setCreditCards(p=>p.map(c=>c.id===editCCId?{...ccForm,id:editCCId}:c)); }
@@ -655,20 +713,37 @@ if (!user) {
 
         {/* ════════ DASHBOARD ════════ */}
         {tab==="Dashboard"&&<>
+            {/* Period Filter */}
+<div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+  <span style={{fontSize:11,color:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700,marginRight:2}}>Period:</span>
+  {[
+    ["today","Today"],["week","This Week"],["month","This Month"],
+    ["lastmonth","Last Month"],["3months","Last 3 Months"],["all","All Time"],
+  ].map(([v,l])=>(
+    <button key={v} className={`filter-btn ${dashPeriod===v?"on":""}`} onClick={()=>setDashPeriod(v)}>{l}</button>
+  ))}
+</div>
+            
           <div className="g4" style={{marginBottom:12}}>
-            {[
-              {label:"Net Balance",   val:fc(totalIncome-totalExpense), color:(totalIncome-totalExpense)>=0?C.income:C.expense},
-              {label:"Total EMIs",    val:fc(totalEMI+totalCCEMI),     color:C.loan, sub:`${effectiveIncome>0?((totalEMI+totalCCEMI)/effectiveIncome*100).toFixed(0):0}% of income`},
-              {label:"CC Outstanding",val:fc(totalCCOut),              color:C.credit},
-              {label:"Cash Left",     val:fc(cashLeft),                color:cashLeft>=0?C.income:C.expense, sub:"after all EMI+expenses"},
-            ].map(item=>(
-              <div key={item.label} className="scard">
-                <div className="lbl">{item.label}</div>
-                <div style={{fontSize:17,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{item.val}</div>
-                {item.sub&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>{item.sub}</div>}
-              </div>
-            ))}
-          </div>
+  {(()=>{
+    const pt=filterByPeriod(transactions,dashPeriod);
+    const pInc=pt.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
+    const pExp=pt.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+    const periodLabel=dashPeriod==="today"?"Today":dashPeriod==="week"?"This Week":dashPeriod==="month"?"This Month":dashPeriod==="lastmonth"?"Last Month":dashPeriod==="3months"?"Last 3 Months":"All Time";
+    return[
+      {label:"Net Balance",    val:fc(pInc-pExp),         color:(pInc-pExp)>=0?C.income:C.expense, sub:periodLabel},
+      {label:"Total EMIs",     val:fc(totalEMI+totalCCEMI),color:C.loan, sub:`${effectiveIncome>0?((totalEMI+totalCCEMI)/effectiveIncome*100).toFixed(0):0}% of income`},
+      {label:"CC Outstanding", val:fc(totalCCOut),         color:C.credit},
+      {label:"Expenses",       val:fc(pExp),               color:C.expense, sub:periodLabel},
+    ].map(item=>(
+      <div key={item.label} className="scard">
+        <div className="lbl">{item.label}</div>
+        <div style={{fontSize:17,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{item.val}</div>
+        {item.sub&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>{item.sub}</div>}
+      </div>
+    ));
+  })()}
+</div>
 
           {health.score<50&&activeDebts.length>0&&(
             <div style={{marginBottom:10,padding:"11px 14px",background:`linear-gradient(135deg,${C.expense}10,${C.loan}08)`,border:`1px solid ${C.expense}25`,borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -742,7 +817,9 @@ if (!user) {
                       <span style={{fontWeight:500}}>{t.category}</span>
                       {t.paymentMode&&<span className="tag" style={{background:C.surface,color:C.muted,fontSize:9}}>{t.paymentMode}</span>}
                     </div>
-                    <div style={{fontSize:10,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.note||fd(t.date)}</div>
+                    <div style={{fontSize:10,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+  {t.note?`${t.note} · `:""}{fd(t.date)}{t.time?` · ${t.time}`:""}
+</div>
                   </div>
                 </div>
                 <span style={{color:t.type==="income"?C.income:C.expense,fontWeight:600,fontSize:13,flexShrink:0}}>{t.type==="income"?"+":"-"}{fc(t.amount)}</span>
@@ -897,6 +974,70 @@ if (!user) {
             ))}
           </div>
 
+            {/* ════ CC EMI TRACKER ════ */}
+<div className="card" style={{marginTop:16}}>
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+    <div>
+      <div className="stitle" style={{marginBottom:2}}>📋 Credit Card EMI Tracker</div>
+      <div style={{fontSize:11,color:C.muted}}>All EMIs running across your credit cards</div>
+    </div>
+    <button className="btn btn-p btn-sm" onClick={()=>{setCcEmiForm({...EMPTY_CC_EMI});setShowCCEmiForm(true);}}>+ Add EMI</button>
+  </div>
+
+  {/* Summary row */}
+  <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+    <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,flex:1}}>
+      <div className="lbl">Total CC EMI/month</div>
+      <div style={{fontSize:16,fontWeight:700,color:C.warning,fontFamily:"'Syne',sans-serif"}}>{fc(totalCCEMI)}</div>
+    </div>
+    <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,flex:1}}>
+      <div className="lbl">Active EMIs</div>
+      <div style={{fontSize:16,fontWeight:700,color:C.accent,fontFamily:"'Syne',sans-serif"}}>{ccEmis.length}</div>
+    </div>
+    <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,flex:1}}>
+      <div className="lbl">Total Remaining</div>
+      <div style={{fontSize:16,fontWeight:700,color:C.expense,fontFamily:"'Syne',sans-serif"}}>
+        {fc(ccEmis.reduce((s,e)=>(parseFloat(e.amount)||0)*(parseFloat(e.monthsLeft)||0)+s,0))}
+      </div>
+    </div>
+  </div>
+
+  {ccEmis.length===0
+    ? <div style={{textAlign:"center",padding:30,color:C.muted,fontSize:12}}>No CC EMIs added yet. Tap + Add EMI to track them.</div>
+    : ccEmis.map(emi=>{
+        const card = creditCards.find(c=>c.id===parseInt(emi.cardId));
+        const totalLeft = (parseFloat(emi.amount)||0)*(parseFloat(emi.monthsLeft)||0);
+        const pct = emi._totalMonths ? Math.min(100,((emi._totalMonths - parseFloat(emi.monthsLeft))/emi._totalMonths)*100) : 0;
+        return(
+          <div key={emi.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px",marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6}}>
+              <div>
+                <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13}}>{emi.description||"EMI"}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                  {card?`${card.name} · ${card.bank}`:"Card not found"}
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:15,fontWeight:700,color:C.warning,fontFamily:"'Syne',sans-serif"}}>{fc(emi.amount)}/mo</div>
+                <div style={{fontSize:10,color:C.muted}}>{emi.monthsLeft} months left</div>
+              </div>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted,margin:"10px 0 6px"}}>
+              <span>Remaining: <span style={{color:C.expense,fontWeight:700}}>{fc(totalLeft)}</span></span>
+            </div>
+            <div className="pbar" style={{marginBottom:8}}>
+              <div className="pfill" style={{width:`${100-Math.min(100,(parseFloat(emi.monthsLeft)||0)/((emi._totalMonths||parseFloat(emi.monthsLeft)||1))*100)}%`,background:C.warning}}/>
+            </div>
+            <div style={{display:"flex",gap:6,marginTop:8}}>
+              <button className="btn-ghost btn-sm" onClick={()=>{setCcEmiForm({...emi});setShowCCEmiForm(true);}}>Edit</button>
+              <button className="btn btn-danger" onClick={()=>deleteCCEmi(emi.id)}>Delete</button>
+            </div>
+          </div>
+        );
+      })
+  }
+</div>
+            
           {/* CC usage advice */}
           <div className="card" style={{marginBottom:12,borderColor:`${C.warning}30`}}>
             <div className="stitle">💡 Should You Use Credit Cards?</div>
@@ -1007,7 +1148,9 @@ if (!user) {
                       {t.paymentMode&&<span className="tag" style={{background:C.surface,color:C.muted,fontSize:9}}>{t.paymentMode}</span>}
                       {t.bank&&<span className="tag" style={{background:C.surface,color:C.muted,fontSize:9}}>{t.bank}</span>}
                     </div>
-                    <div style={{fontSize:10,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.note?`${t.note} · `:""}{fd(t.date)}</div>
+                    <div style={{fontSize:10,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+  {t.note?`${t.note} · `:""}{fd(t.date)}{t.time?` · ${t.time}`:""}
+</div>
                   </div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
@@ -1184,9 +1327,31 @@ if (!user) {
                 <div><div className="lbl">Payment Mode</div><select className="inp" value={txForm.paymentMode} onChange={e=>setTxForm(p=>({...p,paymentMode:e.target.value}))}>{PAYMENT_MODES.map(m=><option key={m}>{m}</option>)}</select></div>
               </div>
               <div className="g2">
-                <div><div className="lbl">Bank / Account</div><select className="inp" value={txForm.bank} onChange={e=>setTxForm(p=>({...p,bank:e.target.value}))}><option value="">Select</option>{banks.map(b=><option key={b}>{b}</option>)}</select></div>
-                <div><div className="lbl">Date</div><input className="inp" type="date" value={txForm.date} onChange={e=>setTxForm(p=>({...p,date:e.target.value}))}/></div>
-              </div>
+  <div><div className="lbl">Bank / Account</div>
+    <select className="inp" value={txForm.bank} onChange={e=>setTxForm(p=>({...p,bank:e.target.value}))}>
+      <option value="">Select</option>
+      {txForm.paymentMode==="Credit Card"
+        ? creditCards.map(c=><option key={c.id} value={c.name}>{c.name} · {c.bank}</option>)
+        : banks.map(b=><option key={b}>{b}</option>)
+      }
+    </select>
+  </div>
+  <div><div className="lbl">Date</div><input className="inp" type="date" value={txForm.date} onChange={e=>setTxForm(p=>({...p,date:e.target.value}))}/></div>
+</div>
+
+// Add this new row right after:
+<div className="g2">
+  <div>
+    <div className="lbl">Time</div>
+    <input className="inp" type="time" value={txForm.time||""} onChange={e=>setTxForm(p=>({...p,time:e.target.value}))}/>
+  </div>
+  <div style={{display:"flex",alignItems:"flex-end"}}>
+    <button className="btn-ghost btn-sm" style={{width:"100%",padding:"10px"}}
+      onClick={()=>setTxForm(p=>({...p,time:new Date().toTimeString().slice(0,5)}))}>
+      🕐 Set Now
+    </button>
+  </div>
+</div>
               <div><div className="lbl">Note</div><input className="inp" placeholder="What was this for?" value={txForm.note} onChange={e=>setTxForm(p=>({...p,note:e.target.value}))}/></div>
               <div style={{display:"flex",gap:9,marginTop:4}}>
                 <button className="btn" onClick={()=>{setShowTxForm(false);setEditTxId(null);}} style={{flex:1,background:C.border,color:C.muted}}>Cancel</button>
@@ -1297,6 +1462,57 @@ if (!user) {
             ))}
             <button className="btn-ghost" onClick={()=>{setShowImport(false);setImportMsg("");setImportPreview([]);}} style={{width:"100%",marginTop:12,textAlign:"center"}}>Close</button>
           </div>
+
+
+{/* CC EMI Form */}
+{showCCEmiForm&&(
+  <div className="modal" onClick={e=>e.target===e.currentTarget&&setShowCCEmiForm(false)}>
+    <div className="sheet">
+      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>
+        {ccEmiForm.id?"Edit":"Add"} Credit Card EMI
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div>
+          <div className="lbl">Credit Card *</div>
+          <select className="inp" value={ccEmiForm.cardId}
+            onChange={e=>setCcEmiForm(p=>({...p,cardId:e.target.value}))}>
+            <option value="">Select Card</option>
+            {creditCards.map(c=><option key={c.id} value={c.id}>{c.name} · {c.bank}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="lbl">Description</div>
+          <input className="inp" placeholder="e.g. iPhone 15, Samsung TV" value={ccEmiForm.description}
+            onChange={e=>setCcEmiForm(p=>({...p,description:e.target.value}))}/>
+        </div>
+        <div className="g2">
+          <div>
+            <div className="lbl">EMI Amount ₹/month</div>
+            <input className="inp" type="number" placeholder="e.g. 3000" value={ccEmiForm.amount}
+              onChange={e=>setCcEmiForm(p=>({...p,amount:e.target.value}))}/>
+          </div>
+          <div>
+            <div className="lbl">Months Remaining</div>
+            <input className="inp" type="number" placeholder="e.g. 12" value={ccEmiForm.monthsLeft}
+              onChange={e=>setCcEmiForm(p=>({...p,monthsLeft:e.target.value,_totalMonths:p._totalMonths||e.target.value}))}/>
+          </div>
+        </div>
+        {ccEmiForm.amount && ccEmiForm.monthsLeft && (
+          <div style={{padding:"10px 12px",background:`${C.warning}10`,borderRadius:10,fontSize:12,color:C.warning,fontFamily:"'Syne',sans-serif",fontWeight:700}}>
+            Total remaining: {fc((parseFloat(ccEmiForm.amount)||0)*(parseFloat(ccEmiForm.monthsLeft)||0))}
+          </div>
+        )}
+        <div style={{display:"flex",gap:9,marginTop:4}}>
+          <button className="btn" onClick={()=>setShowCCEmiForm(false)} style={{flex:1,background:C.border,color:C.muted}}>Cancel</button>
+          <button className="btn btn-p" onClick={saveCCEmi} style={{flex:2}}>{ccEmiForm.id?"Save Changes":"Add EMI"}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+            
+
+            
         </div>
       )}
 
