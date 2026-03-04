@@ -9,8 +9,20 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 import { loadData, saveData } from "./firebase";
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
-const DARK  = {income:"#10b981",expense:"#f43f5e",savings:"#6366f1",bg:"#0d0f14",card:"#161b26",border:"#232b3e",text:"#e2e8f0",muted:"#64748b",accent:"#38bdf8",warning:"#f59e0b",loan:"#a78bfa",credit:"#fb923c",surface:"#1e2535",inputBg:"#0a0c10"};
-const LIGHT = {income:"#059669",expense:"#e11d48",savings:"#4f46e5",bg:"#f0f4f8",card:"#ffffff",border:"#e2e8f0",text:"#0f172a",muted:"#94a3b8",accent:"#0284c7",warning:"#d97706",loan:"#7c3aed",credit:"#ea580c",surface:"#f8fafc",inputBg:"#f1f5f9"};
+const DARK  = {
+  income:"#00e5a0", expense:"#ff4d6d", savings:"#7c6af7", 
+  bg:"#070810", card:"#0e1019", border:"#1a1d2e", text:"#eef0f8",
+  muted:"#4a5068", accent:"#5b8def", warning:"#ffb547", loan:"#b48af7",
+  credit:"#ff7a45", surface:"#131622", inputBg:"#0a0c14",
+  glass:"rgba(14,16,25,0.85)", glow:"rgba(91,141,239,0.15)"
+};
+const LIGHT = {
+  income:"#00a870", expense:"#e8294a", savings:"#5b4fd4",
+  bg:"#f5f7ff", card:"#ffffff", border:"#e8eaf5", text:"#0d0f1e",
+  muted:"#8890b0", accent:"#3d6fe8", warning:"#e89a00", loan:"#7c5fd4",
+  credit:"#e85a20", surface:"#f0f2fc", inputBg:"#eceffe",
+  glass:"rgba(255,255,255,0.9)", glow:"rgba(61,111,232,0.1)"
+};
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const PAYMENT_MODES = ["UPI","Credit Card","Debit Card","Cash","Net Banking","Wallet","EMI","Other"];
@@ -561,70 +573,315 @@ Provide (use emoji headers, max 350 words):
 
   // ─── STYLES ──────────────────────────────────────────────────────────────
   const css=`
-    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+    
+    :root {
+      --bg: ${C.bg};
+      --card: ${C.card};
+      --border: ${C.border};
+      --text: ${C.text};
+      --muted: ${C.muted};
+      --accent: ${C.accent};
+      --surface: ${C.surface};
+      --income: ${C.income};
+      --expense: ${C.expense};
+      --glow: ${C.glow};
+    }
+
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-    html{overflow-x:hidden;}body{overflow-x:hidden;overscroll-behavior:none;}
-    ::-webkit-scrollbar{width:3px;}::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
-    input,select,textarea{outline:none;-webkit-appearance:none;font-family:'DM Mono',monospace;}
-    .card{background:${C.card};border:1px solid ${C.border};border-radius:14px;padding:16px;}
-    .btn{cursor:pointer;border:none;border-radius:10px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;padding:10px 18px;transition:all 0.15s;display:inline-flex;align-items:center;gap:5px;justify-content:center;}
+    html{overflow-x:hidden;}
+    body{overflow-x:hidden;overscroll-behavior:none;background:${C.bg};}
+    
+    ::-webkit-scrollbar{width:3px;}
+    ::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
+    
+    input,select,textarea{
+      outline:none;-webkit-appearance:none;
+      font-family:'JetBrains Mono',monospace;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    /* ── Core Cards ── */
+    .card {
+      background:${C.card};
+      border:1px solid ${C.border};
+      border-radius:18px;
+      padding:20px;
+      position:relative;
+      overflow:hidden;
+    }
+    .card::before {
+      content:'';
+      position:absolute;
+      inset:0;
+      background: radial-gradient(ellipse at top left, ${C.glow}, transparent 70%);
+      pointer-events:none;
+    }
+
+    /* ── Buttons ── */
+    .btn{
+      cursor:pointer;border:none;border-radius:12px;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:13px;
+      padding:11px 20px;
+      transition: all 0.18s cubic-bezier(.4,0,.2,1);
+      display:inline-flex;align-items:center;gap:6px;justify-content:center;
+      position:relative;overflow:hidden;
+    }
+    .btn::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,0);transition:background 0.18s;}
+    .btn:hover::after{background:rgba(255,255,255,0.06);}
     .btn:active{transform:scale(0.96);}
-    .btn-p{background:${C.accent};color:#fff;}
-    .btn-g{background:${C.income};color:#fff;}
-    .btn-v{background:${C.loan};color:#fff;}
-    .btn-w{background:${C.warning};color:#0d0f14;}
-    .btn-ai{background:linear-gradient(135deg,#6366f1,#a78bfa);color:#fff;}
-    .btn-sm{padding:6px 12px;font-size:11px;border-radius:8px;}
-    .btn-danger{background:transparent;color:${C.expense};border:1px solid ${C.expense}30;font-size:11px;padding:4px 10px;cursor:pointer;border-radius:7px;font-family:'Syne',sans-serif;font-weight:700;}
-    .btn-ghost{background:transparent;color:${C.muted};border:1px solid ${C.border};padding:6px 12px;border-radius:8px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:600;font-size:11px;}
-    .btn-ghost:active{background:${C.surface};}
-    .inp{background:${C.inputBg};border:1px solid ${C.border};border-radius:10px;color:${C.text};padding:10px 13px;font-size:13px;width:100%;}
-    .inp:focus{border-color:${C.accent};}
-    .modal{position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(10px);z-index:200;display:flex;align-items:flex-end;justify-content:center;}
-    .sheet{width:100%;max-width:540px;background:${C.card};border:1px solid ${C.border};border-radius:20px 20px 0 0;padding:24px;max-height:92vh;overflow-y:auto;}
-    @media(min-width:640px){.modal{align-items:center;padding:20px;}.sheet{border-radius:20px;}}
-    .tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-family:'Syne',sans-serif;font-weight:700;}
-    .pbar{height:6px;background:${C.border};border-radius:3px;overflow:hidden;}
-    .pfill{height:100%;border-radius:3px;transition:width 0.5s;}
-    .lbl{font-size:9px;color:${C.muted};font-family:'Syne',sans-serif;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;}
-    .stitle{font-family:'Syne',sans-serif;font-weight:800;font-size:14px;margin-bottom:12px;}
-    .row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid ${C.border}18;}
-    .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-    .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
-    @media(max-width:640px){.g4{grid-template-columns:repeat(2,1fr);}.g2{grid-template-columns:1fr;}}
+    
+    .btn-p{background:${C.accent};color:#fff;box-shadow:0 4px 16px ${C.accent}35;}
+    .btn-p:hover{box-shadow:0 6px 24px ${C.accent}50;}
+    .btn-g{background:${C.income};color:${darkMode?"#070810":"#fff"};box-shadow:0 4px 16px ${C.income}30;}
+    .btn-v{background:${C.loan};color:#fff;box-shadow:0 4px 16px ${C.loan}30;}
+    .btn-w{background:${C.warning};color:#070810;}
+    .btn-ai{background:linear-gradient(135deg,#5b4fd4,#9b6af7,#5b8def);color:#fff;box-shadow:0 4px 20px rgba(155,106,247,0.4);}
+    .btn-sm{padding:7px 14px;font-size:11px;border-radius:9px;}
+    .btn-danger{background:transparent;color:${C.expense};border:1px solid ${C.expense}30;font-size:11px;padding:5px 11px;cursor:pointer;border-radius:8px;font-family:'Cabinet Grotesk',sans-serif;font-weight:700;transition:all 0.15s;}
+    .btn-danger:hover{background:${C.expense}10;}
+    .btn-ghost{
+      background:transparent;color:${C.muted};
+      border:1px solid ${C.border};
+      padding:7px 14px;border-radius:9px;cursor:pointer;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:600;font-size:11px;
+      transition:all 0.15s;
+    }
+    .btn-ghost:hover{background:${C.surface};color:${C.text};border-color:${C.muted}50;}
+
+    /* ── Inputs ── */
+    .inp{
+      background:${C.inputBg};
+      border:1px solid ${C.border};
+      border-radius:12px;
+      color:${C.text};
+      padding:11px 15px;
+      font-size:13px;
+      width:100%;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .inp:focus{
+      border-color:${C.accent};
+      box-shadow: 0 0 0 3px ${C.accent}18;
+    }
+    .inp::placeholder{color:${C.muted};}
+
+    /* ── Modal ── */
+    .modal{
+      position:fixed;inset:0;
+      background:rgba(0,0,0,0.75);
+      backdrop-filter:blur(16px);
+      -webkit-backdrop-filter:blur(16px);
+      z-index:200;
+      display:flex;align-items:flex-end;justify-content:center;
+    }
+    .sheet{
+      width:100%;max-width:560px;
+      background:${C.card};
+      border:1px solid ${C.border};
+      border-radius:24px 24px 0 0;
+      padding:28px 24px 32px;
+      max-height:94vh;overflow-y:auto;
+      box-shadow:0 -20px 60px rgba(0,0,0,0.4);
+    }
+    @media(min-width:640px){
+      .modal{align-items:center;padding:20px;}
+      .sheet{border-radius:24px;}
+    }
+
+    /* ── Tags ── */
+    .tag{
+      display:inline-flex;align-items:center;
+      padding:3px 9px;border-radius:20px;
+      font-size:10px;font-family:'Cabinet Grotesk',sans-serif;font-weight:700;
+      letter-spacing:0.3px;
+    }
+
+    /* ── Progress bars ── */
+    .pbar{height:5px;background:${C.border};border-radius:99px;overflow:hidden;}
+    .pfill{height:100%;border-radius:99px;transition:width 0.6s cubic-bezier(.4,0,.2,1);}
+
+    /* ── Labels ── */
+    .lbl{
+      font-size:9px;color:${C.muted};
+      font-family:'Cabinet Grotesk',sans-serif;
+      font-weight:700;letter-spacing:1.8px;
+      text-transform:uppercase;margin-bottom:5px;
+    }
+
+    /* ── Section titles ── */
+    .stitle{
+      font-family:'Cabinet Grotesk',sans-serif;
+      font-weight:800;font-size:15px;margin-bottom:14px;
+      letter-spacing:-0.2px;
+    }
+
+    /* ── Rows ── */
+    .row{
+      display:flex;justify-content:space-between;align-items:center;
+      padding:11px 0;
+      border-bottom:1px solid ${C.border}80;
+      transition:background 0.15s;
+    }
+
+    /* ── Grids ── */
+    .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+    @media(max-width:640px){
+      .g4{grid-template-columns:repeat(2,1fr);}
+      .g2{grid-template-columns:1fr;}
+    }
+
+    /* ── Stat cards ── */
+    .scard{
+      background:${C.card};
+      border:1px solid ${C.border};
+      border-radius:16px;
+      padding:16px;
+      position:relative;overflow:hidden;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .scard:hover{transform:translateY(-1px);}
+
+    /* ── Filter buttons ── */
+    .filter-btn{
+      cursor:pointer;padding:6px 13px;border-radius:99px;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:600;font-size:11px;
+      border:1px solid ${C.border};
+      background:transparent;color:${C.muted};
+      transition:all 0.15s;white-space:nowrap;
+    }
+    .filter-btn:hover{border-color:${C.muted}80;color:${C.text};}
+    .filter-btn.on{
+      border-color:${C.accent};color:${C.accent};
+      background:${C.accent}14;
+    }
+
+    /* ── AI text ── */
+    .ai-txt{
+      white-space:pre-wrap;
+      font-size:12.5px;line-height:1.95;
+      font-family:'JetBrains Mono',monospace;
+    }
+
+    /* ── Shimmer ── */
+    .shimmer{
+      background:linear-gradient(90deg,${C.surface} 25%,${C.border} 50%,${C.surface} 75%);
+      background-size:200% 100%;
+      animation:shimmer 1.5s infinite;
+      border-radius:8px;
+    }
+    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+    /* ── Pulse ── */
     .pulse{animation:pulse 2s infinite;}
     @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
-    .filter-btn{cursor:pointer;padding:5px 11px;border-radius:8px;font-family:'Syne',sans-serif;font-weight:600;font-size:11px;border:1px solid ${C.border};background:transparent;color:${C.muted};}
-    .filter-btn.on{border-color:${C.accent};color:${C.accent};background:${C.accent}15;}
-    .ai-txt{white-space:pre-wrap;font-size:12.5px;line-height:1.9;font-family:'DM Mono',monospace;}
-    .shimmer{background:linear-gradient(90deg,${C.surface} 25%,${C.border} 50%,${C.surface} 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:8px;}
-    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-    .scard{background:${C.card};border:1px solid ${C.border};border-radius:14px;padding:14px;position:relative;overflow:hidden;}
-    .bn{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;font-family:'Syne',sans-serif;font-weight:600;font-size:9px;color:${C.muted};cursor:pointer;border:none;background:transparent;gap:2px;flex:1;}
+
+    /* ── Bottom nav ── */
+    .bnav{
+      position:fixed;bottom:0;left:0;right:0;
+      background:${C.glass};
+      backdrop-filter:blur(20px);
+      -webkit-backdrop-filter:blur(20px);
+      border-top:1px solid ${C.border};
+      display:flex;z-index:100;
+      padding-bottom:env(safe-area-inset-bottom,0px);
+    }
+    .bn{
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      padding:10px 4px 8px;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:9.5px;
+      color:${C.muted};cursor:pointer;border:none;background:transparent;gap:3px;flex:1;
+      transition:color 0.15s;letter-spacing:0.3px;
+    }
     .bn.act{color:${C.accent};}
-    .fab{position:fixed;bottom:72px;right:16px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,${C.accent},${C.loan});border:none;cursor:pointer;font-size:24px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px ${C.accent}40;z-index:99;color:#fff;font-weight:800;}
+    .bn.act span:first-child{
+      filter: drop-shadow(0 0 6px ${C.accent}60);
+    }
+
+    /* ── FAB ── */
+    .fab{
+      position:fixed;bottom:72px;right:18px;
+      width:54px;height:54px;border-radius:16px;
+      background:${C.accent};
+      border:none;cursor:pointer;font-size:22px;
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 8px 28px ${C.accent}50;
+      z-index:99;color:#fff;font-weight:800;
+      transition:transform 0.18s, box-shadow 0.18s;
+    }
+    .fab:active{transform:scale(0.92);}
     @media(min-width:769px){.fab{display:none;}.bnav{display:none!important;}}
     @media(max-width:768px){.dtabs{display:none!important;}}
-    .bnav{position:fixed;bottom:0;left:0;right:0;background:${C.card};border-top:1px solid ${C.border};display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom,0px);}
-    /* PIN screen */
-    .pin-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:${C.bg};padding:20px;}
-    .pin-box{background:${C.card};border:1px solid ${C.border};border-radius:20px;padding:36px 28px;width:100%;max-width:380px;text-align:center;}
-    .pin-input{text-align:center;font-size:24px;letter-spacing:8px;font-family:'Syne',sans-serif;font-weight:800;}
-    .pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px;}
-    .pin-key{background:${C.surface};border:1px solid ${C.border};border-radius:12px;padding:16px;font-family:'Syne',sans-serif;font-weight:700;font-size:18px;cursor:pointer;color:${C.text};}
-    .pin-key:active{background:${C.border};}
-    .sync-dot{width:6px;height:6px;border-radius:50%;background:${saving?"#f59e0b":fbStatus==="ok"?"#10b981":"#f43f5e"};display:inline-block;margin-right:4px;}
-    /* Hamburger menu */
-    .hmenu{position:fixed;top:0;left:0;width:80%;max-width:300px;height:100vh;background:${C.card};border-right:1px solid ${C.border};z-index:300;padding:0;display:flex;flex-direction:column;transform:translateX(-100%);transition:transform 0.28s cubic-bezier(.4,0,.2,1);}
+
+    /* ── Sync dot ── */
+    .sync-dot{
+      width:6px;height:6px;border-radius:50%;
+      background:${saving?"#ffb547":fbStatus==="ok"?"#00e5a0":"#ff4d6d"};
+      display:inline-block;margin-right:5px;
+      box-shadow: 0 0 6px ${saving?"#ffb547":fbStatus==="ok"?"#00e5a0":"#ff4d6d"}80;
+    }
+
+    /* ── Hamburger menu ── */
+    .hmenu{
+      position:fixed;top:0;left:0;width:80%;max-width:300px;height:100vh;
+      background:${C.card};
+      border-right:1px solid ${C.border};
+      z-index:300;padding:0;display:flex;flex-direction:column;
+      transform:translateX(-100%);
+      transition:transform 0.28s cubic-bezier(.4,0,.2,1);
+      box-shadow: 4px 0 40px rgba(0,0,0,0.3);
+    }
     .hmenu.open{transform:translateX(0);}
     .hmenu-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:299;backdrop-filter:blur(4px);}
-    .hmenu-item{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;border:none;background:transparent;color:${C.text};font-family:'Syne',sans-serif;font-weight:600;font-size:13px;width:100%;text-align:left;border-radius:0;transition:background 0.15s;}
-    .hmenu-item:active{background:${C.surface};}
+    .hmenu-item{
+      display:flex;align-items:center;gap:12px;padding:15px 20px;
+      cursor:pointer;border:none;background:transparent;
+      color:${C.text};font-family:'Cabinet Grotesk',sans-serif;
+      font-weight:600;font-size:13px;width:100%;text-align:left;
+      border-radius:0;transition:background 0.15s;
+    }
+    .hmenu-item:hover{background:${C.surface};}
     .hmenu-item.active{color:${C.accent};background:${C.accent}10;}
-    /* Pull to refresh */
+
+    /* ── Pull to refresh ── */
     .ptr{display:flex;align-items:center;justify-content:center;overflow:hidden;transition:height 0.2s;background:${C.bg};}
     .ptr-spinner{width:20px;height:20px;border:2px solid ${C.border};border-top-color:${C.accent};border-radius:50%;animation:spin 0.7s linear infinite;}
     @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── Scrollbar in sheet ── */
+    .sheet::-webkit-scrollbar{width:3px;}
+    .sheet::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
+
+    /* ── Desktop header tabs ── */
+    .dtab-btn{
+      cursor:pointer;padding:7px 14px;border-radius:99px;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:12px;
+      border:none;background:transparent;color:${C.muted};
+      transition:all 0.15s;white-space:nowrap;
+    }
+    .dtab-btn:hover{color:${C.text};}
+    .dtab-btn.act{background:${C.accent}18;color:${C.accent};}
+
+    /* ── Number highlight ── */
+    .num{
+      font-family:'Cabinet Grotesk',sans-serif;
+      font-weight:800;
+      font-variant-numeric:tabular-nums;
+    }
+
+    /* ── Divider ── */
+    .div{height:1px;background:${C.border}60;margin:12px 0;}
+
+    /* ── Glassmorphic stat ── */
+    .gstat{
+      background:${C.surface};
+      border:1px solid ${C.border};
+      border-radius:14px;
+      padding:14px 16px;
+      transition:all 0.2s;
+    }
+    .gstat:hover{border-color:${C.muted}40;transform:translateY(-1px);}
   `;
 
   function DueBadge({days}){
@@ -635,14 +892,15 @@ Provide (use emoji headers, max 350 words):
     if(days<=7)return<span className="tag" style={{background:`${C.accent}18`,color:C.accent}}>{days}d</span>;
     return null;
   }
-  function ScoreRing({score,color,size=110}){
-    const r=42,circ=2*Math.PI*r,off=circ-(score/100)*circ;
+  function ScoreRing({score,color,size=120}){
+    const r=40,circ=2*Math.PI*r,off=circ-(score/100)*circ;
     return<svg width={size} height={size} viewBox="0 0 100 100">
-      <circle cx="50" cy="50" r={r} fill="none" stroke={C.border} strokeWidth="9"/>
-      <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="9" strokeLinecap="round"
-        strokeDasharray={circ} strokeDashoffset={off} transform="rotate(-90 50 50)" style={{transition:"stroke-dashoffset 1s"}}/>
-      <text x="50" y="46" textAnchor="middle" fill={color} fontSize="21" fontWeight="800" fontFamily="Syne">{score}</text>
-      <text x="50" y="59" textAnchor="middle" fill={C.muted} fontSize="9" fontFamily="Syne">/100</text>
+      <circle cx="50" cy="50" r={r} fill="none" stroke={color+"18"} strokeWidth="8"/>
+      <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="8" strokeLinecap="round"
+        strokeDasharray={circ} strokeDashoffset={off} transform="rotate(-90 50 50)"
+        style={{transition:"stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1)",filter:`drop-shadow(0 0 6px ${color}60)`}}/>
+      <text x="50" y="44" textAnchor="middle" fill={color} fontSize="22" fontWeight="900" fontFamily="Cabinet Grotesk">{score}</text>
+      <text x="50" y="58" textAnchor="middle" fill={color+"80"} fontSize="9" fontFamily="Cabinet Grotesk" letterSpacing="1">/100</text>
     </svg>;
   }
 
@@ -651,53 +909,60 @@ Provide (use emoji headers, max 350 words):
 if (!user) {
   return (
     <div style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      background: C.bg,
-      color: C.text,
-      fontFamily: "'DM Mono','Courier New',monospace"
+      minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center",
+      background:C.bg, color:C.text,
+      fontFamily:"'Cabinet Grotesk','Segoe UI',sans-serif",
+      padding:20,
     }}>
       <style>{css}</style>
+      {/* Background orbs */}
+      <div style={{position:"fixed",inset:0,pointerEvents:"none",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:"-20%",left:"-10%",width:500,height:500,borderRadius:"50%",background:`radial-gradient(circle, ${C.accent}18 0%, transparent 70%)`}}/>
+        <div style={{position:"absolute",bottom:"-20%",right:"-10%",width:600,height:600,borderRadius:"50%",background:`radial-gradient(circle, ${C.loan}12 0%, transparent 70%)`}}/>
+      </div>
       <div style={{
-        background: C.card,
-        border: `1px solid ${C.border}`,
-        borderRadius: 20,
-        padding: "40px 30px",
-        textAlign: "center",
-        maxWidth: 380,
-        width: "100%"
+        background:C.card, border:`1px solid ${C.border}`,
+        borderRadius:28, padding:"48px 36px", textAlign:"center",
+        maxWidth:400, width:"100%",
+        boxShadow:`0 40px 80px rgba(0,0,0,${darkMode?0.5:0.12}), 0 0 0 1px ${C.border}`,
+        position:"relative", zIndex:1,
       }}>
-        <div style={{fontSize: 40, marginBottom: 12}}>💰</div>
         <div style={{
-          fontFamily: "'Syne',sans-serif",
-          fontWeight: 800,
-          fontSize: 22,
-          marginBottom: 10
+          width:64, height:64, borderRadius:20,
+          background:`linear-gradient(135deg, ${C.accent}, ${C.loan})`,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          margin:"0 auto 20px",
+          fontSize:28,
+          boxShadow:`0 12px 32px ${C.accent}40`,
+        }}>₹</div>
+        <div style={{
+          fontFamily:"'Cabinet Grotesk',sans-serif", fontWeight:900,
+          fontSize:28, marginBottom:8, letterSpacing:"-0.5px",
+        }}>FinTrack</div>
+        <div style={{
+          color:C.muted, fontSize:13, marginBottom:32, lineHeight:1.6,
+          fontFamily:"'JetBrains Mono',monospace",
         }}>
-          FinTrack
+          Your personal finance command center
         </div>
-        <div style={{color: C.muted, fontSize: 12, marginBottom: 24}}>
-          Sign in with Google to access your personal finance dashboard
-        </div>
-
-        <button
-          onClick={handleLogin}
-          style={{
-            width: "100%",
-            padding: "12px 18px",
-            borderRadius: 10,
-            border: "none",
-            background: "#4285F4",
-            color: "#fff",
-            fontWeight: 700,
-            fontFamily: "'Syne',sans-serif",
-            cursor: "pointer"
-          }}
+        <button onClick={handleLogin} style={{
+          width:"100%", padding:"14px 20px", borderRadius:14,
+          border:`1px solid ${C.border}`,
+          background:C.surface, color:C.text,
+          fontWeight:700, fontFamily:"'Cabinet Grotesk',sans-serif",
+          cursor:"pointer", fontSize:14,
+          display:"flex", alignItems:"center", justifyContent:"center", gap:10,
+          transition:"all 0.2s",
+        }}
+        onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
+        onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}
         >
+          <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M47.5 24.6c0-1.6-.1-3.1-.4-4.6H24v8.7h13.2c-.6 3-2.3 5.5-4.9 7.2v6h7.9c4.6-4.3 7.3-10.6 7.3-17.3z"/><path fill="#34A853" d="M24 48c6.6 0 12.2-2.2 16.2-5.9l-7.9-6c-2.2 1.5-5 2.3-8.3 2.3-6.4 0-11.8-4.3-13.7-10.1H2.1v6.2C6.1 42.6 14.5 48 24 48z"/><path fill="#FBBC04" d="M10.3 28.3c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6v-6.2H2.1C.7 15.9 0 19.9 0 24s.7 8.1 2.1 11.1l8.2-6.8z"/><path fill="#E94235" d="M24 9.6c3.6 0 6.8 1.2 9.3 3.6l7-7C36.2 2.3 30.6 0 24 0 14.5 0 6.1 5.4 2.1 13.3l8.2 6.2c1.9-5.8 7.3-9.9 13.7-9.9z"/></svg>
           Sign in with Google
         </button>
+        <div style={{marginTop:20,fontSize:10,color:C.muted,fontFamily:"'JetBrains Mono',monospace"}}>
+          Data encrypted & synced via Firebase
+        </div>
       </div>
     </div>
   );
@@ -711,51 +976,61 @@ if (!user) {
   const activeTab = MOBILE_TABS.find(t=>t.id===tab||t.label===tab)?.id||tab;
 
   return(
-    <div style={{minHeight:"100vh",minHeight:"100dvh",background:C.bg,color:C.text,fontFamily:"'DM Mono','Courier New',monospace"}}>
+    <div style={{minHeight:"100vh",minHeight:"100dvh",background:C.bg,color:C.text,fontFamily:"'JetBrains Mono','Courier New',monospace"}}>
       <style>{css}</style>
 
       {/* ── Desktop Header ── */}
-      <div className="dtabs" style={{borderBottom:`1px solid ${C.border}`,padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,background:C.bg,zIndex:50,gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:32,height:32,background:"linear-gradient(135deg,#38bdf8,#6366f1)",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:15}}>₹</div>
-          <span style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:16}}>FinTrack</span>
-          {health.score>0&&<span className="tag" style={{background:health.color+"20",color:health.color}}>Health {health.score}/100</span>}
+      <div className="dtabs" style={{
+        borderBottom:`1px solid ${C.border}`,padding:"0 20px",
+        display:"flex",alignItems:"center",justifyContent:"space-between",
+        position:"sticky",top:0,
+        background:C.glass,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",
+        zIndex:50,gap:8,height:56,
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:34,height:34,background:`linear-gradient(135deg, ${C.accent}, ${C.loan})`,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:16,boxShadow:`0 4px 12px ${C.accent}35`}}>₹</div>
+          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:17,letterSpacing:"-0.3px"}}>FinTrack</span>
+          {health.score>0&&<span className="tag" style={{background:health.color+"20",color:health.color,fontSize:10}}>{health.grade} · {health.score}/100</span>}
           {overdueCount>0&&<span className="pulse tag" style={{background:`${C.expense}15`,color:C.expense,cursor:"pointer"}} onClick={()=>setTab("Cards")}>⚠ {overdueCount} overdue</span>}
-          <span><span className="sync-dot"/><span style={{fontSize:10,color:C.muted}}>{saving?"Saving…":lastSaved?`Saved ${lastSaved.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}`:"Not saved yet"}</span></span>
+          <span style={{display:"flex",alignItems:"center"}}><span className="sync-dot"/><span style={{fontSize:10,color:C.muted,fontFamily:"'JetBrains Mono',monospace"}}>{saving?"saving…":lastSaved?`saved ${lastSaved.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}`:""}</span></span>
         </div>
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
-            <button key={t} className="btn-ghost" onClick={()=>setTab(t)} style={{background:tab===t?C.border:"transparent",color:tab===t?C.accent:C.muted,border:"none",fontSize:11,padding:"6px 10px",borderRadius:8}}>
+            <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>setTab(t)}>
               {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Goals"?"🌱 Goals":t==="Finance"?"📊 Finance":t}
             </button>
           ))}
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <button className="btn-ghost btn-sm" onClick={()=>setDarkMode(p=>!p)}>{darkMode?"☀️":"🌙"}</button>
-          <button className="btn-ghost btn-sm" onClick={()=>setShowSettings(true)}>⚙️</button>
-          <button className="btn-ghost btn-sm" onClick={()=>setShowImport(true)}>⬆ Import</button>
-          <button className="btn-ghost btn-sm" onClick={exportTransactions}>⬇ Export</button>
+          <button className="btn-ghost btn-sm" onClick={()=>setDarkMode(p=>!p)} style={{fontSize:14}}>{darkMode?"☀":"🌙"}</button>
+          <button className="btn-ghost btn-sm" onClick={()=>setShowSettings(true)}>⚙</button>
+          <button className="btn-ghost btn-sm" onClick={()=>setShowImport(true)}>↑ Import</button>
+          <button className="btn-ghost btn-sm" onClick={exportTransactions}>↓ Export</button>
           <button className="btn btn-p btn-sm" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+ Add</button>
-            <button className="btn-ghost btn-sm" onClick={handleLogout}>Logout</button>
+          <button className="btn-ghost btn-sm" onClick={handleLogout} style={{color:C.expense,borderColor:C.expense+"30"}}>Logout</button>
         </div>
       </div>
 
       {/* ── Mobile Header ── */}
-
-      <div style={{borderBottom:`1px solid ${C.border}`,padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,background:C.bg,zIndex:50,gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{width:30,height:30,background:"linear-gradient(135deg,#38bdf8,#6366f1)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14}}>₹</div>
-          <span style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:15}}>FinTrack</span>
-          <span><span className="sync-dot"/></span>
+      <div style={{
+        borderBottom:`1px solid ${C.border}`,padding:"12px 16px",
+        display:"flex",alignItems:"center",justifyContent:"space-between",
+        position:"sticky",top:0,
+        background:C.glass,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",
+        zIndex:50,gap:8,
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:32,height:32,background:`linear-gradient(135deg,${C.accent},${C.loan})`,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:15,boxShadow:`0 3px 10px ${C.accent}35`}}>₹</div>
+          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,letterSpacing:"-0.3px"}}>FinTrack</span>
+          <span className="sync-dot"/>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          {health.score>0&&<span className="tag" style={{background:health.color+"20",color:health.color}}>{health.score}/100</span>}
-          {overdueCount>0&&<span className="pulse tag" style={{background:`${C.expense}15`,color:C.expense}}>⚠{overdueCount}</span>}
-          <button className="btn-ghost btn-sm" onClick={()=>setDarkMode(p=>!p)} style={{padding:"4px 8px"}}>{darkMode?"☀️":"🌙"}</button>
-          <button className="btn-ghost btn-sm" onClick={()=>setShowMenu(true)} style={{padding:"4px 10px",fontSize:16,lineHeight:1}}>☰</button>
+          {health.score>0&&<span className="tag" style={{background:health.color+"20",color:health.color,fontSize:10}}>{health.score}</span>}
+          {overdueCount>0&&<span className="pulse tag" style={{background:`${C.expense}15`,color:C.expense,fontSize:10}}>⚠{overdueCount}</span>}
+          <button className="btn-ghost btn-sm" onClick={()=>setDarkMode(p=>!p)} style={{padding:"5px 9px",fontSize:13}}>{darkMode?"☀":"🌙"}</button>
+          <button className="btn-ghost btn-sm" onClick={()=>setShowMenu(true)} style={{padding:"5px 11px",fontSize:15,lineHeight:1}}>☰</button>
         </div>
       </div>
-
       {fbNotConfigured&&(
         <div style={{background:"#f59e0b15",borderBottom:`1px solid #f59e0b40`,padding:"8px 16px",fontSize:11,color:"#f59e0b",textAlign:"center"}}>
           ⚠️ Firebase not configured — data is NOT being saved to cloud. Open <b>src/firebaseConfig.js</b> and add your Firebase keys.
@@ -768,13 +1043,13 @@ if (!user) {
         {refreshing&&<div className="ptr-spinner"/>}
       </div>
 
-      <div style={{maxWidth:1160,margin:"0 auto",padding:"14px 12px",paddingBottom:90}}>
+      <div style={{maxWidth:1200,margin:"0 auto",padding:"16px 14px 16px",paddingBottom:100}}>
 
         {/* ════════ DASHBOARD ════════ */}
         {tab==="Dashboard"&&<>
             {/* Period Filter */}
 <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-  <span style={{fontSize:11,color:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700,marginRight:2}}>Period:</span>
+  <span style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginRight:2}}>Period:</span>
   {[
     ["today","Today"],["week","This Week"],["month","This Month"],
     ["lastmonth","Last Month"],["3months","Last 3 Months"],["all","All Time"],
@@ -797,7 +1072,7 @@ if (!user) {
     ].map(item=>(
       <div key={item.label} className="scard">
         <div className="lbl">{item.label}</div>
-        <div style={{fontSize:17,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{item.val}</div>
+        <div style={{fontSize:17,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div>
         {item.sub&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>{item.sub}</div>}
       </div>
     ));
@@ -806,11 +1081,11 @@ if (!user) {
 
           {spendAlerts.length>0&&(
             <div className="card" style={{marginBottom:10,borderColor:`${C.expense}35`,background:`${C.expense}06`}}>
-              <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:13,color:C.expense,marginBottom:8}}>🚨 Budget Alerts</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.expense,marginBottom:8}}>🚨 Budget Alerts</div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {spendAlerts.map(a=>(
                   <div key={a.cat} style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:4}}>
-                    <span style={{fontSize:12,fontFamily:"'Syne',sans-serif",fontWeight:700}}>{a.cat}</span>
+                    <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{a.cat}</span>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <span style={{fontSize:11,color:C.muted}}>{fc(a.spent)} / {fc(a.limit)}</span>
                       <span className="tag" style={{background:a.over?`${C.expense}20`:`${C.warning}20`,color:a.over?C.expense:C.warning}}>{a.over?"Over!":a.pct+"%"}</span>
@@ -824,7 +1099,7 @@ if (!user) {
           {health.score<50&&activeDebts.length>0&&(
             <div style={{marginBottom:10,padding:"11px 14px",background:`linear-gradient(135deg,${C.expense}10,${C.loan}08)`,border:`1px solid ${C.expense}25`,borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <div>
-                <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:13,color:C.expense}}>⚡ High debt load</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.expense}}>⚡ High debt load</div>
                 <div style={{fontSize:11,color:C.muted}}>EMIs are {effectiveIncome>0?((totalEMI/effectiveIncome)*100).toFixed(0):0}% of income</div>
               </div>
               <button className="btn btn-ai btn-sm" onClick={()=>setTab("Plan")}>🎯 My Plan →</button>
@@ -833,11 +1108,11 @@ if (!user) {
 
           {upcomingDues.filter(d=>d.days!==null&&d.days<=7).length>0&&(
             <div className="card" style={{marginBottom:10,borderColor:`${C.warning}35`}}>
-              <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:12,color:C.warning,marginBottom:8}}>⏰ Due this week</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.warning,marginBottom:8}}>⏰ Due this week</div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {upcomingDues.filter(d=>d.days!==null&&d.days<=7).map(d=>(
                   <div key={d.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 11px"}}>
-                    <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:12}}>{d.name}</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{d.name}</div>
                     <div style={{fontSize:10,color:C.muted}}>{d.kind==="cc"?`Min: ${fc(d.minDue)}`:`EMI: ${fc(d.emi)}`}</div>
                     <DueBadge days={d.days}/>
                   </div>
@@ -887,7 +1162,7 @@ if (!user) {
             {transactions.slice(0,6).map(t=>(
               <div key={t.id} className="row">
                 <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-                  <div style={{width:34,height:34,borderRadius:9,background:(t.type==="income"?C.income:C.expense)+"18",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:14}}>{t.type==="income"?"↑":"↓"}</div>
+                  <div style={{width:36,height:36,borderRadius:10,background:(t.type==="income"?C.income:C.expense)+"14",border:`1px solid ${(t.type==="income"?C.income:C.expense)}25`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:15,fontWeight:700,color:t.type==="income"?C.income:C.expense}}>{t.type==="income"?"↑":"↓"}</div>
                   <div style={{minWidth:0}}>
                     <div style={{fontSize:12,display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
                       <span style={{fontWeight:500}}>{t.category}</span>
@@ -898,7 +1173,7 @@ if (!user) {
 </div>
                   </div>
                 </div>
-                <span style={{color:t.type==="income"?C.income:C.expense,fontWeight:600,fontSize:13,flexShrink:0}}>{t.type==="income"?"+":"-"}{fc(t.amount)}</span>
+                <span style={{color:t.type==="income"?C.income:C.expense,fontWeight:700,fontSize:13,flexShrink:0,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{t.type==="income"?"+":"−"}{fc(t.amount)}</span>
               </div>
             ))}
             {transactions.length===0&&<div style={{color:C.muted,textAlign:"center",padding:30,fontSize:12}}>No transactions yet. Tap + to add one!</div>}
@@ -918,7 +1193,7 @@ if (!user) {
                 <div className="lbl">Strategy</div>
                 <div style={{display:"flex",gap:6,marginTop:4}}>
                   {[["avalanche","⬆ Avalanche"],["snowball","❄ Snowball"]].map(([v,l])=>(
-                    <button key={v} onClick={()=>setStrategy(v)} style={{flex:1,padding:"8px 4px",borderRadius:9,border:`1px solid ${strategy===v?C.accent:C.border}`,background:strategy===v?C.accent+"15":"transparent",color:strategy===v?C.accent:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>
+                    <button key={v} onClick={()=>setStrategy(v)} style={{flex:1,padding:"8px 4px",borderRadius:9,border:`1px solid ${strategy===v?C.accent:C.border}`,background:strategy===v?C.accent+"15":"transparent",color:strategy===v?C.accent:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>
                   ))}
                 </div>
               </div>
@@ -928,7 +1203,7 @@ if (!user) {
           {/* Recommended strategy */}
           {activeDebts.length>0&&(
             <div style={{marginBottom:12,padding:"12px 16px",background:`${C.income}10`,border:`1px solid ${C.income}25`,borderRadius:12}}>
-              <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:13,color:C.income,marginBottom:4}}>🤖 Recommended: {recommended.strategy==="avalanche"?"Avalanche ⬆":"Snowball ❄"}</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.income,marginBottom:4}}>🤖 Recommended: {recommended.strategy==="avalanche"?"Avalanche ⬆":"Snowball ❄"}</div>
               <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>{recommended.reason}</div>
               {strategy!==recommended.strategy&&<button className="btn btn-g btn-sm" style={{marginTop:8}} onClick={()=>setStrategy(recommended.strategy)}>Switch to {recommended.strategy}</button>}
             </div>
@@ -947,11 +1222,11 @@ if (!user) {
               ].map(item=>(
                 <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${item.label==="Left Over"?item.color+"40":C.border}`}}>
                   <div className="lbl">{item.label}</div>
-                  <div style={{fontSize:14,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{item.val>=0?"+":""}{fc(Math.abs(item.val))}</div>
+                  <div style={{fontSize:14,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val>=0?"+":""}{fc(Math.abs(item.val))}</div>
                 </div>
               ))}
             </div>
-            {cashLeft<0&&<div style={{marginTop:10,padding:"8px 12px",background:`${C.expense}10`,borderRadius:10,fontSize:11,color:C.expense,fontFamily:"'Syne',sans-serif",fontWeight:700}}>🚨 Spending exceeds income! Cut expenses immediately.</div>}
+            {cashLeft<0&&<div style={{marginTop:10,padding:"8px 12px",background:`${C.expense}10`,borderRadius:10,fontSize:11,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>🚨 Spending exceeds income! Cut expenses immediately.</div>}
           </div>
 
           {/* Health score */}
@@ -959,7 +1234,7 @@ if (!user) {
             <div className="card" style={{display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center"}}>
               <div className="stitle">Health Score</div>
               <ScoreRing score={health.score} color={health.color}/>
-              <div style={{fontSize:18,fontWeight:800,color:health.color,fontFamily:"'Syne',sans-serif",marginTop:8}}>Grade {health.grade}</div>
+              <div style={{fontSize:18,fontWeight:800,color:health.color,fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:8}}>Grade {health.grade}</div>
               <div style={{fontSize:11,color:C.muted,marginTop:4}}>{health.score>=85?"Excellent 🌟":health.score>=70?"Good 👍":health.score>=50?"Needs work ⚠️":"Critical 🚨"}</div>
             </div>
             <div className="card">
@@ -967,7 +1242,7 @@ if (!user) {
               {health.items.map(b=>(
                 <div key={b.label} style={{marginBottom:12}}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                    <span style={{fontFamily:"'Syne',sans-serif",fontWeight:600,fontSize:11}}>{b.label}</span>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,fontSize:11}}>{b.label}</span>
                     <span style={{fontSize:11,color:b.score>=b.max*0.7?C.income:b.score>=b.max*0.4?C.warning:C.expense,fontWeight:700}}>{b.score}/{b.max}</span>
                   </div>
                   <div className="pbar"><div className="pfill" style={{width:`${(b.score/b.max)*100}%`,background:b.score>=b.max*0.7?C.income:b.score>=b.max*0.4?C.warning:C.expense}}/></div>
@@ -983,7 +1258,7 @@ if (!user) {
               <div><div className="stitle" style={{marginBottom:2}}>🏁 Loan Payoff Plan</div><div style={{fontSize:11,color:C.muted}}>Freed EMIs snowball into the next loan automatically.</div></div>
               {payoffPlan.some(p=>p.interestSaved>0)&&(
                 <div style={{background:`${C.income}10`,border:`1px solid ${C.income}25`,borderRadius:10,padding:"8px 12px",textAlign:"right"}}>
-                  <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:12,color:C.income}}>Save {fc(payoffPlan.reduce((s,p)=>s+p.interestSaved,0))}</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,color:C.income}}>Save {fc(payoffPlan.reduce((s,p)=>s+p.interestSaved,0))}</div>
                   <div style={{fontSize:10,color:C.muted}}>{payoffPlan.reduce((s,p)=>s+p.monthsSaved,0)} months faster</div>
                 </div>
               )}
@@ -998,10 +1273,10 @@ if (!user) {
                     <div key={d.id} style={{background:C.surface,border:`1px solid ${i===0?pc+"50":C.border}`,borderRadius:12,padding:"13px"}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
                         <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{width:24,height:24,borderRadius:"50%",background:pc+"20",color:pc,border:`2px solid ${pc}50`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:11}}>#{d.priority}</div>
-                          <div><div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13}}>{d.name}</div><div style={{fontSize:10,color:C.muted}}>{d.lender} · {d.interestRate}%</div></div>
+                          <div style={{width:24,height:24,borderRadius:"50%",background:pc+"20",color:pc,border:`2px solid ${pc}50`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:11}}>#{d.priority}</div>
+                          <div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{d.name}</div><div style={{fontSize:10,color:C.muted}}>{d.lender} · {d.interestRate}%</div></div>
                         </div>
-                        <div style={{textAlign:"right"}}><div style={{fontSize:16,fontWeight:700,color:C.expense,fontFamily:"'Syne',sans-serif"}}>{fc(d.bal)}</div></div>
+                        <div style={{textAlign:"right"}}><div style={{fontSize:16,fontWeight:700,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(d.bal)}</div></div>
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(95px,1fr))",gap:8,marginBottom:8}}>
                         <div><div className="lbl">EMI</div><div style={{fontSize:12}}>{fc(d.emi)}/mo</div></div>
@@ -1011,7 +1286,7 @@ if (!user) {
                         {d.monthsSaved>0&&<div><div className="lbl">Saved</div><div style={{fontSize:12,color:C.income,fontWeight:700}}>🎉 {d.monthsSaved}mo</div></div>}
                       </div>
                       {d.totalAmount>0&&<><div className="pbar"><div className="pfill" style={{width:`${pct}%`,background:pc}}/></div><div style={{fontSize:10,color:C.muted,marginTop:3}}>{pct.toFixed(0)}% repaid</div></>}
-                      {i===0&&<div style={{marginTop:8,padding:"6px 10px",background:pc+"12",borderRadius:8,fontSize:11,color:pc,fontFamily:"'Syne',sans-serif",fontWeight:700}}>⭐ Put all extra funds here first</div>}
+                      {i===0&&<div style={{marginTop:8,padding:"6px 10px",background:pc+"12",borderRadius:8,fontSize:11,color:pc,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>⭐ Put all extra funds here first</div>}
                       <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
                         <button className="btn btn-g btn-sm" onClick={()=>{const v=prompt(`Record payment for ${d.name}?\nOutstanding: ${fc(d.bal)}`);const n=parseFloat(v);if(!isNaN(n)&&n>0)recordLoanPayment(d.id,n);}}>💸 Pay</button>
                         <button className="btn-ghost btn-sm" onClick={()=>openEditDebt(d)}>Edit</button>
@@ -1046,7 +1321,7 @@ if (!user) {
               {label:"# Cards",           val:creditCards.length,color:C.accent},
               {label:"Highest Util",      val:creditCards.length?Math.max(...creditCards.map(c=>((parseFloat(c.outstanding)||0)/(parseFloat(c.limit)||1)*100))).toFixed(0)+"%":"0%",color:C.credit},
             ].map(item=>(
-              <div key={item.label} className="scard"><div className="lbl">{item.label}</div><div style={{fontSize:17,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{item.val}</div></div>
+              <div key={item.label} className="scard"><div className="lbl">{item.label}</div><div style={{fontSize:17,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div></div>
             ))}
           </div>
 
@@ -1064,15 +1339,15 @@ if (!user) {
   <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
     <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,flex:1}}>
       <div className="lbl">Total CC EMI/month</div>
-      <div style={{fontSize:16,fontWeight:700,color:C.warning,fontFamily:"'Syne',sans-serif"}}>{fc(totalCCEMI)}</div>
+      <div style={{fontSize:16,fontWeight:700,color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalCCEMI)}</div>
     </div>
     <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,flex:1}}>
       <div className="lbl">Active EMIs</div>
-      <div style={{fontSize:16,fontWeight:700,color:C.accent,fontFamily:"'Syne',sans-serif"}}>{ccEmis.length}</div>
+      <div style={{fontSize:16,fontWeight:700,color:C.accent,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{ccEmis.length}</div>
     </div>
     <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,flex:1}}>
       <div className="lbl">Total Remaining</div>
-      <div style={{fontSize:16,fontWeight:700,color:C.expense,fontFamily:"'Syne',sans-serif"}}>
+      <div style={{fontSize:16,fontWeight:700,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
         {fc(ccEmis.reduce((s,e)=>(parseFloat(e.amount)||0)*(parseFloat(e.monthsLeft)||0)+s,0))}
       </div>
     </div>
@@ -1088,13 +1363,13 @@ if (!user) {
           <div key={emi.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px",marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6}}>
               <div>
-                <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13}}>{emi.description||"EMI"}</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{emi.description||"EMI"}</div>
                 <div style={{fontSize:11,color:C.muted,marginTop:2}}>
                   {card?`${card.name} · ${card.bank}`:"Card not found"}
                 </div>
               </div>
               <div style={{textAlign:"right"}}>
-                <div style={{fontSize:15,fontWeight:700,color:C.warning,fontFamily:"'Syne',sans-serif"}}>{fc(emi.amount)}/mo</div>
+                <div style={{fontSize:15,fontWeight:700,color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(emi.amount)}/mo</div>
                 <div style={{fontSize:10,color:C.muted}}>{emi.monthsLeft} months left</div>
               </div>
             </div>
@@ -1120,16 +1395,16 @@ if (!user) {
             {effectiveIncome>0?(()=>{
               const dti=(totalEMI+totalCCEMI)/effectiveIncome;
               if(dti>0.5||totalCCOut>0){
-                return<div style={{fontSize:12,lineHeight:1.8}}><div style={{color:C.expense,fontFamily:"'Syne',sans-serif",fontWeight:700,marginBottom:4}}>🚫 STOP using credit cards for new purchases</div><div style={{color:C.muted}}>EMIs are {(dti*100).toFixed(0)}% of income and you have ₹{totalCCOut.toLocaleString("en-IN")} outstanding. Switch to UPI/Debit only until debt clears.</div></div>;
+                return<div style={{fontSize:12,lineHeight:1.8}}><div style={{color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:4}}>🚫 STOP using credit cards for new purchases</div><div style={{color:C.muted}}>EMIs are {(dti*100).toFixed(0)}% of income and you have ₹{totalCCOut.toLocaleString("en-IN")} outstanding. Switch to UPI/Debit only until debt clears.</div></div>;
               }else if(dti>0.3){
-                return<div style={{fontSize:12,lineHeight:1.8}}><div style={{color:C.warning,fontFamily:"'Syne',sans-serif",fontWeight:700,marginBottom:4}}>⚠️ Use with caution</div><div style={{color:C.muted}}>Only for planned expenses you can pay in FULL before due date. Never carry a balance — 36% interest destroys finances.</div></div>;
+                return<div style={{fontSize:12,lineHeight:1.8}}><div style={{color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:4}}>⚠️ Use with caution</div><div style={{color:C.muted}}>Only for planned expenses you can pay in FULL before due date. Never carry a balance — 36% interest destroys finances.</div></div>;
               }
-              return<div style={{fontSize:12,lineHeight:1.8}}><div style={{color:C.income,fontFamily:"'Syne',sans-serif",fontWeight:700,marginBottom:4}}>✅ Okay if used wisely</div><div style={{color:C.muted}}>Pay full statement amount monthly. Use for rewards/cashback only on already-budgeted spending.</div></div>;
+              return<div style={{fontSize:12,lineHeight:1.8}}><div style={{color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:4}}>✅ Okay if used wisely</div><div style={{color:C.muted}}>Pay full statement amount monthly. Use for rewards/cashback only on already-budgeted spending.</div></div>;
             })():<div style={{fontSize:12,color:C.muted}}>Add monthly income in Plan tab for personalised advice.</div>}
           </div>
 
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:14}}>Your Cards</div>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>Your Cards</div>
             <button className="btn btn-p btn-sm" onClick={()=>{setCcForm({...EMPTY_CC});setEditCCId(null);setShowCCForm(true);}}>+ Add Card</button>
           </div>
 
@@ -1143,10 +1418,10 @@ if (!user) {
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,flexWrap:"wrap",gap:8}}>
                       <div style={{display:"flex",alignItems:"center",gap:10}}>
                         <div style={{width:38,height:38,borderRadius:10,background:`${C.credit}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>💳</div>
-                        <div><div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:14}}>{cc.name}</div><div style={{fontSize:11,color:C.muted}}>{cc.bank} · {cc.interestRate}% p.a.</div></div>
+                        <div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>{cc.name}</div><div style={{fontSize:11,color:C.muted}}>{cc.bank} · {cc.interestRate}% p.a.</div></div>
                       </div>
                       <div style={{textAlign:"right"}}>
-                        <div style={{fontSize:17,fontWeight:700,color:C.expense,fontFamily:"'Syne',sans-serif"}}>{fc(cc.outstanding)}</div>
+                        <div style={{fontSize:17,fontWeight:700,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(cc.outstanding)}</div>
                         <div style={{fontSize:10,color:C.muted}}>of {fc(cc.limit)} limit</div>
                       </div>
                     </div>
@@ -1158,12 +1433,12 @@ if (!user) {
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:10}}>
                       <div style={{background:C.surface,borderRadius:10,padding:"9px"}}>
                         <div className="lbl">Min Due</div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.warning,fontFamily:"'Syne',sans-serif"}}>{fc(det.minDue)}</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(det.minDue)}</div>
                         <div style={{fontSize:10,color:C.muted}}>to avoid late fee</div>
                       </div>
                       <div style={{background:`${C.income}10`,border:`1px solid ${C.income}20`,borderRadius:10,padding:"9px"}}>
                         <div className="lbl">Full Payment ✓</div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.income,fontFamily:"'Syne',sans-serif"}}>{fc(det.idealPayment)}</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(det.idealPayment)}</div>
                         <div style={{fontSize:10,color:C.muted}}>saves {fc(det.interestSavedByFull)}/mo interest</div>
                       </div>
                       {cc.dueDate&&<div><div className="lbl">Due Date</div><div style={{fontSize:13,fontWeight:600}}>{fd(cc.dueDate)}</div><DueBadge days={det.daysLeft}/></div>}
@@ -1205,7 +1480,7 @@ if (!user) {
           </div>
           <div className="card">
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-              <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:12}}>{filteredTx.length} transactions</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{filteredTx.length} transactions</div>
               <div style={{fontSize:11,color:C.muted}}><span style={{color:C.income}}>+{fc(filteredTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0))}</span> / <span style={{color:C.expense}}>-{fc(filteredTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0))}</span></div>
             </div>
             {filteredTx.length===0?<div style={{color:C.muted,textAlign:"center",padding:30,fontSize:12}}>No transactions found.</div>:filteredTx.map(t=>(
@@ -1250,7 +1525,7 @@ if (!user) {
               return(
                 <div key={cat} className="card">
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:8,height:8,borderRadius:"50%",background:CAT_COLORS[i]}}/><span style={{fontFamily:"'Syne',sans-serif",fontWeight:600,fontSize:12}}>{cat}</span></div>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:8,height:8,borderRadius:"50%",background:CAT_COLORS[i]}}/><span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,fontSize:12}}>{cat}</span></div>
                     {over&&<span className="tag" style={{background:`${C.expense}15`,color:C.expense}}>Over!</span>}
                   </div>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted,marginBottom:6}}><span>{fc(spent)}</span><span>{limit>0?fc(limit):"No limit"}</span></div>
@@ -1275,8 +1550,8 @@ if (!user) {
                 {step:"Step 5 — Long term", title:"NPS + PPF",          desc:"NPS for ₹50k extra tax deduction. PPF for safe 7%+ growth.",          color:C.savings},
               ].map(item=>(
                 <div key={item.title} style={{background:C.card,border:`1px solid ${item.color}25`,borderRadius:10,padding:"12px"}}>
-                  <div style={{fontSize:9,color:item.color,fontFamily:"'Syne',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>{item.step}</div>
-                  <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:12,marginBottom:4}}>{item.title}</div>
+                  <div style={{fontSize:9,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>{item.step}</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,marginBottom:4}}>{item.title}</div>
                   <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>{item.desc}</div>
                 </div>
               ))}
@@ -1298,8 +1573,8 @@ if (!user) {
                 return(
                   <div key={s.id} className="card">
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-                      <div><div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:14}}>{s.name}</div><div style={{fontSize:10,color:C.muted}}>Goal: {fc(s.goal)}</div></div>
-                      <div style={{fontSize:18,fontWeight:700,color:C.savings,fontFamily:"'Syne',sans-serif"}}>{pct.toFixed(0)}%</div>
+                      <div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14}}>{s.name}</div><div style={{fontSize:10,color:C.muted}}>Goal: {fc(s.goal)}</div></div>
+                      <div style={{fontSize:18,fontWeight:700,color:C.savings,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{pct.toFixed(0)}%</div>
                     </div>
                     <div className="pbar" style={{marginBottom:8}}><div className="pfill" style={{width:`${pct}%`,background:`linear-gradient(90deg,${C.savings},${C.accent})`}}/></div>
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:10,color:C.muted}}><span style={{color:C.income}}>{fc(s.current)} saved</span><span>{fc(Math.max(0,s.goal-s.current))} left</span></div>
@@ -1326,7 +1601,7 @@ if (!user) {
             ].map(item=>(
               <div key={item.label} className="scard" style={{textAlign:"center"}}>
                 <div className="lbl" style={{textAlign:"center"}}>{item.label}</div>
-                <div style={{fontSize:18,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{item.val}</div>
+                <div style={{fontSize:18,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div>
               </div>
             ))}
           </div>
@@ -1352,7 +1627,7 @@ if (!user) {
                     return(
                       <div key={d.name} style={{marginBottom:8}}>
                         <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                          <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:7,height:7,borderRadius:"50%",background:d.color}}/><span style={{fontSize:11,fontFamily:"'Syne',sans-serif",fontWeight:600}}>{d.name}</span></div>
+                          <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:7,height:7,borderRadius:"50%",background:d.color}}/><span style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{d.name}</span></div>
                           <span style={{fontSize:11}}>{fc(d.value)}</span>
                         </div>
                         <div className="pbar"><div className="pfill" style={{width:`${(d.value/max)*100}%`,background:d.color}}/></div>
@@ -1382,7 +1657,7 @@ if (!user) {
               const vColor=score===3?C.income:score>=2?C.warning:C.expense;
               return(<>
                 <div style={{textAlign:"center",padding:"10px 0 12px",borderBottom:`1px solid ${C.border}`,marginBottom:12}}>
-                  <div style={{fontSize:20,fontWeight:800,color:vColor,fontFamily:"'Syne',sans-serif"}}>
+                  <div style={{fontSize:20,fontWeight:800,color:vColor,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
                     {score===3?"✅ On Track":score>=2?"⚠️ Needs Attention":"🚨 Action Required"}
                   </div>
                 </div>
@@ -1397,7 +1672,7 @@ if (!user) {
                   ].map(item=>(
                     <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${item.ok?item.color+"30":C.border}`}}>
                       <div className="lbl">{item.label}</div>
-                      <div style={{fontSize:14,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{item.val}</div>
+                      <div style={{fontSize:14,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div>
                       <div style={{fontSize:10,marginTop:2,color:item.ok?C.income:C.expense}}>{item.ok?"✓ Good":"✗ Review"}</div>
                     </div>
                   ))}
@@ -1410,8 +1685,8 @@ if (!user) {
           <div className="card" style={{marginBottom:12}}>
             <div className="stitle">💎 Net Worth</div>
             <div style={{textAlign:"center",padding:"8px 0 12px"}}>
-              <div style={{fontSize:11,color:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Total Net Worth</div>
-              <div style={{fontSize:32,fontWeight:800,color:netWorth>=0?C.income:C.expense,fontFamily:"'Syne',sans-serif"}}>{fc(netWorth)}</div>
+              <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Total Net Worth</div>
+              <div style={{fontSize:32,fontWeight:800,color:netWorth>=0?C.income:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(netWorth)}</div>
               <div style={{fontSize:11,color:C.muted,marginTop:4}}>{netWorth>=0?"Assets exceed liabilities 👍":"More liabilities — keep paying down debt"}</div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
@@ -1422,7 +1697,7 @@ if (!user) {
               ].map(item=>(
                 <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px",textAlign:"center",border:`1px solid ${C.border}`}}>
                   <div className="lbl">{item.label}</div>
-                  <div style={{fontSize:12,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{item.sign}{fc(item.val)}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.sign}{fc(item.val)}</div>
                 </div>
               ))}
             </div>
@@ -1432,7 +1707,7 @@ if (!user) {
           <div className="card" style={{marginBottom:12,borderColor:`${C.loan}30`}}>
             <div className="stitle">🏁 Debt-Free Countdown</div>
             {debtFreeMonths===0
-              ?<div style={{textAlign:"center",padding:20,fontSize:16,color:C.income,fontFamily:"'Syne',sans-serif",fontWeight:800}}>🎉 You're Debt Free!</div>
+              ?<div style={{textAlign:"center",padding:20,fontSize:16,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800}}>🎉 You're Debt Free!</div>
               :debtFreeMonths===null
               ?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>Add EMI amounts to your loans to see countdown.</div>
               :(()=>{
@@ -1442,20 +1717,20 @@ if (!user) {
                 const withExtra=extra>0?Math.max(1,Math.ceil((totalOutstanding+totalCCOut)/(totalEMI+totalCCEMI+extra))):null;
                 return(
                   <div style={{textAlign:"center"}}>
-                    <div style={{fontSize:36,fontWeight:800,color:C.loan,fontFamily:"'Syne',sans-serif",marginBottom:4}}>{yrs>0?`${yrs}y `:""}{mos>0?`${mos}m`:"< 1m"}</div>
+                    <div style={{fontSize:36,fontWeight:800,color:C.loan,fontFamily:"'Cabinet Grotesk',sans-serif",marginBottom:4}}>{yrs>0?`${yrs}y `:""}{mos>0?`${mos}m`:"< 1m"}</div>
                     <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Debt-free by <span style={{color:C.text,fontWeight:700}}>{dfDate.toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</span></div>
                     <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
                       <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
                         <div className="lbl">Total Owed</div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.expense,fontFamily:"'Syne',sans-serif"}}>{fc(totalOutstanding+totalCCOut)}</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalOutstanding+totalCCOut)}</div>
                       </div>
                       <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
                         <div className="lbl">Monthly Payment</div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.loan,fontFamily:"'Syne',sans-serif"}}>{fc(totalEMI+totalCCEMI)}</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.loan,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalEMI+totalCCEMI)}</div>
                       </div>
                       {withExtra&&withExtra<debtFreeMonths&&<div style={{background:`${C.income}10`,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.income}30`}}>
                         <div className="lbl">With Extra {fc(extra)}</div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.income,fontFamily:"'Syne',sans-serif"}}>{debtFreeMonths-withExtra}m faster</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{debtFreeMonths-withExtra}m faster</div>
                       </div>}
                     </div>
                   </div>
@@ -1473,11 +1748,11 @@ if (!user) {
             {Object.keys(budgets).length===0
               ?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:20}}>No budgets set. Go to <button onClick={()=>setTab("Budget")} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontWeight:700,fontSize:12}}>Budget tab</button>.</div>
               :spendAlerts.length===0
-              ?<div style={{fontSize:12,color:C.income,textAlign:"center",padding:20,fontFamily:"'Syne',sans-serif",fontWeight:700}}>✅ All categories within budget!</div>
+              ?<div style={{fontSize:12,color:C.income,textAlign:"center",padding:20,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>✅ All categories within budget!</div>
               :spendAlerts.map(a=>(
                 <div key={a.cat} style={{marginBottom:12}}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,flexWrap:"wrap",gap:4}}>
-                    <span style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:12}}>{a.cat}</span>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{a.cat}</span>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
                       <span style={{fontSize:11,color:C.muted}}>{fc(a.spent)} / {fc(a.limit)}</span>
                       <span className="tag" style={{background:a.over?`${C.expense}20`:`${C.warning}20`,color:a.over?C.expense:C.warning}}>{a.over?"🚨 Over!":"⚠️ "+a.pct+"%"}</span>
@@ -1504,21 +1779,21 @@ if (!user) {
                 return(
                   <div key={item.label} style={{background:C.surface,borderRadius:12,padding:"12px",border:`1px solid ${C.border}`}}>
                     <div className="lbl">{item.label}</div>
-                    <div style={{fontSize:15,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{fc(item.thisVal)}</div>
+                    <div style={{fontSize:15,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(item.thisVal)}</div>
                     <div style={{fontSize:10,color:C.muted,marginTop:2}}>Last: {fc(item.lastVal)}</div>
                     {item.lastVal>0&&<div style={{fontSize:11,fontWeight:700,color:better?C.income:C.expense,marginTop:4}}>{diff>=0?"↑":"↓"} {pct.toFixed(1)}% {better?"better":"worse"}</div>}
                   </div>
                 );
               })}
             </div>
-            <div style={{fontSize:11,color:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700,marginBottom:8}}>BY CATEGORY</div>
+            <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:8}}>BY CATEGORY</div>
             {catComparison.length===0?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:10}}>No data yet.</div>
               :catComparison.sort((a,b)=>(b.thisMonth+b.lastMonth)-(a.thisMonth+a.lastMonth)).slice(0,8).map(c=>{
                 const diff=c.thisMonth-c.lastMonth;const maxVal=Math.max(c.thisMonth,c.lastMonth,1);
                 return(
                   <div key={c.cat} style={{marginBottom:10}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:4}}>
-                      <span style={{fontSize:11,fontFamily:"'Syne',sans-serif",fontWeight:600}}>{c.cat}</span>
+                      <span style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{c.cat}</span>
                       <div style={{display:"flex",gap:8,fontSize:10}}>
                         <span style={{color:C.accent}}>This: {fc(c.thisMonth)}</span>
                         <span style={{color:C.muted}}>Last: {fc(c.lastMonth)}</span>
@@ -1549,8 +1824,8 @@ if (!user) {
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
               {savingsRateTrend.map(m=>(
                 <div key={m.label} style={{background:C.surface,borderRadius:8,padding:"6px 10px",border:`1px solid ${m.rate>=20?C.income:m.rate>=10?C.warning:C.expense}30`,flex:1,minWidth:50,textAlign:"center"}}>
-                  <div style={{fontSize:9,color:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700}}>{m.label}</div>
-                  <div style={{fontSize:12,fontWeight:700,color:m.rate>=20?C.income:m.rate>=10?C.warning:C.expense,fontFamily:"'Syne',sans-serif"}}>{m.rate.toFixed(0)}%</div>
+                  <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{m.label}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:m.rate>=20?C.income:m.rate>=10?C.warning:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{m.rate.toFixed(0)}%</div>
                 </div>
               ))}
             </div>
@@ -1568,11 +1843,11 @@ if (!user) {
               const todayNum=now.getDate();
               return(<>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:10}}>
-                  {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=><div key={d} style={{textAlign:"center",fontSize:9,color:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700,paddingBottom:4}}>{d}</div>)}
+                  {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=><div key={d} style={{textAlign:"center",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,paddingBottom:4}}>{d}</div>)}
                   {Array.from({length:firstDow},(_,i)=><div key={"e"+i}/>)}
                   {Array.from({length:daysInMonth},(_,i)=>{
                     const day=i+1,dues=dueDays[day]||[],isToday=day===todayNum,isPast=day<todayNum;
-                    return(<div key={day} style={{textAlign:"center",padding:"5px 2px",borderRadius:7,fontSize:10,fontFamily:"'Syne',sans-serif",fontWeight:dues.length?700:400,
+                    return(<div key={day} style={{textAlign:"center",padding:"5px 2px",borderRadius:7,fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:dues.length?700:400,
                       background:dues.length?`${C.warning}20`:isToday?`${C.accent}20`:"transparent",
                       border:isToday?`1px solid ${C.accent}`:dues.length?`1px solid ${C.warning}40`:`1px solid transparent`,
                       color:dues.length?C.warning:isPast?C.muted:C.text,position:"relative"}}>
@@ -1582,15 +1857,15 @@ if (!user) {
                 </div>
                 {Object.keys(dueDays).length===0?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:10}}>No due dates set on loans or cards.</div>
                   :<div style={{borderTop:`1px solid ${C.border}`,paddingTop:10}}>
-                    <div style={{fontSize:11,color:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700,marginBottom:8}}>DUE THIS MONTH</div>
+                    <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:8}}>DUE THIS MONTH</div>
                     {Object.entries(dueDays).sort((a,b)=>+a[0]-+b[0]).map(([day,items])=>(
                       <div key={day} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
-                        <div style={{width:28,height:28,borderRadius:8,background:`${C.warning}15`,color:C.warning,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:11,flexShrink:0}}>{day}</div>
+                        <div style={{width:28,height:28,borderRadius:8,background:`${C.warning}15`,color:C.warning,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:11,flexShrink:0}}>{day}</div>
                         <div style={{flex:1}}>{items.map((item,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span>{item.name}</span><span style={{color:C.warning,fontWeight:700}}>{fc(item.amt)}</span></div>)}</div>
                       </div>
                     ))}
                     <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700}}>
-                      <span style={{fontFamily:"'Syne',sans-serif"}}>Total Due</span>
+                      <span style={{fontFamily:"'Cabinet Grotesk',sans-serif"}}>Total Due</span>
                       <span style={{color:C.warning}}>{fc(Object.values(dueDays).flat().reduce((s,d)=>s+d.amt,0))}</span>
                     </div>
                   </div>
@@ -1612,7 +1887,7 @@ if (!user) {
                 const endBal=cashFlowForecast[cashFlowForecast.length-1]?.balance||0;
                 const dangerDays=cashFlowForecast.filter(d=>d.balance<0);
                 return(<>
-                  {dangerDays.length>0&&<div style={{padding:"8px 12px",background:`${C.expense}10`,border:`1px solid ${C.expense}25`,borderRadius:10,fontSize:11,color:C.expense,fontFamily:"'Syne',sans-serif",fontWeight:700,marginBottom:10}}>🚨 Balance may go negative starting day {dangerDays[0].day}</div>}
+                  {dangerDays.length>0&&<div style={{padding:"8px 12px",background:`${C.expense}10`,border:`1px solid ${C.expense}25`,borderRadius:10,fontSize:11,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:10}}>🚨 Balance may go negative starting day {dangerDays[0].day}</div>}
                   <ResponsiveContainer width="100%" height={140}>
                     <LineChart data={cashFlowForecast.filter((_,i)=>i%2===0)}>
                       <XAxis dataKey="label" tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false}/>
@@ -1625,7 +1900,7 @@ if (!user) {
                     {[{label:"Now",val:cashLeft,color:cashLeft>=0?C.income:C.expense},{label:"Min (30d)",val:minBal,color:minBal>=0?C.income:C.expense},{label:"Day 30",val:endBal,color:endBal>=0?C.income:C.expense}].map(item=>(
                       <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"9px",textAlign:"center",border:`1px solid ${C.border}`}}>
                         <div className="lbl">{item.label}</div>
-                        <div style={{fontSize:12,fontWeight:700,color:item.color,fontFamily:"'Syne',sans-serif"}}>{fc(item.val)}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(item.val)}</div>
                       </div>
                     ))}
                   </div>
@@ -1652,12 +1927,12 @@ if (!user) {
         <div style={{padding:"20px 20px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:28,height:28,background:"linear-gradient(135deg,#38bdf8,#6366f1)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13}}>₹</div>
-            <span style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:15}}>FinTrack</span>
+            <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15}}>FinTrack</span>
           </div>
           <button onClick={()=>setShowMenu(false)} style={{background:"transparent",border:"none",color:C.muted,fontSize:20,cursor:"pointer",padding:"2px 6px"}}>×</button>
         </div>
         <div style={{padding:"8px 0",flex:1,overflowY:"auto"}}>
-          <div style={{padding:"6px 20px 4px",fontSize:9,color:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Navigation</div>
+          <div style={{padding:"6px 20px 4px",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Navigation</div>
           {ALL_TABS.map(t=>{
             const icons={"Dashboard":"🏠","Plan":"🎯","Cards":"💳","Transactions":"📋","Budget":"📊","Goals":"🌱","Insights":"🔍","Finance":"💹"};
             return(
@@ -1667,7 +1942,7 @@ if (!user) {
             );
           })}
           <div style={{height:1,background:C.border,margin:"8px 16px"}}/>
-          <div style={{padding:"6px 20px 4px",fontSize:9,color:C.muted,fontFamily:"'Syne',sans-serif",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Actions</div>
+          <div style={{padding:"6px 20px 4px",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Actions</div>
           <button className="hmenu-item" onClick={()=>{setShowImport(true);setShowMenu(false);}}>
             <span style={{fontSize:16}}>⬆️</span>Import CSV
           </button>
@@ -1693,7 +1968,7 @@ if (!user) {
       {showTxForm&&(
         <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowTxForm(false),setEditTxId(null))}>
           <div className="sheet">
-            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editTxId?"Edit":"Add"} Transaction</div>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editTxId?"Edit":"Add"} Transaction</div>
             <div style={{display:"flex",gap:6,marginBottom:14,background:C.surface,padding:4,borderRadius:12}}>
               {["expense","income"].map(type=>(
                 <button key={type} className="btn" onClick={()=>setTxForm(p=>({...p,type,category:CATEGORIES[type][0]}))} style={{flex:1,background:txForm.type===type?(type==="income"?C.income:C.expense):"transparent",color:txForm.type===type?"#fff":C.muted}}>
@@ -1746,7 +2021,7 @@ if (!user) {
       {showDebtForm&&(
         <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowDebtForm(false),setEditDebtId(null))}>
           <div className="sheet">
-            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editDebtId?"Edit":"Add"} Loan</div>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editDebtId?"Edit":"Add"} Loan</div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <div className="g2">
                 <div><div className="lbl">Loan Name *</div><input className="inp" placeholder="e.g. Home Loan" value={debtForm.name} onChange={e=>setDebtForm(p=>({...p,name:e.target.value}))}/></div>
@@ -1778,7 +2053,7 @@ if (!user) {
       {showCCForm&&(
         <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowCCForm(false),setEditCCId(null))}>
           <div className="sheet">
-            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editCCId?"Edit":"Add"} Credit Card</div>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editCCId?"Edit":"Add"} Credit Card</div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <div className="g2">
                 <div><div className="lbl">Card Name *</div><input className="inp" placeholder="e.g. HDFC Millennia" value={ccForm.name} onChange={e=>setCcForm(p=>({...p,name:e.target.value}))}/></div>
@@ -1810,11 +2085,11 @@ if (!user) {
       {showImport&&(
         <div className="modal" onClick={e=>e.target===e.currentTarget&&setShowImport(false)}>
           <div className="sheet">
-            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:17,marginBottom:8}}>⬆ Import Bank CSV</div>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:8}}>⬆ Import Bank CSV</div>
             <div style={{fontSize:11,color:C.muted,marginBottom:14,lineHeight:1.7}}>Export your bank statement from net banking/app as CSV. We auto-detect the format — SBI, HDFC, ICICI, Axis, Kotak, Paytm, PhonePe all work.</div>
             <div style={{padding:"20px",border:`2px dashed ${C.border}`,borderRadius:12,textAlign:"center",marginBottom:12,cursor:"pointer",background:C.surface}} onClick={()=>fileRef.current?.click()}>
               <div style={{fontSize:28,marginBottom:6}}>📄</div>
-              <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13}}>Tap to select CSV</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>Tap to select CSV</div>
               <div style={{fontSize:11,color:C.muted}}>Supports most Indian bank formats</div>
               <input ref={fileRef} type="file" accept=".csv,.txt" style={{display:"none"}} onChange={handleImport}/>
             </div>
@@ -1834,7 +2109,7 @@ if (!user) {
       {showCCEmiForm&&(
         <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowCCEmiForm(false),setCcEmiForm({...EMPTY_CC_EMI}))}>
           <div className="sheet">
-            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>
               {ccEmiForm.id?"Edit":"Add"} CC EMI
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1866,7 +2141,7 @@ if (!user) {
               {ccEmiForm.amount&&ccEmiForm.monthsLeft&&(
                 <div style={{padding:"10px 14px",background:`${C.warning}12`,border:`1px solid ${C.warning}25`,borderRadius:10}}>
                   <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Total remaining</div>
-                  <div style={{fontSize:16,fontWeight:700,color:C.warning,fontFamily:"'Syne',sans-serif"}}>
+                  <div style={{fontSize:16,fontWeight:700,color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
                     {fc((parseFloat(ccEmiForm.amount)||0)*(parseFloat(ccEmiForm.monthsLeft)||0))}
                   </div>
                 </div>
@@ -1894,14 +2169,14 @@ function SettingsModal({ C, salary, setSalary, banks, setBanks, onClose }) {
   return(
     <div className="modal" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="sheet">
-        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:17,marginBottom:18}}>⚙️ Settings</div>
+        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:18}}>⚙️ Settings</div>
 
         {/* Auto Salary */}
         <div style={{marginBottom:20}}>
-          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13,marginBottom:10,color:C.accent}}>💰 Auto Monthly Salary</div>
+          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,marginBottom:10,color:C.accent}}>💰 Auto Monthly Salary</div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <div style={{fontSize:12,color:C.muted}}>Auto-add salary every month</div>
-            <button onClick={()=>setSalary(p=>({...p,active:!p.active}))} style={{padding:"5px 14px",borderRadius:20,border:`1px solid ${salary.active?C.income:C.border}`,background:salary.active?`${C.income}15`:"transparent",color:salary.active?C.income:C.muted,cursor:"pointer",fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:11}}>
+            <button onClick={()=>setSalary(p=>({...p,active:!p.active}))} style={{padding:"5px 14px",borderRadius:20,border:`1px solid ${salary.active?C.income:C.border}`,background:salary.active?`${C.income}15`:"transparent",color:salary.active?C.income:C.muted,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:11}}>
               {salary.active?"ON ✓":"OFF"}
             </button>
           </div>
@@ -1919,7 +2194,7 @@ function SettingsModal({ C, salary, setSalary, banks, setBanks, onClose }) {
 
         {/* Banks */}
         <div style={{marginBottom:20}}>
-          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13,marginBottom:10,color:C.accent}}>🏦 My Banks</div>
+          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,marginBottom:10,color:C.accent}}>🏦 My Banks</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
             {banks.map(b=>(
               <div key={b} style={{display:"flex",alignItems:"center",gap:4,background:C.surface,borderRadius:8,padding:"4px 10px",border:`1px solid ${C.border}`}}>
