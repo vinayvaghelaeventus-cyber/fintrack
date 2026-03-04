@@ -29,7 +29,7 @@ const MOBILE_TABS = [
 const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","Insights"];
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0],time:new Date().toTimeString().slice(0,5)};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",tenure:"",notes:""};
-const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",hasEMI:false,emiAmount:"",emiMonthsLeft:"",notes:""};
+const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
 const EMPTY_CC_EMI = {id:null, cardId:"", description:"", amount:"", monthsLeft:"", _totalMonths:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 
@@ -246,6 +246,7 @@ useEffect(() => {
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(async () => {
       if (!user) return;
+      setSaving(true);
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
@@ -500,7 +501,7 @@ FINANCIAL SNAPSHOT:
 - Recommended Strategy: ${recommended.strategy} — ${recommended.reason}
 
 LOANS: ${activeDebts.map(d=>`${d.name} ₹${d.outstanding} @ ${d.interestRate}% EMI:${fc(d.emi)}`).join("; ")||"None"}
-CREDIT CARDS: ${creditCards.map(c=>`${c.name}/${c.bank} out:₹${c.outstanding} limit:₹${c.limit} rate:${c.interestRate}%${c.hasEMI?" EMI:"+fc(c.emiAmount):""}`).join("; ")||"None"}
+CREDIT CARDS: ${creditCards.map(c=>`${c.name}/${c.bank} out:₹${c.outstanding} limit:₹${c.limit} rate:${c.interestRate}%`).join("; ")||"None"}
 
 Provide (use emoji headers, max 350 words):
 ## 🚨 Top 3 Actions (this week, with ₹ amounts)
@@ -1079,12 +1080,6 @@ if (!user) {
                       <div className="pbar"><div className="pfill" style={{width:`${Math.min(det.utilization,100)}%`,background:sc}}/></div>
                       <div style={{fontSize:10,color:C.muted,marginTop:3}}>Keep below 30% for good credit score</div>
                     </div>
-                    {cc.hasEMI&&(
-                      <div style={{marginBottom:10,padding:"8px 12px",background:`${C.warning}10`,border:`1px solid ${C.warning}20`,borderRadius:10}}>
-                        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:11,color:C.warning}}>💳 CC EMI Running</div>
-                        <div style={{fontSize:12,marginTop:2}}>{fc(cc.emiAmount)}/mo · {cc.emiMonthsLeft} months left</div>
-                      </div>
-                    )}
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:10}}>
                       <div style={{background:C.surface,borderRadius:10,padding:"9px"}}>
                         <div className="lbl">Min Due</div>
@@ -1415,21 +1410,6 @@ if (!user) {
                 <div><div className="lbl">Statement Date</div><input className="inp" placeholder="e.g. 15th" value={ccForm.statementDate} onChange={e=>setCcForm(p=>({...p,statementDate:e.target.value}))}/></div>
                 <div><div className="lbl">Payment Due Date</div><input className="inp" type="date" value={ccForm.dueDate} onChange={e=>setCcForm(p=>({...p,dueDate:e.target.value}))}/></div>
               </div>
-              {/* CC EMI Section */}
-              <div style={{background:C.surface,borderRadius:12,padding:"12px",border:`1px solid ${C.border}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                  <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:12}}>💳 Has CC EMI?</div>
-                  <button onClick={()=>setCcForm(p=>({...p,hasEMI:!p.hasEMI}))} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${ccForm.hasEMI?C.income:C.border}`,background:ccForm.hasEMI?`${C.income}15`:"transparent",color:ccForm.hasEMI?C.income:C.muted,cursor:"pointer",fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:11}}>
-                    {ccForm.hasEMI?"Yes ✓":"No"}
-                  </button>
-                </div>
-                {ccForm.hasEMI&&(
-                  <div className="g2">
-                    <div><div className="lbl">EMI Amount ₹/month</div><input className="inp" type="number" placeholder="e.g. 3000" value={ccForm.emiAmount} onChange={e=>setCcForm(p=>({...p,emiAmount:e.target.value}))}/></div>
-                    <div><div className="lbl">Months Remaining</div><input className="inp" type="number" placeholder="e.g. 12" value={ccForm.emiMonthsLeft} onChange={e=>setCcForm(p=>({...p,emiMonthsLeft:e.target.value}))}/></div>
-                  </div>
-                )}
-              </div>
               <div><div className="lbl">Notes</div><input className="inp" placeholder="Any notes" value={ccForm.notes} onChange={e=>setCcForm(p=>({...p,notes:e.target.value}))}/></div>
               <div style={{display:"flex",gap:9}}>
                 <button className="btn" onClick={()=>{setShowCCForm(false);setEditCCId(null);}} style={{flex:1,background:C.border,color:C.muted}}>Cancel</button>
@@ -1464,7 +1444,7 @@ if (!user) {
         </div>
       )}
 
-      {/* CC EMI Form — standalone modal, NOT inside Import */}
+      {/* CC EMI Form — standalone modal */}
       {showCCEmiForm&&(
         <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowCCEmiForm(false),setCcEmiForm({...EMPTY_CC_EMI}))}>
           <div className="sheet">
