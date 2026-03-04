@@ -30,7 +30,7 @@ const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","In
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0],time:new Date().toTimeString().slice(0,5)};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",hasEMI:false,emiAmount:"",emiMonthsLeft:"",notes:""};
-const EMPTY_CC_EMI = {id:null, cardId:"", description:"", amount:"", monthsLeft:""};
+const EMPTY_CC_EMI = {id:null, cardId:"", description:"", amount:"", monthsLeft:"", _totalMonths:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -245,7 +245,7 @@ useEffect(() => {
     if (!loaded) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(async () => {
-      setSaving(true);
+      if (!user) return;
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
@@ -255,7 +255,7 @@ useEffect(() => {
       if (ok) setLastSaved(new Date());
       else setFbStatus("error");
     }, 1200);
-  }, [transactions, debts, creditCards, savings, budgets, banks, salary,
+  }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
       monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode, loaded]);
 
   // ─── AUTO-SALARY CREDIT ──────────────────────────────────────────────────
@@ -402,7 +402,7 @@ function saveCCEmi() {
   if (ccEmiForm.id) {
     setCcEmis(p=>p.map(e=>e.id===ccEmiForm.id?{...ccEmiForm}:e));
   } else {
-    setCcEmis(p=>[...p,{...ccEmiForm, id:Date.now()}]);
+    setCcEmis(p=>[...p,{...ccEmiForm, id:Date.now(), _totalMonths: ccEmiForm._totalMonths || ccEmiForm.monthsLeft}]);
   }
   setCcEmiForm({...EMPTY_CC_EMI});
   setShowCCEmiForm(false);
@@ -1005,7 +1005,7 @@ if (!user) {
   {ccEmis.length===0
     ? <div style={{textAlign:"center",padding:30,color:C.muted,fontSize:12}}>No CC EMIs added yet. Tap + Add EMI to track them.</div>
     : ccEmis.map(emi=>{
-        const card = creditCards.find(c=>c.id===parseInt(emi.cardId));
+        const card = creditCards.find(c=>String(c.id)===String(emi.cardId));
         const totalLeft = (parseFloat(emi.amount)||0)*(parseFloat(emi.monthsLeft)||0);
         const pct = emi._totalMonths ? Math.min(100,((emi._totalMonths - parseFloat(emi.monthsLeft))/emi._totalMonths)*100) : 0;
         return(
@@ -1461,57 +1461,73 @@ if (!user) {
             ))}
             <button className="btn-ghost" onClick={()=>{setShowImport(false);setImportMsg("");setImportPreview([]);}} style={{width:"100%",marginTop:12,textAlign:"center"}}>Close</button>
           </div>
+        </div>
+      )}
 
-
-{/* CC EMI Form */}
-{showCCEmiForm&&(
-  <div className="modal" onClick={e=>e.target===e.currentTarget&&setShowCCEmiForm(false)}>
-    <div className="sheet">
-      <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>
-        {ccEmiForm.id?"Edit":"Add"} Credit Card EMI
-      </div>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        <div>
-          <div className="lbl">Credit Card *</div>
-          <select className="inp" value={ccEmiForm.cardId}
-            onChange={e=>setCcEmiForm(p=>({...p,cardId:e.target.value}))}>
-            <option value="">Select Card</option>
-            {creditCards.map(c=><option key={c.id} value={c.id}>{c.name} · {c.bank}</option>)}
-          </select>
-        </div>
-        <div>
-          <div className="lbl">Description</div>
-          <input className="inp" placeholder="e.g. iPhone 15, Samsung TV" value={ccEmiForm.description}
-            onChange={e=>setCcEmiForm(p=>({...p,description:e.target.value}))}/>
-        </div>
-        <div className="g2">
-          <div>
-            <div className="lbl">EMI Amount ₹/month</div>
-            <input className="inp" type="number" placeholder="e.g. 3000" value={ccEmiForm.amount}
-              onChange={e=>setCcEmiForm(p=>({...p,amount:e.target.value}))}/>
+      {/* CC EMI Form — standalone modal, NOT inside Import */}
+      {showCCEmiForm&&(
+        <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowCCEmiForm(false),setCcEmiForm({...EMPTY_CC_EMI}))}>
+          <div className="sheet">
+            <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>
+              {ccEmiForm.id?"Edit":"Add"} Credit Card EMI
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div>
+                <div className="lbl">Select Credit Card *</div>
+                <select className="inp" value={ccEmiForm.cardId}
+                  onChange={e=>setCcEmiForm(p=>({...p,cardId:e.target.value}))}>
+                  <option value="">-- Select a Card --</option>
+                  {creditCards.map(c=>(
+                    <option key={c.id} value={String(c.id)}>{c.name} · {c.bank}</option>
+                  ))}
+                </select>
+                {creditCards.length===0&&(
+                  <div style={{fontSize:11,color:C.expense,marginTop:4}}>
+                    ⚠️ No cards added yet. Add a credit card first.
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="lbl">What did you buy?</div>
+                <input className="inp" placeholder="e.g. iPhone 15, Samsung TV, Laptop"
+                  value={ccEmiForm.description}
+                  onChange={e=>setCcEmiForm(p=>({...p,description:e.target.value}))}/>
+              </div>
+              <div className="g2">
+                <div>
+                  <div className="lbl">EMI Amount ₹/month</div>
+                  <input className="inp" type="number" placeholder="e.g. 3500"
+                    value={ccEmiForm.amount}
+                    onChange={e=>setCcEmiForm(p=>({...p,amount:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Months Remaining</div>
+                  <input className="inp" type="number" placeholder="e.g. 9"
+                    value={ccEmiForm.monthsLeft}
+                    onChange={e=>setCcEmiForm(p=>({
+                      ...p,
+                      monthsLeft: e.target.value,
+                      _totalMonths: p._totalMonths || e.target.value
+                    }))}/>
+                </div>
+              </div>
+              {ccEmiForm.amount&&ccEmiForm.monthsLeft&&(
+                <div style={{padding:"10px 14px",background:`${C.warning}12`,border:`1px solid ${C.warning}25`,borderRadius:10}}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Total amount remaining</div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.warning,fontFamily:"'Syne',sans-serif"}}>
+                    {fc((parseFloat(ccEmiForm.amount)||0)*(parseFloat(ccEmiForm.monthsLeft)||0))}
+                  </div>
+                </div>
+              )}
+              <div style={{display:"flex",gap:9,marginTop:4}}>
+                <button className="btn" onClick={()=>{setShowCCEmiForm(false);setCcEmiForm({...EMPTY_CC_EMI});}}
+                  style={{flex:1,background:C.border,color:C.muted}}>Cancel</button>
+                <button className="btn btn-p" onClick={saveCCEmi} style={{flex:2}}>
+                  {ccEmiForm.id?"Save Changes":"Add EMI"}
+                </button>
+              </div>
+            </div>
           </div>
-          <div>
-            <div className="lbl">Months Remaining</div>
-            <input className="inp" type="number" placeholder="e.g. 12" value={ccEmiForm.monthsLeft}
-              onChange={e=>setCcEmiForm(p=>({...p,monthsLeft:e.target.value,_totalMonths:p._totalMonths||e.target.value}))}/>
-          </div>
-        </div>
-        {ccEmiForm.amount && ccEmiForm.monthsLeft && (
-          <div style={{padding:"10px 12px",background:`${C.warning}10`,borderRadius:10,fontSize:12,color:C.warning,fontFamily:"'Syne',sans-serif",fontWeight:700}}>
-            Total remaining: {fc((parseFloat(ccEmiForm.amount)||0)*(parseFloat(ccEmiForm.monthsLeft)||0))}
-          </div>
-        )}
-        <div style={{display:"flex",gap:9,marginTop:4}}>
-          <button className="btn" onClick={()=>setShowCCEmiForm(false)} style={{flex:1,background:C.border,color:C.muted}}>Cancel</button>
-          <button className="btn btn-p" onClick={saveCCEmi} style={{flex:2}}>{ccEmiForm.id?"Save Changes":"Add EMI"}</button>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-            
-
-            
         </div>
       )}
 
