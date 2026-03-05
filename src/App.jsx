@@ -34,11 +34,11 @@ const CAT_COLORS = ["#38bdf8","#10b981","#f59e0b","#6366f1","#f43f5e","#a78bfa",
 const MOBILE_TABS = [
   {id:"Dashboard",    icon:"🏠", label:"Home"},
   {id:"Plan",         icon:"🎯", label:"Plan"},
-  {id:"Cards",        icon:"💳", label:"Cards"},
+  {id:"CA",           icon:"🧠", label:"CA"},
   {id:"Transactions", icon:"📋", label:"Txns"},
   {id:"Finance",      icon:"📊", label:"Finance"},
 ];
-const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","Insights","Finance","Smart"];
+const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","Insights","Finance","Smart","CA"];
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0],time:new Date().toTimeString().slice(0,5)};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
@@ -251,7 +251,18 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
 
-  // ── Filters ──
+  // ── CA Advisor ──
+  const [caTab, setCaTab]                   = useState("roadmap"); // roadmap | prescription | whatif
+  const [prescription, setPrescription]     = useState(null);
+  const [prescLoading, setPrescLoading]     = useState(false);
+  const [roadmapData, setRoadmapData]       = useState(null);
+  const [roadmapLoading, setRoadmapLoading] = useState(false);
+  // What-If state
+  const [wiType, setWiType]       = useState("bonus");    // bonus | newloan | cutexpense | prepay
+  const [wiAmount, setWiAmount]   = useState("");
+  const [wiTarget, setWiTarget]   = useState("");         // loan id for prepay
+  const [wiResult, setWiResult]   = useState(null);
+  const [wiLoading, setWiLoading] = useState(false);
   const [txSearch, setTxSearch] = useState("");
   const [txType, setTxType]     = useState("all");
   const [txMode, setTxMode]     = useState("all");
@@ -310,6 +321,7 @@ useEffect(() => {
           if (data.allocationPct) setAllocationPct(data.allocationPct);
           if (data.customCats)    setCustomCats(data.customCats);
           if (data.recurringBills) setRecurringBills(data.recurringBills);
+          if (data.prescription)  setPrescription(data.prescription);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -332,7 +344,7 @@ useEffect(() => {
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-        accounts, allocationPct, customCats, recurringBills,
+        accounts, allocationPct, customCats, recurringBills, prescription,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -341,7 +353,7 @@ useEffect(() => {
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
       monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-      accounts, allocationPct, customCats, recurringBills, loaded]);
+      accounts, allocationPct, customCats, recurringBills, prescription, loaded]);
 
   // ─── AUTO-SALARY CREDIT ──────────────────────────────────────────────────
   useEffect(() => {
@@ -921,7 +933,167 @@ Provide (use emoji headers, max 350 words):
     setAiLoading(false);
   },[effectiveIncome,totalEMI,totalCCEMI,totalExpense,cashLeft,totalOutstanding,totalCCOut,health,activeDebts,creditCards,extraFund,recommended]);
 
-  // ─── STYLES ──────────────────────────────────────────────────────────────
+  // ─── CA ADVISOR HELPERS ───────────────────────────────────────────────────
+  const buildFinContext = useCallback(() => {
+    const dti = effectiveIncome>0?((totalEMI+totalCCEMI)/effectiveIncome*100).toFixed(1):"0";
+    return `FINANCIAL CONTEXT (India, ₹):
+Income: ${fc(effectiveIncome)}/mo | Cash Left: ${fc(cashLeft)}/mo | DTI: ${dti}%
+Expenses: ${fc(totalExpense)}/mo | Health Score: ${health.score}/100 (${health.grade})
+Savings: ${fc(savingsTotal)} | Emergency Fund: ${fc(parseFloat(emergencyFund)||0)}
+LOANS (${activeDebts.length}): ${activeDebts.map(d=>`${d.name}|${d.lender}|outstanding:₹${d.outstanding}|EMI:₹${d.emi}|rate:${d.interestRate}%|due:${d.dueDate||"?"}`).join(" ; ")||"None"}
+CREDIT CARDS (${creditCards.length}): ${creditCards.map(c=>`${c.name}|${c.bank}|out:₹${c.outstanding}|limit:₹${c.limit}|rate:${c.interestRate}%|due:${c.dueDate||"?"}`).join(" ; ")||"None"}
+CC EMIs: ${ccEmis.map(e=>`${e.description||"EMI"}:₹${e.amount}x${e.monthsLeft}mo`).join(", ")||"None"}
+Strategy: ${strategy} | Extra/mo: ${fc(parseFloat(extraFund)||0)}
+Total Owed: ${fc(totalOutstanding+totalCCOut)} | Total EMI/mo: ${fc(totalEMI+totalCCEMI)}`;
+  }, [effectiveIncome,cashLeft,totalEMI,totalCCEMI,totalExpense,health,savingsTotal,emergencyFund,activeDebts,creditCards,ccEmis,totalOutstanding,totalCCOut,strategy,extraFund]);
+
+  // ── Monthly Prescription ──────────────────────────────────────────────────
+  const getPrescription = useCallback(async()=>{
+    setPrescLoading(true); setPrescription(null);
+    const month = new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"});
+    const prompt=`You are a CA (Chartered Accountant) advisor for India. Analyse this person's finances and write a monthly prescription.
+
+${buildFinContext()}
+
+Write a MONTHLY PRESCRIPTION for ${month}. Format EXACTLY like this (use these exact headers):
+
+## 💊 PRESCRIPTION — ${month}
+
+**Rx1 — [Action title]**
+Action: [Exact ₹ amount and what to do]
+Why: [One line reason with specific numbers]
+Impact: [Measurable outcome]
+
+**Rx2 — [Action title]**  
+Action: [Exact ₹ amount and what to do]
+Why: [One line reason]
+Impact: [Measurable outcome]
+
+**Rx3 — [Action title]**
+Action: [Exact ₹ amount and what to do]
+Why: [One line reason]
+Impact: [Measurable outcome]
+
+## 🚨 CRITICAL WARNING (if any)
+[One specific warning based on their numbers, or "None this month ✅"]
+
+## 📊 THIS MONTH'S TARGET
+Health Score goal: [current] → [achievable target]
+One metric to move: [specific metric with target]
+
+## ❤️ MOTIVATION
+[One powerful, personal sentence about their debt-free journey based on their actual numbers]
+
+Be extremely specific with ₹ amounts. Max 300 words total.`;
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})});
+      const data = await res.json();
+      const text = data.content?.[0]?.text || "Could not generate. Try again.";
+      setPrescription({text, month, generatedAt: new Date().toISOString()});
+    } catch { setPrescription({text:"Connection error. Try again.", month, generatedAt:new Date().toISOString()}); }
+    setPrescLoading(false);
+  },[buildFinContext]);
+
+  // ── Debt Exit Roadmap ─────────────────────────────────────────────────────
+  const getRoadmap = useCallback(async()=>{
+    setRoadmapLoading(true); setRoadmapData(null);
+    const prompt=`You are a CA advisor for India. Build a precise debt exit roadmap.
+
+${buildFinContext()}
+
+Respond ONLY with a valid JSON object (no markdown, no backticks, no explanation):
+{
+  "summaryLine": "one powerful sentence about their journey to debt freedom",
+  "debtFreeDate": "Month Year (e.g. April 2028)",
+  "debtFreeWithExtra": "Month Year if they add extra each month (null if no extra set)",
+  "monthsSaved": number,
+  "interestSaved": number,
+  "milestones": [
+    {
+      "month": "Month Year",
+      "event": "short description (e.g. Bike Loan CLOSED)",
+      "type": "close|payment|goal|freedom",
+      "freedEMI": number,
+      "cumulativeFreed": number,
+      "balance": number
+    }
+  ],
+  "phases": [
+    {
+      "label": "Phase 1 — Attack [loan name]",
+      "months": "Month Year – Month Year",
+      "action": "specific action in ₹",
+      "result": "what happens at end of phase"
+    }
+  ],
+  "bonusTips": [
+    "specific tip with ₹ amount relevant to their situation"
+  ],
+  "cibilWarnings": [
+    "specific CIBIL-related warning if applicable"
+  ]
+}`;
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,messages:[{role:"user",content:prompt}]})});
+      const data = await res.json();
+      const raw = data.content?.[0]?.text||"{}";
+      const clean = raw.replace(/```json|```/g,"").trim();
+      setRoadmapData(JSON.parse(clean));
+    } catch(e) { setRoadmapData({error:"Could not generate roadmap. Check your loan data in Plan tab and try again."}); }
+    setRoadmapLoading(false);
+  },[buildFinContext]);
+
+  // ── What-If Simulator ─────────────────────────────────────────────────────
+  const runWhatIf = useCallback(async()=>{
+    if (!wiAmount && wiType!=="cutexpense") return;
+    setWiLoading(true); setWiResult(null);
+    const targetLoan = activeDebts.find(d=>String(d.id)===String(wiTarget));
+    const scenarios = {
+      bonus: `I received a windfall/bonus of ₹${wiAmount}. Should I prepay a specific loan, split across loans, invest, or keep as buffer? Which exact loan and how much?`,
+      newloan: `I am considering taking a NEW loan of ₹${wiAmount} (monthly EMI would be approx ₹${Math.round((parseFloat(wiAmount)||0)*0.025)}). How does this impact my finances, DTI, health score, and debt-free date?`,
+      cutexpense: `If I reduce my monthly expenses by ₹${wiAmount||2000}, what is the best way to redirect this money? Which loan to attack and what's the impact?`,
+      prepay: `I have ₹${wiAmount} to make a lump-sum prepayment. Target loan: ${targetLoan?`${targetLoan.name} (outstanding ₹${targetLoan.outstanding}, EMI ₹${targetLoan.emi}, ${targetLoan.interestRate}%)` : "the most optimal loan"}. Calculate exact months saved and interest saved.`,
+    };
+    const prompt=`You are a CA advisor for India. Answer this What-If scenario.
+
+${buildFinContext()}
+
+SCENARIO: ${scenarios[wiType]}
+
+Respond ONLY with valid JSON (no markdown, no backticks):
+{
+  "verdict": "✅ Good Move|⚠️ Risky|❌ Avoid|💡 Consider This Instead",
+  "headline": "one punchy sentence summarising the impact",
+  "before": {
+    "debtFreeMonths": number,
+    "healthScore": number,
+    "monthlyEMI": number,
+    "totalInterestRemaining": number
+  },
+  "after": {
+    "debtFreeMonths": number,
+    "healthScore": number,
+    "monthlyEMI": number,
+    "totalInterestRemaining": number
+  },
+  "monthsSaved": number,
+  "interestSaved": number,
+  "recommendation": "2-3 sentences of specific actionable advice with exact ₹ amounts",
+  "steps": [
+    "Step 1: ...",
+    "Step 2: ..."
+  ],
+  "caution": "one specific risk or caution to be aware of, or null"
+}`;
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})});
+      const data = await res.json();
+      const raw = data.content?.[0]?.text||"{}";
+      const clean = raw.replace(/```json|```/g,"").trim();
+      setWiResult(JSON.parse(clean));
+    } catch(e) { setWiResult({error:"Could not analyse. Try again."}); }
+    setWiLoading(false);
+  },[buildFinContext, wiType, wiAmount, wiTarget, activeDebts]);
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
     
@@ -1340,7 +1512,7 @@ if (!user) {
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
             <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>setTab(t)}>
-              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Goals"?"🌱 Goals":t==="Finance"?"📊 Finance":t==="Smart"?"⚡ Smart":t}
+              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Goals"?"🌱 Goals":t==="Finance"?"📊 Finance":t==="Smart"?"⚡ Smart":t==="CA"?"🧠 CA Advisor":t}
             </button>
           ))}
         </div>
@@ -2424,6 +2596,366 @@ if (!user) {
               </div>
             </div>
           </div>
+
+        </>}
+
+        {/* ════════ CA ADVISOR ════════ */}
+        {tab==="CA"&&<>
+
+          {/* ── Header ── */}
+          <div style={{marginBottom:16,padding:"16px 18px",background:`linear-gradient(135deg,${C.accent}15,${C.loan}10)`,borderRadius:18,border:`1px solid ${C.accent}25`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,marginBottom:4}}>🧠 CA Advisor</div>
+                <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>Your personal Chartered Accountant — knows your exact numbers.<br/>Roadmap · Monthly Prescription · What-If Scenarios</div>
+              </div>
+              <div style={{background:`${C.accent}20`,borderRadius:12,padding:"8px 14px",textAlign:"center"}}>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:C.accent}}>{health.score}</div>
+                <div style={{fontSize:10,color:C.muted,letterSpacing:1}}>HEALTH</div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Sub-tab switcher ── */}
+          <div style={{display:"flex",gap:6,marginBottom:16,padding:"4px",background:C.surface,borderRadius:14,border:`1px solid ${C.border}`}}>
+            {[
+              {id:"roadmap",     icon:"🗺️", label:"Exit Roadmap"},
+              {id:"prescription",icon:"💊", label:"Prescription"},
+              {id:"whatif",      icon:"🔮", label:"What-If"},
+            ].map(t=>(
+              <button key={t.id} onClick={()=>setCaTab(t.id)} style={{
+                flex:1,padding:"10px 6px",borderRadius:10,border:"none",cursor:"pointer",
+                background:caTab===t.id?C.accent:"transparent",
+                color:caTab===t.id?"#fff":C.muted,
+                fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,
+                transition:"all 0.2s",
+              }}>
+                <div style={{fontSize:16,marginBottom:2}}>{t.icon}</div>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ══ DEBT EXIT ROADMAP ══ */}
+          {caTab==="roadmap"&&<>
+            <div className="card" style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div className="stitle" style={{marginBottom:2}}>🗺️ Debt Exit Roadmap</div>
+                  <div style={{fontSize:11,color:C.muted}}>Your personalised path to ₹0 debt — with exact dates</div>
+                </div>
+                <button className="btn btn-ai btn-sm" onClick={getRoadmap} disabled={roadmapLoading}>
+                  {roadmapLoading?"⏳ Calculating...":"✨ Generate Roadmap"}
+                </button>
+              </div>
+
+              {!roadmapData&&!roadmapLoading&&(
+                <div style={{textAlign:"center",padding:"28px 16px",color:C.muted}}>
+                  <div style={{fontSize:40,marginBottom:10}}>🗺️</div>
+                  <div style={{fontSize:13,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:6}}>See your exact debt-free date</div>
+                  <div style={{fontSize:11,lineHeight:1.8}}>The CA will analyse all your loans, EMIs, and cash flow<br/>then build a month-by-month roadmap to freedom.</div>
+                  {activeDebts.length===0&&<div style={{marginTop:10,fontSize:11,color:C.warning}}>⚠️ Add loans in Plan tab first</div>}
+                </div>
+              )}
+
+              {roadmapLoading&&(
+                <div style={{padding:"20px 0"}}>
+                  {[90,75,85,60,70,80].map((w,i)=>(
+                    <div key={i} className="shimmer" style={{height:14,marginBottom:10,width:w+"%",borderRadius:7}}/>
+                  ))}
+                </div>
+              )}
+
+              {roadmapData&&!roadmapData.error&&(
+                <>
+                  {/* Summary banner */}
+                  <div style={{padding:"14px 16px",background:`linear-gradient(135deg,${C.income}12,${C.accent}08)`,borderRadius:14,border:`1px solid ${C.income}25`,marginBottom:16}}>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income,marginBottom:6}}>{roadmapData.summaryLine}</div>
+                    <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+                      <div><div className="lbl">Debt-Free By</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.income}}>{roadmapData.debtFreeDate}</div></div>
+                      {roadmapData.debtFreeWithExtra&&<div><div className="lbl">With Extra ₹/mo</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.accent}}>{roadmapData.debtFreeWithExtra}</div></div>}
+                      {roadmapData.monthsSaved>0&&<div><div className="lbl">Months Saved</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.warning}}>{roadmapData.monthsSaved}mo</div></div>}
+                      {roadmapData.interestSaved>0&&<div><div className="lbl">Interest Saved</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.income}}>{fc(roadmapData.interestSaved)}</div></div>}
+                    </div>
+                  </div>
+
+                  {/* Phases */}
+                  {roadmapData.phases?.length>0&&(
+                    <div style={{marginBottom:16}}>
+                      <div className="lbl" style={{marginBottom:8}}>ATTACK PHASES</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {roadmapData.phases.map((p,i)=>{
+                          const colors=[C.expense,C.warning,C.accent,C.income,C.loan];
+                          const pc=colors[i%colors.length];
+                          return(
+                            <div key={i} style={{display:"flex",gap:12,padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${pc}25`}}>
+                              <div style={{width:28,height:28,borderRadius:8,background:`${pc}20`,color:pc,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:12,flexShrink:0}}>{i+1}</div>
+                              <div style={{flex:1}}>
+                                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:pc,marginBottom:2}}>{p.label}</div>
+                                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{p.months}</div>
+                                <div style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{p.action}</div>
+                                <div style={{fontSize:11,color:C.income,marginTop:3}}>→ {p.result}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Milestones timeline */}
+                  {roadmapData.milestones?.length>0&&(
+                    <div style={{marginBottom:16}}>
+                      <div className="lbl" style={{marginBottom:8}}>KEY MILESTONES</div>
+                      <div style={{position:"relative",paddingLeft:20}}>
+                        <div style={{position:"absolute",left:7,top:8,bottom:8,width:2,background:`${C.border}`,borderRadius:2}}/>
+                        {roadmapData.milestones.map((m,i)=>{
+                          const dotColor = m.type==="freedom"?C.income:m.type==="close"?C.accent:m.type==="goal"?C.warning:C.loan;
+                          return(
+                            <div key={i} style={{display:"flex",gap:12,marginBottom:12,position:"relative"}}>
+                              <div style={{width:16,height:16,borderRadius:"50%",background:dotColor,border:`2px solid ${C.card}`,flexShrink:0,zIndex:1,boxShadow:`0 0 6px ${dotColor}60`,marginTop:2}}/>
+                              <div style={{flex:1,padding:"8px 12px",background:m.type==="freedom"?`${C.income}10`:C.surface,borderRadius:10,border:`1px solid ${m.type==="freedom"?C.income+"30":C.border}`}}>
+                                <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
+                                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:dotColor}}>{m.event}</div>
+                                  <div style={{fontSize:10,color:C.muted}}>{m.month}</div>
+                                </div>
+                                {m.freedEMI>0&&<div style={{fontSize:11,color:C.income,marginTop:2}}>+{fc(m.freedEMI)}/mo freed → total freed: {fc(m.cumulativeFreed)}/mo</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Bonus tips & CIBIL warnings */}
+                  {roadmapData.bonusTips?.length>0&&(
+                    <div style={{marginBottom:12}}>
+                      <div className="lbl" style={{marginBottom:8}}>💡 ACCELERATOR TIPS</div>
+                      {roadmapData.bonusTips.map((tip,i)=>(
+                        <div key={i} style={{fontSize:12,color:C.muted,padding:"7px 12px",background:C.surface,borderRadius:8,marginBottom:6,borderLeft:`3px solid ${C.accent}`}}>{tip}</div>
+                      ))}
+                    </div>
+                  )}
+                  {roadmapData.cibilWarnings?.length>0&&(
+                    <div>
+                      <div className="lbl" style={{marginBottom:8}}>⚠️ CIBIL ALERTS</div>
+                      {roadmapData.cibilWarnings.map((w,i)=>(
+                        <div key={i} style={{fontSize:12,color:C.warning,padding:"7px 12px",background:`${C.warning}10`,borderRadius:8,marginBottom:6,borderLeft:`3px solid ${C.warning}`}}>{w}</div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+              {roadmapData?.error&&<div style={{padding:16,color:C.expense,fontSize:12}}>{roadmapData.error}</div>}
+            </div>
+          </>}
+
+          {/* ══ MONTHLY PRESCRIPTION ══ */}
+          {caTab==="prescription"&&<>
+            <div className="card" style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div className="stitle" style={{marginBottom:2}}>💊 Monthly Prescription</div>
+                  <div style={{fontSize:11,color:C.muted}}>3 exact actions to take this month — like a CA's prescription pad</div>
+                </div>
+                <button className="btn btn-ai btn-sm" onClick={getPrescription} disabled={prescLoading}>
+                  {prescLoading?"⏳ Writing...":prescription?"↻ Refresh":"✨ Get Prescription"}
+                </button>
+              </div>
+
+              {!prescription&&!prescLoading&&(
+                <div style={{textAlign:"center",padding:"28px 16px",color:C.muted}}>
+                  <div style={{fontSize:40,marginBottom:10}}>💊</div>
+                  <div style={{fontSize:13,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:6}}>Your CA writes your monthly action plan</div>
+                  <div style={{fontSize:11,lineHeight:1.8}}>3 specific actions with exact ₹ amounts.<br/>Refreshes each month as your situation changes.</div>
+                </div>
+              )}
+
+              {prescLoading&&(
+                <div style={{padding:"20px 0"}}>
+                  {[85,70,90,65,80,75,60].map((w,i)=>(
+                    <div key={i} className="shimmer" style={{height:14,marginBottom:10,width:w+"%",borderRadius:7}}/>
+                  ))}
+                </div>
+              )}
+
+              {prescription&&!prescLoading&&(
+                <div>
+                  <div className="ai-txt" style={{lineHeight:1.9}}>{prescription.text}</div>
+                  <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                    <div style={{fontSize:10,color:C.muted,fontFamily:"'JetBrains Mono',monospace"}}>
+                      Generated: {prescription.generatedAt?new Date(prescription.generatedAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—"}
+                    </div>
+                    <div style={{fontSize:10,color:C.muted}}>⚠️ For planning only. Consult a SEBI-registered advisor for investments.</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>}
+
+          {/* ══ WHAT-IF SIMULATOR ══ */}
+          {caTab==="whatif"&&<>
+            <div className="card" style={{marginBottom:12}}>
+              <div className="stitle" style={{marginBottom:4}}>🔮 What-If Simulator</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:16}}>Ask "what happens if I…" — get instant CA-level analysis</div>
+
+              {/* Scenario type selector */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+                {[
+                  {id:"bonus",      icon:"💰", label:"I get a Bonus",        sub:"Windfall allocation"},
+                  {id:"prepay",     icon:"🎯", label:"I Prepay a Loan",      sub:"Lump-sum impact"},
+                  {id:"cutexpense", icon:"✂️",  label:"I Cut Expenses",       sub:"Redirect savings"},
+                  {id:"newloan",    icon:"⚠️",  label:"I Take a New Loan",    sub:"Impact analysis"},
+                ].map(s=>(
+                  <button key={s.id} onClick={()=>{setWiType(s.id);setWiResult(null);}} style={{
+                    padding:"12px",borderRadius:12,border:`1px solid ${wiType===s.id?C.accent+"60":C.border}`,
+                    background:wiType===s.id?`${C.accent}12`:C.surface,cursor:"pointer",textAlign:"left",
+                    transition:"all 0.2s",
+                  }}>
+                    <div style={{fontSize:20,marginBottom:4}}>{s.icon}</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:wiType===s.id?C.accent:C.text}}>{s.label}</div>
+                    <div style={{fontSize:10,color:C.muted}}>{s.sub}</div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Input */}
+              <div style={{padding:"14px",background:C.surface,borderRadius:14,border:`1px solid ${C.border}`,marginBottom:14}}>
+                <div className="g2" style={{gap:10}}>
+                  <div>
+                    <div className="lbl">{wiType==="cutexpense"?"Monthly Savings ₹":"Amount ₹"}</div>
+                    <input className="inp" type="number" placeholder={wiType==="bonus"?"e.g. 20000":wiType==="newloan"?"e.g. 50000":wiType==="cutexpense"?"e.g. 2000":"e.g. 15000"}
+                      value={wiAmount} onChange={e=>{setWiAmount(e.target.value);setWiResult(null);}}/>
+                  </div>
+                  {wiType==="prepay"&&(
+                    <div>
+                      <div className="lbl">Target Loan</div>
+                      <select className="inp" value={wiTarget} onChange={e=>{setWiTarget(e.target.value);setWiResult(null);}}>
+                        <option value="">Best loan (auto)</option>
+                        {activeDebts.map(d=><option key={d.id} value={d.id}>{d.name} — {fc(d.outstanding)}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <button className="btn btn-ai" style={{width:"100%",marginTop:12}} onClick={runWhatIf} disabled={wiLoading||(!wiAmount&&wiType!=="cutexpense")}>
+                  {wiLoading?"⏳ Analysing...":"🔮 Analyse This Scenario"}
+                </button>
+              </div>
+
+              {/* Loading */}
+              {wiLoading&&(
+                <div style={{padding:"16px 0"}}>
+                  {[80,65,90,70,75].map((w,i)=>(
+                    <div key={i} className="shimmer" style={{height:13,marginBottom:9,width:w+"%",borderRadius:6}}/>
+                  ))}
+                </div>
+              )}
+
+              {/* Results */}
+              {wiResult&&!wiResult.error&&!wiLoading&&(
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {/* Verdict */}
+                  <div style={{padding:"14px 16px",background:wiResult.verdict?.includes("✅")?`${C.income}10`:wiResult.verdict?.includes("❌")?`${C.expense}10`:`${C.warning}10`,borderRadius:14,border:`1px solid ${wiResult.verdict?.includes("✅")?C.income+"30":wiResult.verdict?.includes("❌")?C.expense+"30":C.warning+"30"}`}}>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,marginBottom:4}}>{wiResult.verdict}</div>
+                    <div style={{fontSize:13,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{wiResult.headline}</div>
+                  </div>
+
+                  {/* Before vs After */}
+                  {wiResult.before&&wiResult.after&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      {[
+                        {label:"BEFORE",data:wiResult.before,color:C.muted},
+                        {label:"AFTER",data:wiResult.after,color:C.income},
+                      ].map(side=>(
+                        <div key={side.label} style={{padding:"12px",background:C.surface,borderRadius:12,border:`1px solid ${side.color}25`}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:11,color:side.color,letterSpacing:1,marginBottom:8}}>{side.label}</div>
+                          {[
+                            {k:"debtFreeMonths",l:"Debt Free"},
+                            {k:"healthScore",l:"Health Score"},
+                            {k:"monthlyEMI",l:"Monthly EMI",money:true},
+                            {k:"totalInterestRemaining",l:"Interest Left",money:true},
+                          ].map(row=>(
+                            <div key={row.k} style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11}}>
+                              <span style={{color:C.muted}}>{row.l}</span>
+                              <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,color:side.color}}>
+                                {row.money?fc(side.data[row.k]):row.k==="debtFreeMonths"?`${side.data[row.k]}mo`:`${side.data[row.k]}/100`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Savings summary */}
+                  {(wiResult.monthsSaved>0||wiResult.interestSaved>0)&&(
+                    <div style={{display:"flex",gap:8}}>
+                      {wiResult.monthsSaved>0&&<div style={{flex:1,padding:"10px",background:`${C.income}10`,borderRadius:12,textAlign:"center",border:`1px solid ${C.income}25`}}>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,color:C.income}}>{wiResult.monthsSaved}mo</div>
+                        <div style={{fontSize:10,color:C.muted}}>months saved</div>
+                      </div>}
+                      {wiResult.interestSaved>0&&<div style={{flex:1,padding:"10px",background:`${C.income}10`,borderRadius:12,textAlign:"center",border:`1px solid ${C.income}25`}}>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.income}}>{fc(wiResult.interestSaved)}</div>
+                        <div style={{fontSize:10,color:C.muted}}>interest saved</div>
+                      </div>}
+                    </div>
+                  )}
+
+                  {/* Recommendation */}
+                  <div style={{padding:"12px 14px",background:`${C.accent}08`,borderRadius:12,border:`1px solid ${C.accent}25`}}>
+                    <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,marginBottom:6}}>CA RECOMMENDATION</div>
+                    <div style={{fontSize:13,lineHeight:1.8,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{wiResult.recommendation}</div>
+                  </div>
+
+                  {/* Steps */}
+                  {wiResult.steps?.length>0&&(
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {wiResult.steps.map((step,i)=>(
+                        <div key={i} style={{display:"flex",gap:10,padding:"8px 12px",background:C.surface,borderRadius:10,fontSize:12}}>
+                          <div style={{width:20,height:20,borderRadius:"50%",background:`${C.accent}20`,color:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:10,flexShrink:0}}>{i+1}</div>
+                          <span>{step.replace(/^Step \d+:\s*/,"")}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Caution */}
+                  {wiResult.caution&&(
+                    <div style={{fontSize:12,color:C.warning,padding:"8px 12px",background:`${C.warning}10`,borderRadius:10,border:`1px solid ${C.warning}25`}}>
+                      ⚠️ {wiResult.caution}
+                    </div>
+                  )}
+                </div>
+              )}
+              {wiResult?.error&&<div style={{padding:12,color:C.expense,fontSize:12}}>{wiResult.error}</div>}
+            </div>
+
+            {/* Quick-fire scenarios */}
+            <div className="card" style={{marginBottom:12}}>
+              <div className="stitle" style={{marginBottom:10}}>⚡ Quick Scenarios</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {[
+                  {type:"bonus",amount:"10000",label:"₹10,000 bonus — best use?"},
+                  {type:"bonus",amount:"25000",label:"₹25,000 bonus — prepay or invest?"},
+                  {type:"cutexpense",amount:"2000",label:"Cut ₹2,000/mo from food — impact?"},
+                  {type:"prepay",amount:"5000",label:"₹5,000 prepayment — which loan?"},
+                  {type:"newloan",amount:"100000",label:"New ₹1L loan — can I afford it?"},
+                ].map((s,i)=>(
+                  <button key={i} onClick={()=>{setWiType(s.type);setWiAmount(s.amount);setWiResult(null);}} style={{
+                    textAlign:"left",padding:"10px 14px",borderRadius:10,background:C.surface,
+                    border:`1px solid ${C.border}`,cursor:"pointer",fontSize:12,
+                    fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,color:C.text,
+                    transition:"all 0.15s",
+                  }}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent+"50"}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                    {s.label} →
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>}
 
         </>}
 
