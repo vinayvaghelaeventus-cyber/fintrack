@@ -56,7 +56,7 @@ const fc = n => new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",m
 const fd = d => { try { return new Date(d).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}); } catch { return "—"; }};
 const today = () => new Date().toISOString().split("T")[0];
 function daysUntil(ds){ if(!ds)return null; const d=new Date(ds),t=new Date(); t.setHours(0,0,0,0); d.setHours(0,0,0,0); return Math.ceil((d-t)/864e5); }
-function toCSV(rows,headers){ return [headers.join(","),...rows.map(r=>headers.map(h=>`"${String(r[h]??"").replace(/"/g,'''')}"`).join(","))].join("\n"); }
+function toCSV(rows,headers){ return [headers.join(","),...rows.map(r=>headers.map(h=>{ const v=String(r[h]??""); return '"'+v.split('"').join('""')+'"'; }).join(","))].join("\n"); }
 function dlCSV(c,f){ const a=document.createElement("a"); a.href="data:text/csv;charset=utf-8,\uFEFF"+encodeURIComponent(c); a.download=f; a.click(); }
 function dlXLS(rows, headers, sheetName, filename) {
   const esc = v => String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
