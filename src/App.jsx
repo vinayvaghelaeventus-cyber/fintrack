@@ -485,7 +485,6 @@ const filterByPeriod = useCallback((txList, period) => {
 , [transactions,txType,txMode,txBank,txSearch]);
 
   // ─── NEW FEATURE COMPUTEDS ────────────────────────────────────────────────
-  const netWorth = useMemo(()=>savingsTotal+totalAccountBalance-totalOutstanding-totalCCOut,[savingsTotal,totalAccountBalance,totalOutstanding,totalCCOut]);
   const thisMonthTx = useMemo(()=>{const n=new Date();return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const lastMonthTx = useMemo(()=>{const n=new Date();n.setMonth(n.getMonth()-1);return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
@@ -498,10 +497,13 @@ const filterByPeriod = useCallback((txList, period) => {
   const cashFlowForecast = useMemo(()=>{const now=new Date();const salDay=parseInt(salary.creditDay)||1;const salAmt=parseFloat(salary.amount)||effectiveIncome||0;const dailyExp=Math.max(thisMonthExp,totalExpense,1)/30;let running=Math.max(cashLeft,0);return Array.from({length:30},(_,i)=>{const d=new Date(now);d.setDate(d.getDate()+i+1);if(d.getDate()===salDay&&salAmt>0)running+=salAmt;[...activeDebts,...creditCards].forEach(item=>{if(item.dueDate&&new Date(item.dueDate).getDate()===d.getDate())running-=parseFloat(item.emi||item.minDue||0);});running-=dailyExp;return{day:i+1,label:d.getDate()+"/"+(d.getMonth()+1),balance:Math.round(running)};});},[cashLeft,salary,effectiveIncome,thisMonthExp,totalExpense,activeDebts,creditCards]);
   const spendAlerts = useMemo(()=>CATEGORIES.expense.map(cat=>({cat,spent:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),limit:budgets[cat]||0})).filter(a=>a.limit>0&&(a.spent/a.limit)>=0.8).map(a=>({...a,pct:Math.round((a.spent/a.limit)*100),over:a.spent>a.limit})),[thisMonthTx,budgets]);
 
-  // ─── ACCOUNT BALANCE ─────────────────────────────────────────────────────
+  // ─── ACCOUNT BALANCE (must be before netWorth) ───────────────────────────
   const totalAccountBalance = useMemo(() =>
     accounts.reduce((s, a) => s + (parseFloat(a.balance) || 0), 0),
   [accounts]);
+
+  // ─── NET WORTH (depends on totalAccountBalance) ──────────────────────────
+  const netWorth = useMemo(()=>savingsTotal+totalAccountBalance-totalOutstanding-totalCCOut,[savingsTotal,totalAccountBalance,totalOutstanding,totalCCOut]);
 
   // ─── 15-DAY STRESS PANEL ─────────────────────────────────────────────────
   const next15Days = useMemo(() => {
