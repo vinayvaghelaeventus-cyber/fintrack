@@ -47,14 +47,27 @@ const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 const EMPTY_ACCOUNT = {id:null, name:"", type:"savings", balance:"", bank:"", color:"#5b8def", icon:"🏦"};
 const ACCOUNT_TYPES = ["savings","current","cash","wallet","fd","other"];
 const ACCOUNT_ICONS = ["🏦","💰","💵","📱","🏧","💼"];
+const EMPTY_RECURRING = {id:null, name:"", amount:"", category:"Utilities", type:"expense", dueDay:"1", frequency:"monthly", active:true, notes:""};
+const RECURRING_ICONS = {"Netflix":"🎬","Spotify":"🎵","Amazon Prime":"📦","Hotstar":"📺","YouTube":"▶️","Electricity":"💡","Water":"💧","Gas":"🔥","Internet":"🌐","Mobile":"📱","Insurance":"🛡️","Rent":"🏠","Gym":"💪","Other":"📌"};
+const RECURRING_SUGGESTIONS = ["Netflix","Spotify","Amazon Prime","Hotstar","YouTube Premium","Electricity","Water Bill","Gas","Internet","Mobile Recharge","Health Insurance","Life Insurance","Rent","Gym","Other"];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const fc = n => new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(n||0);
 const fd = d => { try { return new Date(d).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}); } catch { return "—"; }};
 const today = () => new Date().toISOString().split("T")[0];
 function daysUntil(ds){ if(!ds)return null; const d=new Date(ds),t=new Date(); t.setHours(0,0,0,0); d.setHours(0,0,0,0); return Math.ceil((d-t)/864e5); }
-function toCSV(rows,headers){ return [headers.join(","),...rows.map(r=>headers.map(h=>`"${String(r[h]??"")}"`).join(","))].join("\n"); }
-function dlCSV(c,f){ const a=document.createElement("a"); a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(c); a.download=f; a.click(); }
+function toCSV(rows,headers){ return [headers.join(","),...rows.map(r=>headers.map(h=>`"${String(r[h]??"").replace(/"/g,'''')}"`).join(","))].join("\n"); }
+function dlCSV(c,f){ const a=document.createElement("a"); a.href="data:text/csv;charset=utf-8,\uFEFF"+encodeURIComponent(c); a.download=f; a.click(); }
+function dlXLS(rows, headers, sheetName, filename) {
+  const esc = v => String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const hRow = headers.map(h=>`<Cell ss:StyleID="h"><Data ss:Type="String">${esc(h)}</Data></Cell>`).join("");
+  const dRows = rows.map(r=>`<Row>${headers.map(h=>{const v=r[h]??"";const isNum=typeof v==="number"||(v!==""&&!isNaN(v)&&h!=="Date"&&h!=="Notes");return `<Cell><Data ss:Type="${isNum?"Number":"String"}">${esc(v)}</Data></Cell>`;}).join("")}</Row>`).join("");
+  const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="h"><Font ss:Bold="1"/></Style></Styles><Worksheet ss:Name="${esc(sheetName)}"><Table><Row>${hRow}</Row>${dRows}</Table></Worksheet></Workbook>`;
+  const blob = new Blob([xml],{type:"application/vnd.ms-excel;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href=url; a.download=filename; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 
 // ─── MATH ────────────────────────────────────────────────────────────────────
 function calcMonths(bal, emi, rate) {
@@ -221,6 +234,23 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [accountForm, setAccountForm] = useState({...EMPTY_ACCOUNT});
   const [editAccountId, setEditAccountId] = useState(null);
 
+  // ── Custom Categories ──
+  const [customCats, setCustomCats] = useState({income:[], expense:[]});
+  const [showCatManager, setShowCatManager] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatType, setNewCatType] = useState("expense");
+
+  // ── Recurring Bills ──
+  const [recurringBills, setRecurringBills] = useState([]);
+  const [showRecurringForm, setShowRecurringForm] = useState(false);
+  const [recurringForm, setRecurringForm] = useState({...EMPTY_RECURRING});
+  const [editRecurringId, setEditRecurringId] = useState(null);
+
+  // ── Export Panel ──
+  const [showExportPanel, setShowExportPanel] = useState(false);
+  const [exportDateFrom, setExportDateFrom] = useState("");
+  const [exportDateTo, setExportDateTo] = useState("");
+
   // ── Filters ──
   const [txSearch, setTxSearch] = useState("");
   const [txType, setTxType]     = useState("all");
@@ -278,6 +308,8 @@ useEffect(() => {
           if (data.darkMode!==undefined) setDarkMode(data.darkMode);
           if (data.accounts)      setAccounts(data.accounts);
           if (data.allocationPct) setAllocationPct(data.allocationPct);
+          if (data.customCats)    setCustomCats(data.customCats);
+          if (data.recurringBills) setRecurringBills(data.recurringBills);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -300,7 +332,7 @@ useEffect(() => {
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-        accounts, allocationPct,
+        accounts, allocationPct, customCats, recurringBills,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -309,7 +341,7 @@ useEffect(() => {
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
       monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-      accounts, allocationPct, loaded]);
+      accounts, allocationPct, customCats, recurringBills, loaded]);
 
   // ─── AUTO-SALARY CREDIT ──────────────────────────────────────────────────
   useEffect(() => {
@@ -411,6 +443,42 @@ useEffect(() => {
     }
   }, [loaded, debts, ccEmis, creditCards, accounts]);
 
+  // ─── RECURRING BILLS AUTO ENGINE ─────────────────────────────────────────
+  useEffect(() => {
+    if (!loaded || !recurringBills.length) return;
+    const now = new Date();
+    const yr = now.getFullYear(), mo = now.getMonth();
+    const txsToAdd = [];
+
+    recurringBills.filter(b => b.active && b.dueDay && b.amount).forEach(b => {
+      const dueDay = parseInt(b.dueDay) || 1;
+      // Check current month and last month for catch-up
+      for (let mOffset = -1; mOffset <= 0; mOffset++) {
+        const checkDate = new Date(yr, mo + mOffset, dueDay);
+        const key = `rec_${b.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
+        const already = transactions.some(t => t._recKey === key);
+        if (!already && checkDate <= now) {
+          txsToAdd.push({
+            id: Date.now() + Math.random(),
+            type: b.type || "expense",
+            amount: parseFloat(b.amount),
+            category: b.category || "Utilities",
+            paymentMode: b.paymentMode || "UPI",
+            bank: "",
+            note: `Auto: ${b.name}`,
+            date: checkDate.toISOString().split("T")[0],
+            _recKey: key,
+            _recurringId: b.id,
+          });
+        }
+      }
+    });
+
+    if (txsToAdd.length > 0) {
+      setTransactions(p => [...txsToAdd, ...p]);
+    }
+  }, [loaded, recurringBills]);
+
   // ─── COMPUTED ────────────────────────────────────────────────────────────
   const totalIncome    = useMemo(() => transactions.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0), [transactions]);
   const totalExpense   = useMemo(() => transactions.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0), [transactions]);
@@ -457,7 +525,7 @@ const filterByPeriod = useCallback((txList, period) => {
     name:m, value:transactions.filter(t=>t.type==="expense"&&t.paymentMode===m).reduce((s,t)=>s+t.amount,0)
   })).filter(d=>d.value>0), [transactions]);
 
-  const expenseByCat = useMemo(() => CATEGORIES.expense.map((cat,i)=>({
+  const expenseByCat = useMemo(() => allCategories.expense.map((cat,i)=>({
     name:cat, value:transactions.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0), color:CAT_COLORS[i]
   })).filter(d=>d.value>0), [transactions]);
 
@@ -485,17 +553,23 @@ const filterByPeriod = useCallback((txList, period) => {
 , [transactions,txType,txMode,txBank,txSearch]);
 
   // ─── NEW FEATURE COMPUTEDS ────────────────────────────────────────────────
+  // ─── MERGED CATEGORIES (default + custom) ────────────────────────────────
+  const allCategories = useMemo(() => ({
+    income:  [...CATEGORIES.income,  ...(customCats.income ||[])],
+    expense: [...CATEGORIES.expense, ...(customCats.expense||[])],
+  }), [customCats]);
+
   const thisMonthTx = useMemo(()=>{const n=new Date();return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const lastMonthTx = useMemo(()=>{const n=new Date();n.setMonth(n.getMonth()-1);return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
   const lastMonthExp = useMemo(()=>lastMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
   const thisMonthInc = useMemo(()=>thisMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
   const lastMonthInc = useMemo(()=>lastMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
-  const catComparison = useMemo(()=>CATEGORIES.expense.map(cat=>({cat,thisMonth:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),lastMonth:lastMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0)})).filter(c=>c.thisMonth>0||c.lastMonth>0),[thisMonthTx,lastMonthTx]);
+  const catComparison = useMemo(()=>allCategories.expense.map(cat=>({cat,thisMonth:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),lastMonth:lastMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0)})).filter(c=>c.thisMonth>0||c.lastMonth>0),[thisMonthTx,lastMonthTx,allCategories]);
   const savingsRateTrend = useMemo(()=>last6Months.map(m=>({label:m.label,rate:m.income>0?Math.max(0,((m.income-m.expense)/m.income)*100):0})),[last6Months]);
   const debtFreeMonths = useMemo(()=>{const owe=totalOutstanding+totalCCOut;const pmt=totalEMI+totalCCEMI+(parseFloat(extraFund)||0);if(owe===0)return 0;if(!pmt)return null;return Math.ceil(owe/pmt);},[totalOutstanding,totalCCOut,totalEMI,totalCCEMI,extraFund]);
   const cashFlowForecast = useMemo(()=>{const now=new Date();const salDay=parseInt(salary.creditDay)||1;const salAmt=parseFloat(salary.amount)||effectiveIncome||0;const dailyExp=Math.max(thisMonthExp,totalExpense,1)/30;let running=Math.max(cashLeft,0);return Array.from({length:30},(_,i)=>{const d=new Date(now);d.setDate(d.getDate()+i+1);if(d.getDate()===salDay&&salAmt>0)running+=salAmt;[...activeDebts,...creditCards].forEach(item=>{if(item.dueDate&&new Date(item.dueDate).getDate()===d.getDate())running-=parseFloat(item.emi||item.minDue||0);});running-=dailyExp;return{day:i+1,label:d.getDate()+"/"+(d.getMonth()+1),balance:Math.round(running)};});},[cashLeft,salary,effectiveIncome,thisMonthExp,totalExpense,activeDebts,creditCards]);
-  const spendAlerts = useMemo(()=>CATEGORIES.expense.map(cat=>({cat,spent:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),limit:budgets[cat]||0})).filter(a=>a.limit>0&&(a.spent/a.limit)>=0.8).map(a=>({...a,pct:Math.round((a.spent/a.limit)*100),over:a.spent>a.limit})),[thisMonthTx,budgets]);
+  const spendAlerts = useMemo(()=>allCategories.expense.map(cat=>({cat,spent:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),limit:budgets[cat]||0})).filter(a=>a.limit>0&&(a.spent/a.limit)>=0.8).map(a=>({...a,pct:Math.round((a.spent/a.limit)*100),over:a.spent>a.limit})),[thisMonthTx,budgets,allCategories]);
 
   // ─── ACCOUNT BALANCE (must be before netWorth) ───────────────────────────
   const totalAccountBalance = useMemo(() =>
@@ -667,6 +741,85 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
     }
     setAccountForm({...EMPTY_ACCOUNT}); setShowAccountForm(false); setEditAccountId(null);
   }
+
+  // ─── CUSTOM CATEGORY ACTIONS ─────────────────────────────────────────────
+  function addCustomCategory() {
+    const name = newCatName.trim();
+    if (!name) return;
+    const existing = [...CATEGORIES[newCatType], ...(customCats[newCatType]||[])];
+    if (existing.some(c => c.toLowerCase()===name.toLowerCase())) return;
+    setCustomCats(p => ({...p, [newCatType]: [...(p[newCatType]||[]), name]}));
+    setNewCatName("");
+  }
+  function deleteCustomCategory(type, name) {
+    setCustomCats(p => ({...p, [type]: (p[type]||[]).filter(c=>c!==name)}));
+  }
+
+  // ─── RECURRING BILL ACTIONS ───────────────────────────────────────────────
+  function saveRecurring() {
+    if (!recurringForm.name || !recurringForm.amount) return;
+    if (editRecurringId) {
+      setRecurringBills(p => p.map(b => b.id===editRecurringId ? {...recurringForm, id:editRecurringId} : b));
+    } else {
+      setRecurringBills(p => [...p, {...recurringForm, id:Date.now()}]);
+    }
+    setRecurringForm({...EMPTY_RECURRING}); setShowRecurringForm(false); setEditRecurringId(null);
+  }
+  function deleteRecurring(id) { setRecurringBills(p => p.filter(b=>b.id!==id)); }
+  function toggleRecurring(id) { setRecurringBills(p => p.map(b => b.id===id?{...b,active:!b.active}:b)); }
+
+  // ─── ENHANCED EXPORT ─────────────────────────────────────────────────────
+  function getFilteredTxForExport() {
+    let txs = [...transactions];
+    if (exportDateFrom) txs = txs.filter(t => t.date >= exportDateFrom);
+    if (exportDateTo)   txs = txs.filter(t => t.date <= exportDateTo);
+    return txs.sort((a,b)=>b.date.localeCompare(a.date));
+  }
+  function exportCSV() {
+    const txs = getFilteredTxForExport();
+    const rows = txs.map(t=>({Date:t.date,Type:t.type,Category:t.category,Amount:t.amount,Mode:t.paymentMode||"",Bank:t.bank||"",Note:t.note||""}));
+    dlCSV(toCSV(rows,["Date","Type","Category","Amount","Mode","Bank","Note"]), `fintrack_${exportDateFrom||"all"}_${exportDateTo||"all"}.csv`);
+  }
+  function exportXLS() {
+    const txs = getFilteredTxForExport();
+    const rows = txs.map(t=>({Date:t.date,Type:t.type,Category:t.category,Amount:t.amount,Mode:t.paymentMode||"",Bank:t.bank||"",Note:t.note||""}));
+    dlXLS(rows, ["Date","Type","Category","Amount","Mode","Bank","Note"], "Transactions", `fintrack_transactions.xls`);
+  }
+  function exportSummaryXLS() {
+    const byCat = {};
+    transactions.forEach(t => {
+      if (t.type!=="expense") return;
+      if (!byCat[t.category]) byCat[t.category] = 0;
+      byCat[t.category] += t.amount;
+    });
+    const rows = Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([cat,amt])=>({Category:cat, "Total Spent":amt, "% of Expenses":totalExpense>0?((amt/totalExpense)*100).toFixed(1)+"%":"0%"}));
+    rows.push({Category:"TOTAL", "Total Spent":totalExpense, "% of Expenses":"100%"});
+    dlXLS(rows, ["Category","Total Spent","% of Expenses"], "Summary", "fintrack_summary.xls");
+  }
+  function exportLoansPDF() {
+    const lines = [
+      "FinTrack — Loan Summary Report",
+      `Generated: ${new Date().toLocaleDateString("en-IN")}`,
+      "─".repeat(50),
+      "",
+      ...activeDebts.map(d => [
+        `Loan: ${d.name} (${d.lender})`,
+        `  Outstanding: ₹${parseFloat(d.outstanding||0).toLocaleString("en-IN")}`,
+        `  EMI: ₹${parseFloat(d.emi||0).toLocaleString("en-IN")}/mo  |  Rate: ${d.interestRate}% p.a.`,
+        `  Due Date: ${d.dueDate||"—"}`,
+        "",
+      ].join("\n")),
+      "─".repeat(50),
+      `TOTAL OUTSTANDING: ₹${totalOutstanding.toLocaleString("en-IN")}`,
+      `TOTAL EMI/MONTH:   ₹${totalEMI.toLocaleString("en-IN")}`,
+    ].join("\n");
+    const blob = new Blob([lines],{type:"text/plain;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download="fintrack_loans.txt"; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+
+  function exportTransactions() { exportCSV(); }
   function deleteAccount(id) { setAccounts(p => p.filter(a => a.id!==id)); }
   function updateAccountBalance(id, delta) {
     setAccounts(p => p.map(a => a.id===id ? {...a, balance: Math.max(0,(parseFloat(a.balance)||0)+delta)} : a));
@@ -1721,13 +1874,13 @@ if (!user) {
               <span style={{fontSize:11,color:C.muted}}>Tracking: {new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</span>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <select className="inp" style={{flex:"1 1 140px"}} value={budgetForm.category} onChange={e=>setBudgetForm(p=>({...p,category:e.target.value}))}>{CATEGORIES.expense.map(c=><option key={c}>{c}</option>)}</select>
+              <select className="inp" style={{flex:"1 1 140px"}} value={budgetForm.category} onChange={e=>setBudgetForm(p=>({...p,category:e.target.value}))}>{allCategories.expense.map(c=><option key={c}>{c}</option>)}</select>
               <input className="inp" style={{flex:"1 1 120px"}} placeholder="₹ limit" type="number" value={budgetForm.limit} onChange={e=>setBudgetForm(p=>({...p,limit:e.target.value}))}/>
               <button className="btn btn-p" onClick={addBudget}>Set</button>
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:10}}>
-            {CATEGORIES.expense.map((cat,i)=>{
+            {allCategories.expense.map((cat,i)=>{
               const limit=budgets[cat]||0, spent=thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0);
               const pct=limit>0?Math.min(100,(spent/limit)*100):0, over=spent>limit&&limit>0;
               return(
@@ -2136,6 +2289,142 @@ if (!user) {
             </div>
           )}
 
+          {/* ── Custom Categories ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🏷️ Custom Categories</div>
+                <div style={{fontSize:11,color:C.muted}}>Add your own income & expense categories</div>
+              </div>
+              <button className="btn btn-p btn-sm" onClick={()=>setShowCatManager(true)}>Manage</button>
+            </div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:140}}>
+                <div className="lbl" style={{marginBottom:6}}>INCOME ({allCategories.income.length})</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                  {allCategories.income.map((c,i)=>(
+                    <div key={c} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:99,background:customCats.income?.includes(c)?`${C.income}18`:C.surface,border:`1px solid ${customCats.income?.includes(c)?C.income+"40":C.border}`,fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>
+                      <span>{c}</span>
+                      {customCats.income?.includes(c)&&<span onClick={()=>deleteCustomCategory("income",c)} style={{cursor:"pointer",color:C.muted,marginLeft:2,fontSize:10}}>✕</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{flex:1,minWidth:140}}>
+                <div className="lbl" style={{marginBottom:6}}>EXPENSE ({allCategories.expense.length})</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                  {allCategories.expense.map((c,i)=>(
+                    <div key={c} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:99,background:customCats.expense?.includes(c)?`${C.accent}18`:C.surface,border:`1px solid ${customCats.expense?.includes(c)?C.accent+"40":C.border}`,fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>
+                      <span>{c}</span>
+                      {customCats.expense?.includes(c)&&<span onClick={()=>deleteCustomCategory("expense",c)} style={{cursor:"pointer",color:C.muted,marginLeft:2,fontSize:10}}>✕</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Recurring Bills ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🔄 Recurring Bills</div>
+                <div style={{fontSize:11,color:C.muted}}>Netflix, electricity, insurance — auto-tracked every month</div>
+              </div>
+              <button className="btn btn-p btn-sm" onClick={()=>{setRecurringForm({...EMPTY_RECURRING});setEditRecurringId(null);setShowRecurringForm(true);}}>+ Add Bill</button>
+            </div>
+            {recurringBills.length===0
+              ? <div style={{textAlign:"center",padding:"20px 0",color:C.muted,fontSize:12,lineHeight:1.8}}>
+                  No recurring bills yet.<br/>
+                  <span style={{color:C.accent}}>Add Netflix, electricity, gym etc. — they'll auto-deduct monthly.</span>
+                </div>
+              : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {recurringBills.map(b=>{
+                    const icon = RECURRING_ICONS[b.name] || "📌";
+                    const daysLeft = b.dueDay ? (() => {
+                      const now = new Date(); const due = new Date(now.getFullYear(), now.getMonth(), parseInt(b.dueDay));
+                      if (due < now) due.setMonth(due.getMonth()+1);
+                      return Math.ceil((due-now)/864e5);
+                    })() : null;
+                    return(
+                      <div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${b.active?C.border:C.border+"50"}`,opacity:b.active?1:0.55}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{width:38,height:38,borderRadius:10,background:`${C.accent}14`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{icon}</div>
+                          <div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{b.name}</div>
+                            <div style={{fontSize:10,color:C.muted}}>{b.category} · Due {b.dueDay}{["st","nd","rd"][b.dueDay-1]||"th"} every month{daysLeft!==null?` · `+( daysLeft===0?"due today":daysLeft===1?"tomorrow":`${daysLeft}d left`):""}</div>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:b.type==="income"?C.income:C.expense}}>{b.type==="income"?"+":"-"}{fc(parseFloat(b.amount)||0)}</div>
+                            <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>monthly</div>
+                          </div>
+                          <div style={{display:"flex",gap:4}}>
+                            <div onClick={()=>toggleRecurring(b.id)} style={{width:36,height:20,borderRadius:99,cursor:"pointer",background:b.active?C.income:C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
+                              <div style={{position:"absolute",top:2,left:b.active?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+                            </div>
+                            <button className="btn-ghost" style={{padding:"3px 8px",fontSize:10}} onClick={()=>{setRecurringForm({...b,amount:String(b.amount),dueDay:String(b.dueDay)});setEditRecurringId(b.id);setShowRecurringForm(true);}}>Edit</button>
+                            <button className="btn-danger" style={{padding:"3px 8px",fontSize:10}} onClick={()=>deleteRecurring(b.id)}>✕</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{marginTop:4,padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:12,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>Total recurring/month</span>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.expense}}>
+                      {fc(recurringBills.filter(b=>b.active&&b.type!=="income").reduce((s,b)=>s+(parseFloat(b.amount)||0),0))}
+                    </span>
+                  </div>
+                </div>
+            }
+          </div>
+
+          {/* ── Export & Reports ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div className="stitle" style={{marginBottom:14}}>📤 Export & Reports</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {/* Date range filter */}
+              <div style={{padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`}}>
+                <div className="lbl" style={{marginBottom:8}}>FILTER BY DATE RANGE (optional)</div>
+                <div className="g2">
+                  <div><div className="lbl">From</div><input className="inp" type="date" value={exportDateFrom} onChange={e=>setExportDateFrom(e.target.value)}/></div>
+                  <div><div className="lbl">To</div><input className="inp" type="date" value={exportDateTo} onChange={e=>setExportDateTo(e.target.value)}/></div>
+                </div>
+                {(exportDateFrom||exportDateTo)&&(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
+                    <div style={{fontSize:11,color:C.accent,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                      {getFilteredTxForExport().length} transactions selected
+                    </div>
+                    <button className="btn-ghost btn-sm" onClick={()=>{setExportDateFrom("");setExportDateTo("");}}>Clear</button>
+                  </div>
+                )}
+              </div>
+              {/* Export buttons */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {[
+                  {icon:"📊",label:"Excel (.xls)",sub:"Transactions spreadsheet",fn:exportXLS,color:C.income},
+                  {icon:"📋",label:"CSV",sub:"Universal format",fn:exportCSV,color:C.accent},
+                  {icon:"📈",label:"Summary XLS",sub:"Category totals",fn:exportSummaryXLS,color:C.warning},
+                  {icon:"📄",label:"Loan Report",sub:"All loan details (.txt)",fn:exportLoansPDF,color:C.loan},
+                ].map(item=>(
+                  <button key={item.label} onClick={item.fn} style={{
+                    padding:"14px 12px",borderRadius:14,border:`1px solid ${item.color}30`,
+                    background:`${item.color}08`,cursor:"pointer",textAlign:"left",
+                    transition:"all 0.2s",
+                  }}
+                  onMouseEnter={e=>e.currentTarget.style.background=`${item.color}15`}
+                  onMouseLeave={e=>e.currentTarget.style.background=`${item.color}08`}>
+                    <div style={{fontSize:22,marginBottom:6}}>{item.icon}</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:item.color}}>{item.label}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>{item.sub}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
         </>}
 
         {/* ════════ FINANCE ════════ */}
@@ -2469,7 +2758,7 @@ if (!user) {
             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editTxId?"Edit":"Add"} Transaction</div>
             <div style={{display:"flex",gap:6,marginBottom:14,background:C.surface,padding:4,borderRadius:12}}>
               {["expense","income"].map(type=>(
-                <button key={type} className="btn" onClick={()=>setTxForm(p=>({...p,type,category:CATEGORIES[type][0]}))} style={{flex:1,background:txForm.type===type?(type==="income"?C.income:C.expense):"transparent",color:txForm.type===type?"#fff":C.muted}}>
+                <button key={type} className="btn" onClick={()=>setTxForm(p=>({...p,type,category:allCategories[type][0]}))} style={{flex:1,background:txForm.type===type?(type==="income"?C.income:C.expense):"transparent",color:txForm.type===type?"#fff":C.muted}}>
                   {type==="income"?"↑ Income":"↓ Expense"}
                 </button>
               ))}
@@ -2477,7 +2766,7 @@ if (!user) {
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <div><div className="lbl">Amount ₹</div><input className="inp" type="number" placeholder="0" value={txForm.amount} onChange={e=>setTxForm(p=>({...p,amount:e.target.value}))}/></div>
               <div className="g2">
-                <div><div className="lbl">Category</div><select className="inp" value={txForm.category} onChange={e=>setTxForm(p=>({...p,category:e.target.value}))}>{CATEGORIES[txForm.type].map(c=><option key={c}>{c}</option>)}</select></div>
+                <div><div className="lbl">Category</div><select className="inp" value={txForm.category} onChange={e=>setTxForm(p=>({...p,category:e.target.value}))}>{allCategories[txForm.type].map(c=><option key={c}>{c}</option>)}</select></div>
                 <div><div className="lbl">Payment Mode</div><select className="inp" value={txForm.paymentMode} onChange={e=>setTxForm(p=>({...p,paymentMode:e.target.value}))}>{PAYMENT_MODES.map(m=><option key={m}>{m}</option>)}</select></div>
               </div>
               <div className="g2">
@@ -2656,6 +2945,115 @@ if (!user) {
       {/* Settings */}
       {showSettings&&<SettingsModal C={C} salary={salary} setSalary={setSalary} banks={banks} 
     setBanks={setBanks} onClose={() => setShowSettings(false)} />}
+
+      {/* ── Category Manager Modal ── */}
+      {showCatManager&&(
+        <div className="modal" onClick={e=>e.target===e.currentTarget&&setShowCatManager(false)}>
+          <div className="sheet">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18}}>🏷️ Manage Categories</div>
+              <button className="btn-ghost btn-sm" onClick={()=>setShowCatManager(false)}>✕</button>
+            </div>
+            {/* Add new */}
+            <div style={{padding:"14px",background:C.surface,borderRadius:14,marginBottom:16}}>
+              <div className="lbl" style={{marginBottom:8}}>ADD NEW CATEGORY</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <select className="inp" style={{flex:"0 0 110px"}} value={newCatType} onChange={e=>setNewCatType(e.target.value)}>
+                  <option value="expense">Expense</option>
+                  <option value="income">Income</option>
+                </select>
+                <input className="inp" style={{flex:1,minWidth:120}} placeholder="Category name" value={newCatName} onChange={e=>setNewCatName(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&addCustomCategory()}/>
+                <button className="btn btn-p" onClick={addCustomCategory}>Add</button>
+              </div>
+            </div>
+            {/* Custom cats list */}
+            {["expense","income"].map(type=>(
+              <div key={type} style={{marginBottom:16}}>
+                <div className="lbl" style={{marginBottom:8}}>{type.toUpperCase()} — CUSTOM ONLY</div>
+                {(customCats[type]||[]).length===0
+                  ? <div style={{fontSize:11,color:C.muted,padding:"8px 0"}}>No custom {type} categories yet.</div>
+                  : <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {(customCats[type]||[]).map(c=>(
+                        <div key={c} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:99,background:`${type==="income"?C.income:C.accent}15`,border:`1px solid ${type==="income"?C.income:C.accent}40`,fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                          {c}
+                          <span onClick={()=>deleteCustomCategory(type,c)} style={{cursor:"pointer",color:C.muted,fontSize:11,lineHeight:1}}>✕</span>
+                        </div>
+                      ))}
+                    </div>
+                }
+              </div>
+            ))}
+            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,marginTop:4}}>
+              <div className="lbl" style={{marginBottom:6}}>DEFAULT CATEGORIES (cannot be deleted)</div>
+              <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
+                {CATEGORIES.expense.join(" · ")}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Recurring Bill Form Modal ── */}
+      {showRecurringForm&&(
+        <div className="modal" onClick={e=>e.target===e.currentTarget&&setShowRecurringForm(false)}>
+          <div className="sheet">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18}}>{editRecurringId?"Edit Recurring Bill":"Add Recurring Bill"}</div>
+              <button className="btn-ghost btn-sm" onClick={()=>setShowRecurringForm(false)}>✕</button>
+            </div>
+            {/* Quick-pick suggestions */}
+            {!editRecurringId&&(
+              <div style={{marginBottom:14}}>
+                <div className="lbl" style={{marginBottom:8}}>QUICK ADD</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {RECURRING_SUGGESTIONS.map(s=>(
+                    <button key={s} className="btn-ghost btn-sm" style={{fontSize:11}}
+                      onClick={()=>setRecurringForm(p=>({...p,name:s}))}>
+                      {RECURRING_ICONS[s]||"📌"} {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div><div className="lbl">Bill Name</div>
+                <input className="inp" placeholder="e.g. Netflix, Electricity" value={recurringForm.name} onChange={e=>setRecurringForm(p=>({...p,name:e.target.value}))}/>
+              </div>
+              <div className="g2">
+                <div><div className="lbl">Amount ₹</div>
+                  <input className="inp" type="number" placeholder="e.g. 499" value={recurringForm.amount} onChange={e=>setRecurringForm(p=>({...p,amount:e.target.value}))}/>
+                </div>
+                <div><div className="lbl">Due Day</div>
+                  <input className="inp" type="number" min="1" max="31" placeholder="e.g. 5" value={recurringForm.dueDay} onChange={e=>setRecurringForm(p=>({...p,dueDay:e.target.value}))}/>
+                </div>
+              </div>
+              <div className="g2">
+                <div><div className="lbl">Type</div>
+                  <select className="inp" value={recurringForm.type} onChange={e=>setRecurringForm(p=>({...p,type:e.target.value}))}>
+                    <option value="expense">Expense</option>
+                    <option value="income">Income</option>
+                  </select>
+                </div>
+                <div><div className="lbl">Category</div>
+                  <select className="inp" value={recurringForm.category} onChange={e=>setRecurringForm(p=>({...p,category:e.target.value}))}>
+                    {allCategories[recurringForm.type].map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div><div className="lbl">Notes (optional)</div>
+                <input className="inp" placeholder="e.g. Family plan, auto-pay" value={recurringForm.notes} onChange={e=>setRecurringForm(p=>({...p,notes:e.target.value}))}/>
+              </div>
+              <div style={{display:"flex",gap:10,marginTop:4}}>
+                <button className="btn btn-p" style={{flex:1}} onClick={saveRecurring}>
+                  {editRecurringId?"Update Bill":"Add Bill"}
+                </button>
+                <button className="btn-ghost" style={{flex:1}} onClick={()=>setShowRecurringForm(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Account Form Modal ── */}
       {showAccountForm&&(
