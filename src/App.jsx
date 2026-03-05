@@ -807,13 +807,6 @@ Provide (use emoji headers, max 350 words):
       position:relative;
       overflow:hidden;
     }
-    .card::before {
-      content:'';
-      position:absolute;
-      inset:0;
-      background: radial-gradient(ellipse at top left, ${C.glow}, transparent 70%);
-      pointer-events:none;
-    }
 
     /* ── Buttons ── */
     .btn{
