@@ -32,11 +32,11 @@ const CATEGORIES = {
 };
 const CAT_COLORS = ["#38bdf8","#10b981","#f59e0b","#6366f1","#f43f5e","#a78bfa","#34d399","#fb923c","#e879f9","#22d3ee","#84cc16","#f472b6","#60a5fa","#fbbf24","#6ee7b7","#c084fc"];
 const MOBILE_TABS = [
-  {id:"Dashboard",  icon:"🏠", label:"Home"},
-  {id:"Plan",       icon:"🎯", label:"Plan"},
-  {id:"Cards",      icon:"💳", label:"Cards"},
-  {id:"Transactions",icon:"📋", label:"Txns"},
-  {id:"Smart",      icon:"⚡", label:"Smart"},
+  {id:"Dashboard",    icon:"🏠", label:"Home"},
+  {id:"Plan",         icon:"🎯", label:"Plan"},
+  {id:"Cards",        icon:"💳", label:"Cards"},
+  {id:"Transactions", icon:"📋", label:"Txns"},
+  {id:"Finance",      icon:"📊", label:"Finance"},
 ];
 const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","Insights","Finance","Smart"];
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0],time:new Date().toTimeString().slice(0,5)};
@@ -220,7 +220,6 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [accountForm, setAccountForm] = useState({...EMPTY_ACCOUNT});
   const [editAccountId, setEditAccountId] = useState(null);
-  const [simExtra, setSimExtra] = useState(""); // debt acceleration simulator
 
   // ── Filters ──
   const [txSearch, setTxSearch] = useState("");
@@ -410,7 +409,7 @@ useEffect(() => {
         ));
       }
     }
-  }, [loaded, debts, ccEmis, creditCards, transactions, accounts]);
+  }, [loaded, debts, ccEmis, creditCards, accounts]);
 
   // ─── COMPUTED ────────────────────────────────────────────────────────────
   const totalIncome    = useMemo(() => transactions.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0), [transactions]);
@@ -486,7 +485,7 @@ const filterByPeriod = useCallback((txList, period) => {
 , [transactions,txType,txMode,txBank,txSearch]);
 
   // ─── NEW FEATURE COMPUTEDS ────────────────────────────────────────────────
-  const netWorth = useMemo(()=>savingsTotal-totalOutstanding-totalCCOut,[savingsTotal,totalOutstanding,totalCCOut]);
+  const netWorth = useMemo(()=>savingsTotal+totalAccountBalance-totalOutstanding-totalCCOut,[savingsTotal,totalAccountBalance,totalOutstanding,totalCCOut]);
   const thisMonthTx = useMemo(()=>{const n=new Date();return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const lastMonthTx = useMemo(()=>{const n=new Date();n.setMonth(n.getMonth()-1);return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
@@ -542,7 +541,7 @@ const filterByPeriod = useCallback((txList, period) => {
 
   // ─── DEBT ACCELERATION SIMULATOR ─────────────────────────────────────────
   const debtSimulator = useMemo(() => {
-    const extra = parseFloat(simExtra) || 0;
+    const extra = parseFloat(extraFund) || 0;
     return activeDebts.map(d => {
       const bal = parseFloat(d.outstanding)||0;
       const emi = parseFloat(d.emi)||0;
@@ -556,7 +555,7 @@ const filterByPeriod = useCallback((txList, period) => {
       const interestSaved = Math.max(0, interestNormal - interestBoosted);
       return { ...d, bal, normal, boosted, monthsSaved, interestSaved };
     });
-  }, [activeDebts, simExtra]);
+  }, [activeDebts, extraFund]);
 
   // ─── INCOME ALLOCATION ────────────────────────────────────────────────────
   const incomeAllocation = useMemo(() => {
@@ -1321,34 +1320,10 @@ if (!user) {
             </div>
           )}
 
-          {upcomingDues.filter(d=>d.days!==null&&d.days<=7).length>0&&(
-            <div className="card" style={{marginBottom:10,borderColor:`${C.warning}35`}}>
-              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.warning,marginBottom:8}}>⏰ Due this week</div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {upcomingDues.filter(d=>d.days!==null&&d.days<=7).map(d=>(
-                  <div key={d.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 11px"}}>
-                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{d.name}</div>
-                    <div style={{fontSize:10,color:C.muted}}>{d.kind==="cc"?`Min: ${fc(d.minDue)}`:`EMI: ${fc(d.emi)}`}</div>
-                    <DueBadge days={d.days}/>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+
+
 
           <div className="g2" style={{marginBottom:10}}>
-            <div className="card">
-              <div className="stitle">6-Month Trend</div>
-              <ResponsiveContainer width="100%" height={155}>
-                <BarChart data={last6Months} barGap={3}>
-                  <XAxis dataKey="label" tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false}/>
-                  <YAxis tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>`₹${v>=1000?(v/1000).toFixed(0)+"k":v}`} width={38}/>
-                  <Tooltip contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontSize:11}} formatter={v=>fc(v)}/>
-                  <Bar dataKey="income" fill={C.income} radius={[4,4,0,0]}/>
-                  <Bar dataKey="expense" fill={C.expense} radius={[4,4,0,0]}/>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
             <div className="card">
               <div className="stitle">By Payment Mode</div>
               {expenseByMode.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",paddingTop:50}}>No data</div>:(
@@ -1365,6 +1340,25 @@ if (!user) {
                     </div>
                   ))}
                 </>
+              )}
+            </div>
+            <div className="card">
+              <div className="stitle">Top Categories</div>
+              {expenseByCat.length===0?<div style={{color:C.muted,textAlign:"center",paddingTop:40,fontSize:12}}>No data</div>:(
+                <div style={{overflowY:"auto",maxHeight:160}}>
+                  {[...expenseByCat].sort((a,b)=>b.value-a.value).slice(0,5).map((d,i)=>{
+                    const max=expenseByCat.reduce((m,x)=>Math.max(m,x.value),0);
+                    return(
+                      <div key={d.name} style={{marginBottom:7}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                          <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:7,height:7,borderRadius:"50%",background:d.color}}/><span style={{fontSize:10,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{d.name}</span></div>
+                          <span style={{fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{fc(d.value)}</span>
+                        </div>
+                        <div className="pbar"><div className="pfill" style={{width:`${(d.value/max)*100}%`,background:d.color}}/></div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>
@@ -1727,7 +1721,10 @@ if (!user) {
         {/* ════════ BUDGET ════════ */}
         {tab==="Budget"&&<>
           <div className="card" style={{marginBottom:12}}>
-            <div className="stitle">Set Monthly Limit</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:6}}>
+              <div className="stitle" style={{marginBottom:0}}>Set Monthly Limits</div>
+              <span style={{fontSize:11,color:C.muted}}>Tracking: {new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</span>
+            </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <select className="inp" style={{flex:"1 1 140px"}} value={budgetForm.category} onChange={e=>setBudgetForm(p=>({...p,category:e.target.value}))}>{CATEGORIES.expense.map(c=><option key={c}>{c}</option>)}</select>
               <input className="inp" style={{flex:"1 1 120px"}} placeholder="₹ limit" type="number" value={budgetForm.limit} onChange={e=>setBudgetForm(p=>({...p,limit:e.target.value}))}/>
@@ -1736,7 +1733,7 @@ if (!user) {
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:10}}>
             {CATEGORIES.expense.map((cat,i)=>{
-              const limit=budgets[cat]||0, spent=transactions.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0);
+              const limit=budgets[cat]||0, spent=thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0);
               const pct=limit>0?Math.min(100,(spent/limit)*100):0, over=spent>limit&&limit>0;
               return(
                 <div key={cat} className="card">
@@ -2011,15 +2008,21 @@ if (!user) {
 
           {/* ── Debt Acceleration Simulator ── */}
           <div className="card" style={{marginBottom:14}}>
-            <div className="stitle">🚀 Debt Acceleration Simulator</div>
-            <div style={{marginBottom:14}}>
-              <div className="lbl">Extra monthly payment ₹</div>
-              <input className="inp" type="number" placeholder="e.g. 2000" value={simExtra}
-                onChange={e=>setSimExtra(e.target.value)}
-                style={{maxWidth:220}}/>
-              <div style={{fontSize:11,color:C.muted,marginTop:6}}>
-                See how much faster you clear each loan and how much interest you save.
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🚀 Debt Acceleration Simulator</div>
+                <div style={{fontSize:11,color:C.muted}}>Extra payment synced with Plan tab → one number, used everywhere</div>
               </div>
+              {extraFund&&<span className="tag" style={{background:`${C.income}15`,color:C.income,fontSize:11}}>+{fc(parseFloat(extraFund)||0)}/mo</span>}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`}}>
+              <div style={{flex:1}}>
+                <div className="lbl">Extra monthly payment ₹</div>
+                <input className="inp" type="number" placeholder="e.g. 2000" value={extraFund}
+                  onChange={e=>setExtraFund(e.target.value)}
+                  style={{background:"transparent",border:"none",padding:"4px 0",fontSize:16,fontWeight:700,fontFamily:"'Cabinet Grotesk',sans-serif"}}/>
+              </div>
+              <button className="btn-ghost btn-sm" onClick={()=>setTab("Plan")} style={{fontSize:11,whiteSpace:"nowrap"}}>Edit in Plan →</button>
             </div>
             {debtSimulator.length===0
               ? <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>Add loans in the Plan tab first.</div>
@@ -2046,9 +2049,9 @@ if (!user) {
                             <div style={{fontSize:10,color:C.muted}}>EMI {fc(d.emi)}</div>
                           </div>
                           <div style={{background:`${C.accent}10`,borderRadius:10,padding:"9px 12px",border:`1px solid ${C.accent}30`}}>
-                            <div className="lbl">With +{fc(parseFloat(simExtra)||0)}</div>
+                            <div className="lbl">With +{fc(parseFloat(extraFund)||0)}</div>
                             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14,color:C.accent}}>{d.boosted?d.boosted+"mo":"—"}</div>
-                            <div style={{fontSize:10,color:C.muted}}>EMI {fc((parseFloat(d.emi)||0)+(parseFloat(simExtra)||0))}</div>
+                            <div style={{fontSize:10,color:C.muted}}>EMI {fc((parseFloat(d.emi)||0)+(parseFloat(extraFund)||0))}</div>
                           </div>
                           <div style={{background:`${C.income}10`,borderRadius:10,padding:"9px 12px",border:`1px solid ${C.income}30`}}>
                             <div className="lbl">Interest Saved</div>
@@ -2056,9 +2059,9 @@ if (!user) {
                             <div style={{fontSize:10,color:C.muted}}>{d.monthsSaved>0?`${d.monthsSaved}mo earlier`:"no change"}</div>
                           </div>
                         </div>
-                        {parseFloat(simExtra)>0&&d.monthsSaved>0&&(
+                        {parseFloat(extraFund)>0&&d.monthsSaved>0&&(
                           <div style={{marginTop:10,padding:"8px 12px",background:`${C.income}08`,borderRadius:10,fontSize:11,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
-                            💡 Pay ₹{(parseFloat(simExtra)||0).toLocaleString("en-IN")} extra monthly → free {d.monthsSaved} months earlier → save {fc(d.interestSaved)} in interest
+                            💡 Pay ₹{(parseFloat(extraFund)||0).toLocaleString("en-IN")} extra monthly → free {d.monthsSaved} months earlier → save {fc(d.interestSaved)} in interest
                           </div>
                         )}
                       </div>
@@ -2067,7 +2070,7 @@ if (!user) {
                   {debtSimulator.some(d=>d.monthsSaved>0)&&(
                     <div style={{marginTop:12,padding:"12px 16px",background:`linear-gradient(135deg,${C.income}12,${C.accent}08)`,borderRadius:14,border:`1px solid ${C.income}25`}}>
                       <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:14,color:C.income,marginBottom:4}}>
-                        Total Savings with ₹{(parseFloat(simExtra)||0).toLocaleString("en-IN")}/mo extra
+                        Total Savings with ₹{(parseFloat(extraFund)||0).toLocaleString("en-IN")}/mo extra
                       </div>
                       <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
                         <div><div className="lbl">Months Saved</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:C.income}}>{debtSimulator.reduce((s,d)=>s+d.monthsSaved,0)}</div></div>
