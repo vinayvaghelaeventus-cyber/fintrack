@@ -36,14 +36,17 @@ const MOBILE_TABS = [
   {id:"Plan",       icon:"🎯", label:"Plan"},
   {id:"Cards",      icon:"💳", label:"Cards"},
   {id:"Transactions",icon:"📋", label:"Txns"},
-  {id:"Finance",    icon:"📊", label:"Finance"},
+  {id:"Smart",      icon:"⚡", label:"Smart"},
 ];
-const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","Insights","Finance"];
+const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","Insights","Finance","Smart"];
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0],time:new Date().toTimeString().slice(0,5)};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
 const EMPTY_CC_EMI = {id:null, cardId:"", description:"", amount:"", monthsLeft:"", _totalMonths:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
+const EMPTY_ACCOUNT = {id:null, name:"", type:"savings", balance:"", bank:"", color:"#5b8def", icon:"🏦"};
+const ACCOUNT_TYPES = ["savings","current","cash","wallet","fd","other"];
+const ACCOUNT_ICONS = ["🏦","💰","💵","📱","🏧","💼"];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const fc = n => new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(n||0);
@@ -154,7 +157,9 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [savings, setSavings]           = useState([]);
   const [budgets, setBudgets]           = useState({});
   const [banks, setBanks]               = useState(["SBI","HDFC","ICICI","Axis","Kotak"]);
-  const [salary, setSalary]             = useState({...EMPTY_SAL}); // auto-salary config
+  const [salary, setSalary]             = useState({...EMPTY_SAL});
+  const [accounts, setAccounts]         = useState([]); // NEW: account register
+  const [allocationPct, setAllocationPct] = useState({emi:45,living:30,savings:10,buffer:15}); // NEW
   const [loaded, setLoaded]             = useState(false);
   const [saving, setSaving]             = useState(false);
   const [lastSaved, setLastSaved]       = useState(null);
@@ -211,6 +216,11 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [importMsg, setImportMsg] = useState("");
   const [importPreview, setImportPreview] = useState([]);
   const fileRef = useRef();
+  // NEW form states
+  const [showAccountForm, setShowAccountForm] = useState(false);
+  const [accountForm, setAccountForm] = useState({...EMPTY_ACCOUNT});
+  const [editAccountId, setEditAccountId] = useState(null);
+  const [simExtra, setSimExtra] = useState(""); // debt acceleration simulator
 
   // ── Filters ──
   const [txSearch, setTxSearch] = useState("");
@@ -267,6 +277,8 @@ useEffect(() => {
           if (data.emergencyFund) setEmergencyFund(data.emergencyFund);
           if (data.aiAdvice)      setAiAdvice(data.aiAdvice);
           if (data.darkMode!==undefined) setDarkMode(data.darkMode);
+          if (data.accounts)      setAccounts(data.accounts);
+          if (data.allocationPct) setAllocationPct(data.allocationPct);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -289,6 +301,7 @@ useEffect(() => {
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
+        accounts, allocationPct,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -296,7 +309,8 @@ useEffect(() => {
       else setFbStatus("error");
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
-      monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode, loaded]);
+      monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
+      accounts, allocationPct, loaded]);
 
   // ─── AUTO-SALARY CREDIT ──────────────────────────────────────────────────
   useEffect(() => {
@@ -316,6 +330,87 @@ useEffect(() => {
       setTransactions(p => [salTx, ...p]);
     }
   }, [loaded, salary, transactions]);
+
+  // ─── EMI AUTO ENGINE ─────────────────────────────────────────────────────
+  // Auto-deducts EMIs on due date, reduces loan balance, and handles catch-up
+  useEffect(() => {
+    if (!loaded) return;
+    const now = new Date();
+    const yr = now.getFullYear(), mo = now.getMonth();
+    let txsToAdd = [], debtsToUpdate = {}, ccsToUpdate = {}, ccEmisToUpdate = {};
+
+    // --- Loan EMIs ---
+    debts.filter(d => !d.closed && d.dueDate && d.emi && d.autoEMI !== false).forEach(d => {
+      const dueDay = new Date(d.dueDate).getDate();
+      // Check last 2 months for missed + current month
+      for (let mOffset = -1; mOffset <= 0; mOffset++) {
+        const checkDate = new Date(yr, mo + mOffset, dueDay);
+        const key = `emi_${d.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
+        const already = transactions.some(t => t._emiKey === key);
+        if (!already && checkDate <= now) {
+          const amt = parseFloat(d.emi) || 0;
+          txsToAdd.push({
+            id: Date.now() + Math.random(), type: "expense", amount: amt,
+            category: "Loan EMI", paymentMode: "Net Banking", bank: d.lender || "",
+            note: `Auto EMI: ${d.name}`, date: checkDate.toISOString().split("T")[0],
+            _emiKey: key, _debtId: d.id,
+          });
+          // Reduce outstanding
+          debtsToUpdate[d.id] = Math.max(0, (debtsToUpdate[d.id] ?? parseFloat(d.outstanding) ?? 0) - amt);
+        }
+      }
+    });
+
+    // --- CC EMIs ---
+    ccEmis.filter(e => e.autoEMI !== false && e.monthsLeft > 0).forEach(e => {
+      const card = creditCards.find(c => String(c.id) === String(e.cardId));
+      const dueDay = card?.dueDate ? new Date(card.dueDate).getDate() : null;
+      if (!dueDay) return;
+      for (let mOffset = -1; mOffset <= 0; mOffset++) {
+        const checkDate = new Date(yr, mo + mOffset, dueDay);
+        const key = `ccemi_${e.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
+        const already = transactions.some(t => t._emiKey === key);
+        if (!already && checkDate <= now) {
+          const amt = parseFloat(e.amount) || 0;
+          txsToAdd.push({
+            id: Date.now() + Math.random(), type: "expense", amount: amt,
+            category: "Credit Card EMI", paymentMode: "Credit Card",
+            bank: card?.name || "", note: `Auto CC EMI: ${e.description || card?.name || ""}`,
+            date: checkDate.toISOString().split("T")[0],
+            _emiKey: key, _ccEmiId: e.id,
+          });
+          ccEmisToUpdate[e.id] = Math.max(0, (ccEmisToUpdate[e.id] ?? parseInt(e.monthsLeft) ?? 0) - 1);
+        }
+      }
+    });
+
+    if (txsToAdd.length > 0) {
+      setTransactions(p => [...txsToAdd, ...p]);
+    }
+    if (Object.keys(debtsToUpdate).length > 0) {
+      setDebts(p => p.map(d => debtsToUpdate[d.id] !== undefined
+        ? { ...d, outstanding: debtsToUpdate[d.id], closed: debtsToUpdate[d.id] === 0 }
+        : d
+      ));
+    }
+    if (Object.keys(ccEmisToUpdate).length > 0) {
+      setCcEmis(p => p.map(e => ccEmisToUpdate[e.id] !== undefined
+        ? { ...e, monthsLeft: ccEmisToUpdate[e.id] }
+        : e
+      ));
+    }
+    // Deduct from accounts
+    if (txsToAdd.length > 0 && accounts.length > 0) {
+      const totalAuto = txsToAdd.reduce((s, t) => s + t.amount, 0);
+      const primaryAcc = accounts.find(a => a.type === "savings") || accounts[0];
+      if (primaryAcc) {
+        setAccounts(p => p.map(a => a.id === primaryAcc.id
+          ? { ...a, balance: Math.max(0, (parseFloat(a.balance) || 0) - totalAuto) }
+          : a
+        ));
+      }
+    }
+  }, [loaded, debts, ccEmis, creditCards, transactions, accounts]);
 
   // ─── COMPUTED ────────────────────────────────────────────────────────────
   const totalIncome    = useMemo(() => transactions.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0), [transactions]);
@@ -404,6 +499,86 @@ const filterByPeriod = useCallback((txList, period) => {
   const cashFlowForecast = useMemo(()=>{const now=new Date();const salDay=parseInt(salary.creditDay)||1;const salAmt=parseFloat(salary.amount)||effectiveIncome||0;const dailyExp=Math.max(thisMonthExp,totalExpense,1)/30;let running=Math.max(cashLeft,0);return Array.from({length:30},(_,i)=>{const d=new Date(now);d.setDate(d.getDate()+i+1);if(d.getDate()===salDay&&salAmt>0)running+=salAmt;[...activeDebts,...creditCards].forEach(item=>{if(item.dueDate&&new Date(item.dueDate).getDate()===d.getDate())running-=parseFloat(item.emi||item.minDue||0);});running-=dailyExp;return{day:i+1,label:d.getDate()+"/"+(d.getMonth()+1),balance:Math.round(running)};});},[cashLeft,salary,effectiveIncome,thisMonthExp,totalExpense,activeDebts,creditCards]);
   const spendAlerts = useMemo(()=>CATEGORIES.expense.map(cat=>({cat,spent:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),limit:budgets[cat]||0})).filter(a=>a.limit>0&&(a.spent/a.limit)>=0.8).map(a=>({...a,pct:Math.round((a.spent/a.limit)*100),over:a.spent>a.limit})),[thisMonthTx,budgets]);
 
+  // ─── ACCOUNT BALANCE ─────────────────────────────────────────────────────
+  const totalAccountBalance = useMemo(() =>
+    accounts.reduce((s, a) => s + (parseFloat(a.balance) || 0), 0),
+  [accounts]);
+
+  // ─── 15-DAY STRESS PANEL ─────────────────────────────────────────────────
+  const next15Days = useMemo(() => {
+    const now = new Date(); now.setHours(0,0,0,0);
+    const end = new Date(now); end.setDate(end.getDate() + 15);
+    const dues = [];
+    [...activeDebts].forEach(d => {
+      if (!d.dueDate || !d.emi) return;
+      let due = new Date(d.dueDate);
+      // normalize to this month's due date
+      due = new Date(now.getFullYear(), now.getMonth(), due.getDate());
+      if (due < now) due = new Date(now.getFullYear(), now.getMonth()+1, new Date(d.dueDate).getDate());
+      if (due <= end) dues.push({ name: d.name, amt: parseFloat(d.emi)||0, date: due, kind: "loan", color: C.loan });
+    });
+    creditCards.forEach(c => {
+      if (!c.dueDate || !c.minDue) return;
+      let due = new Date(c.dueDate);
+      due = new Date(now.getFullYear(), now.getMonth(), due.getDate());
+      if (due < now) due = new Date(now.getFullYear(), now.getMonth()+1, new Date(c.dueDate).getDate());
+      if (due <= end) dues.push({ name: c.name, amt: parseFloat(c.minDue)||0, date: due, kind: "cc", color: C.credit });
+    });
+    ccEmis.forEach(e => {
+      const card = creditCards.find(cc => String(cc.id)===String(e.cardId));
+      if (!card?.dueDate) return;
+      let due = new Date(card.dueDate);
+      due = new Date(now.getFullYear(), now.getMonth(), due.getDate());
+      if (due < now) due = new Date(now.getFullYear(), now.getMonth()+1, new Date(card.dueDate).getDate());
+      if (due <= end) dues.push({ name: e.description||card.name, amt: parseFloat(e.amount)||0, date: due, kind: "ccemi", color: C.warning });
+    });
+    dues.sort((a,b)=>a.date-b.date);
+    const totalDue = dues.reduce((s,d)=>s+d.amt,0);
+    const balance = totalAccountBalance || Math.max(cashLeft, 0);
+    const ratio = balance > 0 ? totalDue/balance : 1;
+    const status = ratio < 0.5 ? "safe" : ratio < 0.85 ? "tight" : "risk";
+    return { dues, totalDue, balance, status, ratio };
+  }, [activeDebts, creditCards, ccEmis, cashLeft, totalAccountBalance, C]);
+
+  // ─── DEBT ACCELERATION SIMULATOR ─────────────────────────────────────────
+  const debtSimulator = useMemo(() => {
+    const extra = parseFloat(simExtra) || 0;
+    return activeDebts.map(d => {
+      const bal = parseFloat(d.outstanding)||0;
+      const emi = parseFloat(d.emi)||0;
+      const rate = parseFloat(d.interestRate)||0;
+      const normal = calcMonths(bal, emi, rate);
+      const boosted = extra > 0 ? calcMonths(bal, emi + extra, rate) : normal;
+      const monthsSaved = (normal && boosted) ? Math.max(0, normal - boosted) : 0;
+      // Interest saved = (normal payments - principal) - (boosted payments - principal)
+      const interestNormal = normal ? Math.max(0, emi * normal - bal) : 0;
+      const interestBoosted = boosted ? Math.max(0, (emi + extra) * boosted - bal) : 0;
+      const interestSaved = Math.max(0, interestNormal - interestBoosted);
+      return { ...d, bal, normal, boosted, monthsSaved, interestSaved };
+    });
+  }, [activeDebts, simExtra]);
+
+  // ─── INCOME ALLOCATION ────────────────────────────────────────────────────
+  const incomeAllocation = useMemo(() => {
+    const inc = effectiveIncome;
+    if (!inc) return null;
+    const emiAmt    = inc * (allocationPct.emi    / 100);
+    const livingAmt = inc * (allocationPct.living / 100);
+    const savingsAmt= inc * (allocationPct.savings/ 100);
+    const bufferAmt = inc * (allocationPct.buffer / 100);
+    const actualEMI = totalEMI + totalCCEMI;
+    const actualExp = totalExpense;
+    return {
+      buckets: [
+        { label:"EMIs",    pct:allocationPct.emi,     amt:emiAmt,    actual:actualEMI,  color:C.expense,  icon:"🔁" },
+        { label:"Living",  pct:allocationPct.living,  amt:livingAmt, actual:actualExp,  color:C.warning,  icon:"🏠" },
+        { label:"Savings", pct:allocationPct.savings, amt:savingsAmt,actual:savingsTotal,color:C.income,   icon:"💰" },
+        { label:"Buffer",  pct:allocationPct.buffer,  amt:bufferAmt, actual:cashLeft>0?Math.min(cashLeft,bufferAmt):0, color:C.accent, icon:"🛡️" },
+      ],
+      total: emiAmt + livingAmt + savingsAmt + bufferAmt,
+    };
+  }, [effectiveIncome, allocationPct, totalEMI, totalCCEMI, totalExpense, savingsTotal, cashLeft, C]);
+
   // ─── ACTIONS ─────────────────────────────────────────────────────────────
   function saveTx() {
   if (!txForm.amount||isNaN(txForm.amount)) return;
@@ -480,6 +655,27 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
   function addBudget() { if(!budgetForm.limit)return; setBudgets(p=>({...p,[budgetForm.category]:parseFloat(budgetForm.limit)})); setBudgetForm({category:"Food",limit:""}); }
   function addGoal()   { if(!savForm.name||!savForm.goal)return; setSavings(p=>[...p,{...savForm,goal:parseFloat(savForm.goal),current:parseFloat(savForm.current)||0,id:Date.now()}]); setSavForm({name:"",goal:"",current:""}); }
   function updateGoal(id,delta) { setSavings(p=>p.map(s=>s.id===id?{...s,current:Math.max(0,s.current+delta)}:s)); }
+
+  // Account actions
+  function saveAccount() {
+    if (!accountForm.name) return;
+    if (editAccountId) {
+      setAccounts(p => p.map(a => a.id===editAccountId ? {...accountForm, id:editAccountId} : a));
+    } else {
+      setAccounts(p => [...p, {...accountForm, id:Date.now(), balance: parseFloat(accountForm.balance)||0}]);
+    }
+    setAccountForm({...EMPTY_ACCOUNT}); setShowAccountForm(false); setEditAccountId(null);
+  }
+  function deleteAccount(id) { setAccounts(p => p.filter(a => a.id!==id)); }
+  function updateAccountBalance(id, delta) {
+    setAccounts(p => p.map(a => a.id===id ? {...a, balance: Math.max(0,(parseFloat(a.balance)||0)+delta)} : a));
+  }
+  function toggleDebtAutoEMI(id) {
+    setDebts(p => p.map(d => d.id===id ? {...d, autoEMI: d.autoEMI===false ? true : false} : d));
+  }
+  function toggleCCEmiAuto(id) {
+    setCcEmis(p => p.map(e => e.id===id ? {...e, autoEMI: e.autoEMI===false ? true : false} : e));
+  }
 
   function exportTransactions() { dlCSV(toCSV(transactions.map(t=>({Date:t.date,Type:t.type,Category:t.category,Amount:t.amount,Mode:t.paymentMode||"",Bank:t.bank||"",Note:t.note||""})),["Date","Type","Category","Amount","Mode","Bank","Note"]),"fintrack_export.csv"); }
 
@@ -997,7 +1193,7 @@ if (!user) {
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
             <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>setTab(t)}>
-              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Goals"?"🌱 Goals":t==="Finance"?"📊 Finance":t}
+              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Goals"?"🌱 Goals":t==="Finance"?"📊 Finance":t==="Smart"?"⚡ Smart":t}
             </button>
           ))}
         </div>
@@ -1078,6 +1274,25 @@ if (!user) {
     ));
   })()}
 </div>
+
+          {/* ── 15-Day Stress Mini Banner ── */}
+          {next15Days.dues.length>0&&(
+            <div onClick={()=>setTab("Smart")} style={{
+              marginBottom:10,padding:"12px 16px",borderRadius:14,cursor:"pointer",
+              background: next15Days.status==="safe"?`${C.income}08`:next15Days.status==="tight"?`${C.warning}08`:`${C.expense}10`,
+              border:`1px solid ${next15Days.status==="safe"?C.income:next15Days.status==="tight"?C.warning:C.expense}35`,
+              display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,
+            }}>
+              <div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,
+                  color:next15Days.status==="safe"?C.income:next15Days.status==="tight"?C.warning:C.expense}}>
+                  {next15Days.status==="safe"?"✅":next15Days.status==="tight"?"⚠️":"🚨"} {next15Days.dues.length} due in 15 days
+                </div>
+                <div style={{fontSize:11,color:C.muted}}>{fc(next15Days.totalDue)} total · Balance {fc(next15Days.balance)}</div>
+              </div>
+              <span style={{fontSize:11,color:C.muted}}>View →</span>
+            </div>
+          )}
 
           {spendAlerts.length>0&&(
             <div className="card" style={{marginBottom:10,borderColor:`${C.expense}35`,background:`${C.expense}06`}}>
@@ -1219,8 +1434,9 @@ if (!user) {
                 {label:"CC EMIs",     val:-totalCCEMI,           color:C.credit},
                 {label:"Expenses",    val:-totalExpense,         color:C.warning},
                 {label:"Left Over",   val:cashLeft,              color:cashLeft>=0?C.income:C.expense},
+                ...(accounts.length>0?[{label:"Account Balance", val:totalAccountBalance, color:C.accent}]:[]),
               ].map(item=>(
-                <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${item.label==="Left Over"?item.color+"40":C.border}`}}>
+                <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${(item.label==="Left Over"||item.label==="Account Balance")?item.color+"40":C.border}`}}>
                   <div className="lbl">{item.label}</div>
                   <div style={{fontSize:14,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val>=0?"+":""}{fc(Math.abs(item.val))}</div>
                 </div>
@@ -1638,6 +1854,290 @@ if (!user) {
               )}
             </div>
           </div>
+        </>}
+
+        {/* ════════ SMART ════════ */}
+        {tab==="Smart"&&<>
+
+          {/* ── 15-Day Stress Panel ── */}
+          <div className="card" style={{marginBottom:14, borderColor: next15Days.status==="risk"?`${C.expense}50`:next15Days.status==="tight"?`${C.warning}40`:C.border}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>⚡ Next 15 Days — Stress Panel</div>
+                <div style={{fontSize:11,color:C.muted}}>What's due before {new Date(Date.now()+15*864e5).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>
+              </div>
+              <div style={{
+                padding:"8px 18px", borderRadius:99,
+                background: next15Days.status==="safe"?`${C.income}18`:next15Days.status==="tight"?`${C.warning}18`:`${C.expense}18`,
+                color: next15Days.status==="safe"?C.income:next15Days.status==="tight"?C.warning:C.expense,
+                fontFamily:"'Cabinet Grotesk',sans-serif", fontWeight:800, fontSize:13,
+              }}>
+                {next15Days.status==="safe"?"✅ Safe":next15Days.status==="tight"?"⚠️ Tight":"🚨 Risk"}
+              </div>
+            </div>
+
+            {next15Days.dues.length===0
+              ? <div style={{textAlign:"center",padding:24,color:C.muted,fontSize:12}}>No dues in the next 15 days 🎉</div>
+              : <>
+                  <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+                    {next15Days.dues.map((d,i) => (
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${d.color}25`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{width:8,height:8,borderRadius:"50%",background:d.color,boxShadow:`0 0 6px ${d.color}80`,flexShrink:0}}/>
+                          <div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{d.name}</div>
+                            <div style={{fontSize:10,color:C.muted}}>{d.date.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})} · {d.kind==="loan"?"Loan EMI":d.kind==="cc"?"CC Bill":"CC EMI"}</div>
+                          </div>
+                        </div>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:d.color}}>{fc(d.amt)}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                    {[
+                      {label:"Total Due",  val:fc(next15Days.totalDue),  color:C.expense},
+                      {label:"Balance",    val:fc(next15Days.balance),   color:C.income},
+                      {label:"After Dues", val:fc(next15Days.balance - next15Days.totalDue), color:(next15Days.balance-next15Days.totalDue)>=0?C.income:C.expense},
+                    ].map(item=>(
+                      <div key={item.label} style={{background:C.surface,borderRadius:12,padding:"10px 12px",textAlign:"center"}}>
+                        <div className="lbl">{item.label}</div>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:item.color}}>{item.val}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+            }
+          </div>
+
+          {/* ── Account Register ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🏦 Account Register</div>
+                <div style={{fontSize:11,color:C.muted}}>Your actual money across all accounts</div>
+              </div>
+              <button className="btn btn-p btn-sm" onClick={()=>{setAccountForm({...EMPTY_ACCOUNT});setEditAccountId(null);setShowAccountForm(true);}}>+ Add Account</button>
+            </div>
+
+            {accounts.length===0
+              ? <div style={{textAlign:"center",padding:28,color:C.muted,fontSize:12,lineHeight:1.8}}>
+                  No accounts yet.<br/>Add your SBI savings balance, cash, etc.<br/>
+                  <span style={{color:C.accent}}>This makes your forecast real, not theoretical.</span>
+                </div>
+              : <>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,marginBottom:14}}>
+                    {accounts.map(a=>(
+                      <div key={a.id} style={{background:C.surface,borderRadius:14,padding:"14px",border:`1px solid ${a.color}30`,position:"relative"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                          <div style={{fontSize:22}}>{a.icon}</div>
+                          <div style={{display:"flex",gap:4}}>
+                            <button className="btn-ghost" style={{padding:"2px 7px",fontSize:10}} onClick={()=>{setAccountForm({...a});setEditAccountId(a.id);setShowAccountForm(true);}}>Edit</button>
+                            <button className="btn-danger" style={{padding:"2px 7px",fontSize:10}} onClick={()=>deleteAccount(a.id)}>✕</button>
+                          </div>
+                        </div>
+                        <div className="lbl">{a.name}</div>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:a.color}}>{fc(parseFloat(a.balance)||0)}</div>
+                        <div style={{fontSize:10,color:C.muted,marginTop:2,textTransform:"capitalize"}}>{a.type} · {a.bank}</div>
+                        <div style={{display:"flex",gap:4,marginTop:8}}>
+                          <button className="btn-ghost" style={{flex:1,padding:"4px",fontSize:11}} onClick={()=>{const v=prompt("Add amount:");const n=parseFloat(v);if(!isNaN(n))updateAccountBalance(a.id,n);}}>+ Add</button>
+                          <button className="btn-ghost" style={{flex:1,padding:"4px",fontSize:11}} onClick={()=>{const v=prompt("Deduct amount:");const n=parseFloat(v);if(!isNaN(n))updateAccountBalance(a.id,-n);}}>− Deduct</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>Total Balance</span>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,color:C.income}}>{fc(totalAccountBalance)}</span>
+                  </div>
+                </>
+            }
+          </div>
+
+          {/* ── EMI Auto Engine Status ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div className="stitle">🤖 EMI Auto Engine</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.7}}>
+              When enabled, EMIs auto-deduct on due date, loan balances reduce automatically, and transactions are created. Toggle per loan below.
+            </div>
+            {activeDebts.length===0 && ccEmis.length===0
+              ? <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>Add loans and CC EMIs to enable automation.</div>
+              : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {activeDebts.map(d=>(
+                    <div key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.surface,borderRadius:12}}>
+                      <div>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{d.name}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{fc(d.emi)}/mo · Due day {d.dueDate?new Date(d.dueDate).getDate():"—"}</div>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:11,color:d.autoEMI===false?C.muted:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                          {d.autoEMI===false?"Manual":"Auto ✓"}
+                        </span>
+                        <div onClick={()=>toggleDebtAutoEMI(d.id)} style={{
+                          width:42,height:24,borderRadius:99,cursor:"pointer",
+                          background:d.autoEMI===false?C.border:C.income,
+                          position:"relative",transition:"background 0.2s",flexShrink:0,
+                        }}>
+                          <div style={{position:"absolute",top:3,left:d.autoEMI===false?3:21,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 4px rgba(0,0,0,0.2)"}}/>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {ccEmis.map(e=>{
+                    const card = creditCards.find(c=>String(c.id)===String(e.cardId));
+                    return(
+                      <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.surface,borderRadius:12}}>
+                        <div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{e.description||"CC EMI"}</div>
+                          <div style={{fontSize:10,color:C.muted}}>{fc(e.amount)}/mo · {card?.name||"Unknown card"} · {e.monthsLeft}mo left</div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontSize:11,color:e.autoEMI===false?C.muted:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                            {e.autoEMI===false?"Manual":"Auto ✓"}
+                          </span>
+                          <div onClick={()=>toggleCCEmiAuto(e.id)} style={{
+                            width:42,height:24,borderRadius:99,cursor:"pointer",
+                            background:e.autoEMI===false?C.border:C.income,
+                            position:"relative",transition:"background 0.2s",flexShrink:0,
+                          }}>
+                            <div style={{position:"absolute",top:3,left:e.autoEMI===false?3:21,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 4px rgba(0,0,0,0.2)"}}/>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+            }
+          </div>
+
+          {/* ── Debt Acceleration Simulator ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div className="stitle">🚀 Debt Acceleration Simulator</div>
+            <div style={{marginBottom:14}}>
+              <div className="lbl">Extra monthly payment ₹</div>
+              <input className="inp" type="number" placeholder="e.g. 2000" value={simExtra}
+                onChange={e=>setSimExtra(e.target.value)}
+                style={{maxWidth:220}}/>
+              <div style={{fontSize:11,color:C.muted,marginTop:6}}>
+                See how much faster you clear each loan and how much interest you save.
+              </div>
+            </div>
+            {debtSimulator.length===0
+              ? <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>Add loans in the Plan tab first.</div>
+              : <>
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {debtSimulator.map(d=>(
+                      <div key={d.id} style={{background:C.surface,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,flexWrap:"wrap",gap:6}}>
+                          <div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>{d.name}</div>
+                            <div style={{fontSize:11,color:C.muted}}>{d.lender} · {d.interestRate}% p.a. · Outstanding {fc(d.bal)}</div>
+                          </div>
+                          {d.monthsSaved>0&&(
+                            <div style={{background:`${C.income}15`,borderRadius:10,padding:"6px 12px",border:`1px solid ${C.income}30`}}>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:13,color:C.income}}>🎉 {d.monthsSaved}mo faster</div>
+                              <div style={{fontSize:10,color:C.muted}}>saves {fc(d.interestSaved)}</div>
+                            </div>
+                          )}
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                          <div style={{background:C.card,borderRadius:10,padding:"9px 12px",border:`1px solid ${C.border}`}}>
+                            <div className="lbl">Normal</div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14,color:C.muted}}>{d.normal?d.normal+"mo":"—"}</div>
+                            <div style={{fontSize:10,color:C.muted}}>EMI {fc(d.emi)}</div>
+                          </div>
+                          <div style={{background:`${C.accent}10`,borderRadius:10,padding:"9px 12px",border:`1px solid ${C.accent}30`}}>
+                            <div className="lbl">With +{fc(parseFloat(simExtra)||0)}</div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14,color:C.accent}}>{d.boosted?d.boosted+"mo":"—"}</div>
+                            <div style={{fontSize:10,color:C.muted}}>EMI {fc((parseFloat(d.emi)||0)+(parseFloat(simExtra)||0))}</div>
+                          </div>
+                          <div style={{background:`${C.income}10`,borderRadius:10,padding:"9px 12px",border:`1px solid ${C.income}30`}}>
+                            <div className="lbl">Interest Saved</div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14,color:C.income}}>{fc(d.interestSaved)}</div>
+                            <div style={{fontSize:10,color:C.muted}}>{d.monthsSaved>0?`${d.monthsSaved}mo earlier`:"no change"}</div>
+                          </div>
+                        </div>
+                        {parseFloat(simExtra)>0&&d.monthsSaved>0&&(
+                          <div style={{marginTop:10,padding:"8px 12px",background:`${C.income}08`,borderRadius:10,fontSize:11,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                            💡 Pay ₹{(parseFloat(simExtra)||0).toLocaleString("en-IN")} extra monthly → free {d.monthsSaved} months earlier → save {fc(d.interestSaved)} in interest
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {debtSimulator.some(d=>d.monthsSaved>0)&&(
+                    <div style={{marginTop:12,padding:"12px 16px",background:`linear-gradient(135deg,${C.income}12,${C.accent}08)`,borderRadius:14,border:`1px solid ${C.income}25`}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:14,color:C.income,marginBottom:4}}>
+                        Total Savings with ₹{(parseFloat(simExtra)||0).toLocaleString("en-IN")}/mo extra
+                      </div>
+                      <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+                        <div><div className="lbl">Months Saved</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:C.income}}>{debtSimulator.reduce((s,d)=>s+d.monthsSaved,0)}</div></div>
+                        <div><div className="lbl">Interest Saved</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:C.income}}>{fc(debtSimulator.reduce((s,d)=>s+d.interestSaved,0))}</div></div>
+                      </div>
+                    </div>
+                  )}
+                </>
+            }
+          </div>
+
+          {/* ── Income Allocation System ── */}
+          {effectiveIncome>0&&(
+            <div className="card" style={{marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div>
+                  <div className="stitle" style={{marginBottom:2}}>📊 Income Allocation</div>
+                  <div style={{fontSize:11,color:C.muted}}>How your ₹{effectiveIncome.toLocaleString("en-IN")} should be split</div>
+                </div>
+              </div>
+              {incomeAllocation&&(
+                <>
+                  <div style={{display:"flex",height:12,borderRadius:99,overflow:"hidden",marginBottom:16,gap:2}}>
+                    {incomeAllocation.buckets.map(b=>(
+                      <div key={b.label} style={{flex:b.pct,background:b.color,transition:"flex 0.5s",minWidth:b.pct>0?4:0}}/>
+                    ))}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10,marginBottom:14}}>
+                    {incomeAllocation.buckets.map(b=>(
+                      <div key={b.label} style={{background:C.surface,borderRadius:12,padding:"12px 14px",border:`1px solid ${b.color}25`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                          <span style={{fontSize:18}}>{b.icon}</span>
+                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,color:b.color}}>{b.pct}%</span>
+                        </div>
+                        <div className="lbl">{b.label}</div>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:b.color,marginBottom:4}}>{fc(b.amt)}</div>
+                        <div style={{fontSize:10,color:C.muted}}>Actual: {fc(b.actual)}</div>
+                        <div className="pbar" style={{marginTop:6}}>
+                          <div className="pfill" style={{width:`${Math.min(100,(b.actual/Math.max(b.amt,1))*100)}%`,background:b.color}}/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>ADJUST ALLOCATION %</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    {[
+                      {key:"emi",label:"EMIs %"},
+                      {key:"living",label:"Living %"},
+                      {key:"savings",label:"Savings %"},
+                      {key:"buffer",label:"Buffer %"},
+                    ].map(item=>(
+                      <div key={item.key}>
+                        <div className="lbl">{item.label}</div>
+                        <input className="inp" type="number" min="0" max="100"
+                          value={allocationPct[item.key]}
+                          onChange={e=>setAllocationPct(p=>({...p,[item.key]:Math.min(100,parseInt(e.target.value)||0)}))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {Object.values(allocationPct).reduce((s,v)=>s+v,0)!==100&&(
+                    <div style={{marginTop:8,fontSize:11,color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                      ⚠️ Percentages add up to {Object.values(allocationPct).reduce((s,v)=>s+v,0)}% — should be 100%
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
         </>}
 
         {/* ════════ FINANCE ════════ */}
@@ -2158,6 +2658,53 @@ if (!user) {
       {/* Settings */}
       {showSettings&&<SettingsModal C={C} salary={salary} setSalary={setSalary} banks={banks} 
     setBanks={setBanks} onClose={() => setShowSettings(false)} />}
+
+      {/* ── Account Form Modal ── */}
+      {showAccountForm&&(
+        <div className="modal" onClick={e=>e.target===e.currentTarget&&setShowAccountForm(false)}>
+          <div className="sheet">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18}}>{editAccountId?"Edit Account":"Add Account"}</div>
+              <button className="btn-ghost btn-sm" onClick={()=>setShowAccountForm(false)}>✕</button>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div><div className="lbl">Account Name</div>
+                <input className="inp" placeholder="e.g. SBI Savings" value={accountForm.name} onChange={e=>setAccountForm(p=>({...p,name:e.target.value}))}/>
+              </div>
+              <div className="g2">
+                <div><div className="lbl">Account Type</div>
+                  <select className="inp" value={accountForm.type} onChange={e=>setAccountForm(p=>({...p,type:e.target.value}))}>
+                    {ACCOUNT_TYPES.map(t=><option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div><div className="lbl">Bank / Provider</div>
+                  <input className="inp" placeholder="e.g. SBI" value={accountForm.bank} onChange={e=>setAccountForm(p=>({...p,bank:e.target.value}))}/>
+                </div>
+              </div>
+              <div><div className="lbl">Current Balance ₹</div>
+                <input className="inp" type="number" placeholder="e.g. 15000" value={accountForm.balance} onChange={e=>setAccountForm(p=>({...p,balance:e.target.value}))}/>
+              </div>
+              <div className="g2">
+                <div><div className="lbl">Icon</div>
+                  <select className="inp" value={accountForm.icon} onChange={e=>setAccountForm(p=>({...p,icon:e.target.value}))}>
+                    {ACCOUNT_ICONS.map(ic=><option key={ic} value={ic}>{ic}</option>)}
+                  </select>
+                </div>
+                <div><div className="lbl">Color</div>
+                  <input type="color" value={accountForm.color} onChange={e=>setAccountForm(p=>({...p,color:e.target.value}))}
+                    style={{width:"100%",height:42,borderRadius:12,border:`1px solid ${C.border}`,background:C.inputBg,cursor:"pointer",padding:4}}/>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:10,marginTop:4}}>
+                <button className="btn btn-p" style={{flex:1}} onClick={saveAccount}>
+                  {editAccountId?"Update Account":"Add Account"}
+                </button>
+                <button className="btn-ghost" style={{flex:1}} onClick={()=>setShowAccountForm(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
