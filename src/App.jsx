@@ -525,9 +525,15 @@ const filterByPeriod = useCallback((txList, period) => {
     name:m, value:transactions.filter(t=>t.type==="expense"&&t.paymentMode===m).reduce((s,t)=>s+t.amount,0)
   })).filter(d=>d.value>0), [transactions]);
 
+  // ─── MERGED CATEGORIES (default + custom) — must be before expenseByCat ──
+  const allCategories = useMemo(() => ({
+    income:  [...CATEGORIES.income,  ...(customCats.income ||[])],
+    expense: [...CATEGORIES.expense, ...(customCats.expense||[])],
+  }), [customCats]);
+
   const expenseByCat = useMemo(() => allCategories.expense.map((cat,i)=>({
     name:cat, value:transactions.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0), color:CAT_COLORS[i]
-  })).filter(d=>d.value>0), [transactions]);
+  })).filter(d=>d.value>0), [transactions, allCategories]);
 
   const last6Months = useMemo(() => Array.from({length:6},(_,i)=>{
     const d=new Date(); d.setMonth(d.getMonth()-(5-i));
@@ -553,12 +559,6 @@ const filterByPeriod = useCallback((txList, period) => {
 , [transactions,txType,txMode,txBank,txSearch]);
 
   // ─── NEW FEATURE COMPUTEDS ────────────────────────────────────────────────
-  // ─── MERGED CATEGORIES (default + custom) ────────────────────────────────
-  const allCategories = useMemo(() => ({
-    income:  [...CATEGORIES.income,  ...(customCats.income ||[])],
-    expense: [...CATEGORIES.expense, ...(customCats.expense||[])],
-  }), [customCats]);
-
   const thisMonthTx = useMemo(()=>{const n=new Date();return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const lastMonthTx = useMemo(()=>{const n=new Date();n.setMonth(n.getMonth()-1);return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
