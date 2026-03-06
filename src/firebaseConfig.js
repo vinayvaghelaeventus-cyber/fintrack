@@ -9,7 +9,7 @@
 // 4. Scroll to "Your apps" → click Web (</>)
 // 5. Register app with name "fintrack" → copy the firebaseConfig object below
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyCEtHcDpAWArsmTEa3a94WCeTSNEkosKpI",
   authDomain: "fintrack-f45fd.firebaseapp.com",
   projectId: "fintrack-f45fd",
