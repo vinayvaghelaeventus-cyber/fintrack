@@ -213,7 +213,24 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
     const onTouchEnd = async () => {
       if (pullY>=60) {
         setRefreshing(true);
-        if (user) { try { const data=await loadData(user.uid); if(data){if(data.transactions)setTransactions(data.transactions);if(data.creditCards)setCreditCards(data.creditCards);if(data.ccEmis)setCcEmis(data.ccEmis);if(data.debts)setDebts(data.debts);if(data.savings)setSavings(data.savings);if(data.budgets)setBudgets(data.budgets);} } catch(e){} }
+        if (user) { try { const data=await loadData(user.uid); if(data){
+          if(data.transactions)  setTransactions(data.transactions);
+          if(data.creditCards)   setCreditCards(data.creditCards);
+          if(data.ccEmis)        setCcEmis(data.ccEmis);
+          if(data.debts)         setDebts(data.debts);
+          if(data.savings)       setSavings(data.savings);
+          if(data.budgets)       setBudgets(data.budgets);
+          if(data.banks)         setBanks(data.banks);
+          if(data.salary)        setSalary(data.salary);
+          if(data.monthlyIncome) setMonthlyIncome(data.monthlyIncome);
+          if(data.extraFund)     setExtraFund(data.extraFund);
+          if(data.strategy)      setStrategy(data.strategy);
+          if(data.emergencyFund) setEmergencyFund(data.emergencyFund);
+          if(data.accounts)      setAccounts(data.accounts);
+          if(data.allocationPct) setAllocationPct(data.allocationPct);
+          if(data.customCats)    setCustomCats(data.customCats);
+          if(data.recurringBills) setRecurringBills(data.recurringBills);
+        }} catch(e){} }
         await new Promise(r=>setTimeout(r,800));
         setRefreshing(false);
       }
