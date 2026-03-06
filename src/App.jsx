@@ -38,9 +38,10 @@ const MOBILE_TABS = [
   {id:"Plan",      icon:"🎯", label:"Plan"},
   {id:"Smart",     icon:"⚡", label:"Tools"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Finance","Plan","Cards","Budget","Goals","Insights","Smart"];
-const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0],time:new Date().toTimeString().slice(0,5),_accountId:""};
-const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",tenure:"",notes:""};
+const ALL_TABS = ["Dashboard","Transactions","Finance","Plan","Cards","Budget","Insights","Smart"];
+const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:""};
+const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
 const EMPTY_CC_EMI = {id:null, cardId:"", description:"", amount:"", monthsLeft:"", _totalMonths:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
@@ -54,8 +55,10 @@ const RECURRING_SUGGESTIONS = ["Netflix","Spotify","Amazon Prime","Hotstar","You
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const fc = n => new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(n||0);
 const fd = d => { try { return new Date(d).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}); } catch { return "—"; }};
-const today = () => new Date().toISOString().split("T")[0];
-function daysUntil(ds){ if(!ds)return null; const d=new Date(ds),t=new Date(); t.setHours(0,0,0,0); d.setHours(0,0,0,0); return Math.ceil((d-t)/864e5); }
+const today = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+// parseLocal: always parse "YYYY-MM-DD" as LOCAL date, never UTC — avoids IST timezone shift causing wrong month
+const parseLocal = ds => { if(!ds) return null; const p=String(ds).split("-").map(Number); return new Date(p[0], p[1]-1, p[2]); };
+function daysUntil(ds){ if(!ds)return null; const d=parseLocal(ds), t=new Date(); t.setHours(0,0,0,0); d.setHours(0,0,0,0); return Math.ceil((d-t)/864e5); }
 function toCSV(rows,headers){ return [headers.join(","),...rows.map(r=>headers.map(h=>{ const v=String(r[h]??""); return '"'+v.split('"').join('""')+'"'; }).join(","))].join("\n"); }
 function dlCSV(c,f){ const a=document.createElement("a"); a.href="data:text/csv;charset=utf-8,\uFEFF"+encodeURIComponent(c); a.download=f; a.click(); }
 function dlXLS(rows, headers, sheetName, filename) {
@@ -379,25 +382,52 @@ useEffect(() => {
 
     // --- Loan EMIs ---
     debts.filter(d => !d.closed && d.dueDate && d.emi && d.autoEMI !== false).forEach(d => {
-      const dueDay = new Date(d.dueDate).getDate();
-      // Only current month (if today >= dueDay) and last month catch-up
+      const dueDay = parseLocal(d.dueDate)?.getDate();
+      if (!dueDay) return;
+
+      // emiStartDate controls when engine first auto-deducts.
+      // If blank (old loan added now): default startD = current month's due date
+      //   so engine only considers current month (and previous month via mOffset=-1)
+      //   This prevents generating back-EMIs for loans the bank already deducted.
+      // If set explicitly (new loan starting next month): respects that future date.
+      let startD;
+      if (d.emiStartDate) {
+        startD = parseLocal(d.emiStartDate);
+      } else {
+        // Default: treat this month as the first possible EMI month
+        const nowD = new Date();
+        startD = new Date(nowD.getFullYear(), nowD.getMonth(), dueDay);
+      }
+      if (!startD) return;
+      const startYr = startD.getFullYear(), startMo = startD.getMonth();
+
+      // Only look back 1 month max — enough to catch a missed due date
+      // Old loans added now: emiStartDate defaults to dueDate month, blocking earlier catch-up
+      // New loans (future emiStartDate): startD guard below blocks premature deduction
       for (let mOffset = -1; mOffset <= 0; mOffset++) {
         const checkDate = new Date(yr, mo + mOffset, dueDay);
-        // ✅ NEVER auto-deduct future or today-not-yet-due dates
+
+        // Never generate EMI before the loan's first EMI month
+        if (checkDate.getFullYear() < startYr ||
+           (checkDate.getFullYear() === startYr && checkDate.getMonth() < startMo)) continue;
+
+        // Never in the future
         if (checkDate > now) continue;
-        // For current month: only deduct if today >= due day
+
+        // Current month: only if today >= due day
         if (mOffset === 0 && now.getDate() < dueDay) continue;
+
         const key = `emi_${d.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
         const already = transactions.some(t => t._emiKey === key);
-        if (!already && checkDate <= now) {
+        if (!already) {
           const amt = parseFloat(d.emi) || 0;
+          const dateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth()+1).padStart(2,"0")}-${String(dueDay).padStart(2,"0")}`;
           txsToAdd.push({
             id: Date.now() + Math.random(), type: "expense", amount: amt,
             category: "Loan EMI", paymentMode: "Net Banking", bank: d.lender || "",
-            note: `Auto EMI: ${d.name}`, date: checkDate.toISOString().split("T")[0],
+            note: `Auto EMI: ${d.name}`, date: dateStr,
             _emiKey: key, _debtId: d.id,
           });
-          // Reduce outstanding
           debtsToUpdate[d.id] = Math.max(0, (debtsToUpdate[d.id] ?? parseFloat(d.outstanding) ?? 0) - amt);
         }
       }
@@ -406,23 +436,23 @@ useEffect(() => {
     // --- CC EMIs ---
     ccEmis.filter(e => e.autoEMI !== false && e.monthsLeft > 0).forEach(e => {
       const card = creditCards.find(c => String(c.id) === String(e.cardId));
-      const dueDay = card?.dueDate ? new Date(card.dueDate).getDate() : null;
+      const dueDay = card?.dueDate ? parseLocal(card.dueDate)?.getDate() : null;
       if (!dueDay) return;
+      // Only look back 1 month — same conservative rule as loan EMIs
       for (let mOffset = -1; mOffset <= 0; mOffset++) {
         const checkDate = new Date(yr, mo + mOffset, dueDay);
         if (checkDate > now) continue;
-        // For current month: only deduct if today >= due day
         if (mOffset === 0 && now.getDate() < dueDay) continue;
         const key = `ccemi_${e.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
         const already = transactions.some(t => t._emiKey === key);
-        if (!already && checkDate <= now) {
+        if (!already) {
           const amt = parseFloat(e.amount) || 0;
+          const dateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth()+1).padStart(2,"0")}-${String(dueDay).padStart(2,"0")}`;
           txsToAdd.push({
             id: Date.now() + Math.random(), type: "expense", amount: amt,
             category: "Credit Card EMI", paymentMode: "Credit Card",
             bank: card?.name || "", note: `Auto CC EMI: ${e.description || card?.name || ""}`,
-            date: checkDate.toISOString().split("T")[0],
-            _emiKey: key, _ccEmiId: e.id,
+            date: dateStr, _emiKey: key, _ccEmiId: e.id,
           });
           ccEmisToUpdate[e.id] = Math.max(0, (ccEmisToUpdate[e.id] ?? parseInt(e.monthsLeft) ?? 0) - 1);
         }
@@ -469,9 +499,13 @@ useEffect(() => {
       // Check current month and last month for catch-up
       for (let mOffset = -1; mOffset <= 0; mOffset++) {
         const checkDate = new Date(yr, mo + mOffset, dueDay);
+        // Current month: only if today >= due day
+        if (mOffset === 0 && now.getDate() < dueDay) continue;
+        if (checkDate > now) continue;
         const key = `rec_${b.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
         const already = transactions.some(t => t._recKey === key);
-        if (!already && checkDate <= now) {
+        if (!already) {
+          const dateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth()+1).padStart(2,"0")}-${String(dueDay).padStart(2,"0")}`;
           txsToAdd.push({
             id: Date.now() + Math.random(),
             type: b.type || "expense",
@@ -480,7 +514,7 @@ useEffect(() => {
             paymentMode: b.paymentMode || "UPI",
             bank: "",
             note: `Auto: ${b.name}`,
-            date: checkDate.toISOString().split("T")[0],
+            date: dateStr,
             _recKey: key,
             _recurringId: b.id,
           });
@@ -516,12 +550,15 @@ useEffect(() => {
 
 const filterByPeriod = useCallback((txList, period) => {
   const now = new Date(); now.setHours(23,59,59,999);
+  // Parse date strings as LOCAL dates, not UTC — avoids timezone-shift to wrong month
   return txList.filter(t=>{
-    const d = new Date(t.date);
+    const d = parseLocal(t.date);
+    if (!d) return false;
+    const n = new Date();
     if(period==="today"){ const s=new Date();s.setHours(0,0,0,0);return d>=s&&d<=now; }
     if(period==="week"){ const s=new Date();s.setDate(s.getDate()-7);s.setHours(0,0,0,0);return d>=s&&d<=now; }
-    if(period==="month"){ return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }
-    if(period==="lastmonth"){ const lm=new Date(now.getFullYear(),now.getMonth()-1,1);return d.getMonth()===lm.getMonth()&&d.getFullYear()===lm.getFullYear(); }
+    if(period==="month"){ return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear(); }
+    if(period==="lastmonth"){ const lm=new Date(n.getFullYear(),n.getMonth()-1,1);return d.getMonth()===lm.getMonth()&&d.getFullYear()===lm.getFullYear(); }
     if(period==="3months"){ const s=new Date();s.setMonth(s.getMonth()-3);s.setHours(0,0,0,0);return d>=s&&d<=now; }
     return true;
   });
@@ -552,8 +589,9 @@ const filterByPeriod = useCallback((txList, period) => {
   const last6Months = useMemo(() => Array.from({length:6},(_,i)=>{
     const d=new Date(); d.setMonth(d.getMonth()-(5-i));
     const mo=d.getMonth(), yr=d.getFullYear(), lbl=d.toLocaleDateString("en-IN",{month:"short"});
-    const inc=transactions.filter(t=>{const td=new Date(t.date);return t.type==="income"&&td.getMonth()===mo&&td.getFullYear()===yr;}).reduce((s,t)=>s+t.amount,0);
-    const exp=transactions.filter(t=>{const td=new Date(t.date);return t.type==="expense"&&td.getMonth()===mo&&td.getFullYear()===yr;}).reduce((s,t)=>s+t.amount,0);
+    const pLocal = ds => { if(!ds) return null; const [y,m,dd]=String(ds).split("-").map(Number); return new Date(y,m-1,dd); };
+    const inc=transactions.filter(t=>{const td=pLocal(t.date);return td&&t.type==="income"&&td.getMonth()===mo&&td.getFullYear()===yr;}).reduce((s,t)=>s+t.amount,0);
+    const exp=transactions.filter(t=>{const td=pLocal(t.date);return td&&t.type==="expense"&&td.getMonth()===mo&&td.getFullYear()===yr;}).reduce((s,t)=>s+t.amount,0);
     return {label:lbl,income:inc,expense:exp};
   }), [transactions]);
 
@@ -573,8 +611,8 @@ const filterByPeriod = useCallback((txList, period) => {
 , [transactions,txType,txMode,txBank,txSearch]);
 
   // ─── NEW FEATURE COMPUTEDS ────────────────────────────────────────────────
-  const thisMonthTx = useMemo(()=>{const n=new Date();return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
-  const lastMonthTx = useMemo(()=>{const n=new Date();n.setMonth(n.getMonth()-1);return transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
+  const thisMonthTx = useMemo(()=>{const n=new Date();return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
+  const lastMonthTx = useMemo(()=>{const n=new Date();n.setMonth(n.getMonth()-1);return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
   const lastMonthExp = useMemo(()=>lastMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
   const thisMonthInc = useMemo(()=>thisMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
@@ -591,7 +629,7 @@ const filterByPeriod = useCallback((txList, period) => {
   [accounts]);
 
   // ─── NET WORTH (depends on totalAccountBalance) ──────────────────────────
-  const netWorth = useMemo(()=>savingsTotal+totalAccountBalance-totalOutstanding-totalCCOut,[savingsTotal,totalAccountBalance,totalOutstanding,totalCCOut]);
+  const netWorth = useMemo(()=>totalAccountBalance+savingsTotal-totalOutstanding-totalCCOut,[totalAccountBalance,savingsTotal,totalOutstanding,totalCCOut]);
 
   // ─── 15-DAY STRESS PANEL ─────────────────────────────────────────────────
   const next15Days = useMemo(() => {
@@ -1358,7 +1396,7 @@ if (!user) {
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
             <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>setTab(t)}>
-              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Goals"?"🌱 Goals":t==="Finance"?"📊 Finance":t==="Smart"?"⚡ Smart":t}
+              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Finance"?"📊 Finance":t==="Smart"?"⚡ Smart":t}
             </button>
           ))}
         </div>
@@ -1557,15 +1595,27 @@ if (!user) {
           {/* Period Summary Strip */}
           <div className="g4" style={{marginBottom:12}}>
   {(()=>{
-    const pt=filterByPeriod(transactions,dashPeriod);
-    const pInc=pt.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
-    const pExp=pt.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
-    const periodLabel=dashPeriod==="today"?"Today":dashPeriod==="week"?"This Week":dashPeriod==="month"?"This Month":dashPeriod==="lastmonth"?"Last Month":dashPeriod==="3months"?"Last 3 Months":"All Time";
+    const pt = filterByPeriod(transactions, dashPeriod);
+    const pInc = pt.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
+    const pExp = pt.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+    // EMIs in this period only (auto-deducted EMI transactions)
+    const pEMI = pt.filter(t=>t._emiKey||t.category==="Loan EMI"||t.category==="Credit Card EMI").reduce((s,t)=>s+t.amount,0);
+    const periodLabel = (()=>{
+      const n = new Date();
+      if(dashPeriod==="today") return new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+      if(dashPeriod==="week"){ const s=new Date(); s.setDate(s.getDate()-7); return `${s.toLocaleDateString("en-IN",{day:"numeric",month:"short"})} – ${n.toLocaleDateString("en-IN",{day:"numeric",month:"short"})}`; }
+      if(dashPeriod==="month"){ const m=n.toLocaleDateString("en-IN",{month:"long",year:"numeric"}); const last=new Date(n.getFullYear(),n.getMonth()+1,0).getDate(); return `1–${last} ${n.toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`; }
+      if(dashPeriod==="lastmonth"){ const lm=new Date(n.getFullYear(),n.getMonth()-1,1); const last=new Date(n.getFullYear(),n.getMonth(),0).getDate(); return `1–${last} ${lm.toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`; }
+      if(dashPeriod==="3months"){ const s=new Date(); s.setMonth(s.getMonth()-3); return `${s.toLocaleDateString("en-IN",{month:"short"})} – ${n.toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`; }
+      return "All Time";
+    })();
+    // Net balance = income minus ALL expenses for period (not lifetime)
+    const netBal = pInc - pExp;
     return[
-      {label:"Net Balance",    val:fc(pInc-pExp),         color:(pInc-pExp)>=0?C.income:C.expense, sub:periodLabel},
-      {label:"Total EMIs",     val:fc(totalEMI+totalCCEMI),color:C.loan, sub:`${effectiveIncome>0?((totalEMI+totalCCEMI)/effectiveIncome*100).toFixed(0):0}% of income`},
-      {label:"CC Outstanding", val:fc(totalCCOut),         color:C.credit},
-      {label:"Expenses",       val:fc(pExp),               color:C.expense, sub:periodLabel},
+      {label:"Income",      val:fc(pInc),   color:C.income,  sub:periodLabel},
+      {label:"Expenses",    val:fc(pExp),   color:C.expense, sub:periodLabel},
+      {label:"EMIs Paid",   val:fc(pEMI),   color:C.loan,    sub:periodLabel},
+      {label:"Net Balance", val:fc(netBal), color:netBal>=0?C.income:C.expense, sub:periodLabel},
     ].map(item=>(
       <div key={item.label} className="scard">
         <div className="lbl">{item.label}</div>
@@ -2063,59 +2113,6 @@ if (!user) {
         </>}
 
         {/* ════════ GOALS ════════ */}
-        {tab==="Goals"&&<>
-          <div className="card" style={{marginBottom:12,borderColor:`${C.loan}25`,background:`${C.loan}04`}}>
-            <div className="stitle">🛡️ After Debt: Your Roadmap</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:10}}>
-              {[
-                {step:"Step 1 — NOW",       title:"Health Insurance",   desc:"Get ₹5-10L cover immediately even while in debt. ~₹8-15k/year.",     color:C.expense},
-                {step:"Step 2 — NOW",       title:"Term Life Insurance",desc:`10-15x income = ${fc((effectiveIncome*12*12)||5000000)} cover. ~₹10-20k/year.`, color:C.warning},
-                {step:"Step 3 — After debt",title:"6-Month Emergency Fund",desc:`Build ${fc((totalExpense||effectiveIncome*0.7)*6)} in liquid FD/savings.`, color:C.accent},
-                {step:"Step 4 — After debt",title:"Start SIP",          desc:"₹2-5k/month in Nifty 50 index fund. Increase yearly.",                color:C.income},
-                {step:"Step 5 — Long term", title:"NPS + PPF",          desc:"NPS for ₹50k extra tax deduction. PPF for safe 7%+ growth.",          color:C.savings},
-              ].map(item=>(
-                <div key={item.title} style={{background:C.card,border:`1px solid ${item.color}25`,borderRadius:10,padding:"12px"}}>
-                  <div style={{fontSize:9,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>{item.step}</div>
-                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,marginBottom:4}}>{item.title}</div>
-                  <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>{item.desc}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="card" style={{marginBottom:12}}>
-            <div className="stitle">Add Savings Goal</div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <input className="inp" style={{flex:"2 1 140px"}} placeholder="Goal name" value={savForm.name} onChange={e=>setSavForm(p=>({...p,name:e.target.value}))}/>
-              <input className="inp" style={{flex:"1 1 100px"}} placeholder="Target ₹" type="number" value={savForm.goal} onChange={e=>setSavForm(p=>({...p,goal:e.target.value}))}/>
-              <input className="inp" style={{flex:"1 1 100px"}} placeholder="Saved ₹" type="number" value={savForm.current} onChange={e=>setSavForm(p=>({...p,current:e.target.value}))}/>
-              <button className="btn btn-g" onClick={addGoal}>Add</button>
-            </div>
-          </div>
-          {savings.length===0?<div className="card" style={{textAlign:"center",color:C.muted,padding:40,fontSize:12}}>No goals yet. Suggested: Emergency Fund, Health Insurance Premium.</div>:(
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
-              {savings.map(s=>{
-                const pct=Math.min(100,(s.current/s.goal)*100);
-                return(
-                  <div key={s.id} className="card">
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-                      <div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14}}>{s.name}</div><div style={{fontSize:10,color:C.muted}}>Goal: {fc(s.goal)}</div></div>
-                      <div style={{fontSize:18,fontWeight:700,color:C.savings,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{pct.toFixed(0)}%</div>
-                    </div>
-                    <div className="pbar" style={{marginBottom:8}}><div className="pfill" style={{width:`${pct}%`,background:`linear-gradient(90deg,${C.savings},${C.accent})`}}/></div>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:10,color:C.muted}}><span style={{color:C.income}}>{fc(s.current)} saved</span><span>{fc(Math.max(0,s.goal-s.current))} left</span></div>
-                    <div style={{display:"flex",gap:6}}>
-                      <input id={`g-${s.id}`} className="inp" type="number" placeholder="Add ₹" style={{flex:1}}/>
-                      <button className="btn btn-g btn-sm" onClick={()=>{const v=parseFloat(document.getElementById(`g-${s.id}`).value);if(!isNaN(v)&&v>0){updateGoal(s.id,v);document.getElementById(`g-${s.id}`).value="";}}}>+</button>
-                      <button className="btn btn-danger" onClick={()=>setSavings(p=>p.filter(g=>g.id!==s.id))}>×</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>}
-
-        {/* ════════ INSIGHTS ════════ */}
         {tab==="Insights"&&<>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:12}}>
             {[
@@ -2637,21 +2634,24 @@ if (!user) {
           <div className="card" style={{marginBottom:12}}>
             <div className="stitle">💎 Net Worth</div>
             <div style={{textAlign:"center",padding:"8px 0 12px"}}>
-              <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Total Net Worth</div>
+              <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Assets − Liabilities</div>
               <div style={{fontSize:32,fontWeight:800,color:netWorth>=0?C.income:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(netWorth)}</div>
               <div style={{fontSize:11,color:C.muted,marginTop:4}}>{netWorth>=0?"Assets exceed liabilities 👍":"More liabilities — keep paying down debt"}</div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-              {[
-                {label:"Savings/Goals",val:savingsTotal,    color:C.income, sign:"+"},
-                {label:"Loan Debt",    val:totalOutstanding,color:C.expense,sign:"−"},
-                {label:"CC Debt",      val:totalCCOut,      color:C.credit, sign:"−"},
-              ].map(item=>(
-                <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px",textAlign:"center",border:`1px solid ${C.border}`}}>
-                  <div className="lbl">{item.label}</div>
-                  <div style={{fontSize:12,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.sign}{fc(item.val)}</div>
-                </div>
-              ))}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <div style={{background:`${C.income}08`,borderRadius:12,padding:"12px",border:`1px solid ${C.income}25`}}>
+                <div className="lbl" style={{color:C.income}}>+ Total Assets</div>
+                <div style={{fontSize:16,fontWeight:800,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalAccountBalance+savingsTotal)}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Accounts {fc(totalAccountBalance)} + Savings {fc(savingsTotal)}</div>
+              </div>
+              <div style={{background:`${C.expense}08`,borderRadius:12,padding:"12px",border:`1px solid ${C.expense}25`}}>
+                <div className="lbl" style={{color:C.expense}}>− Total Liabilities</div>
+                <div style={{fontSize:16,fontWeight:800,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalOutstanding+totalCCOut)}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Loans {fc(totalOutstanding)} + CC {fc(totalCCOut)}</div>
+              </div>
+            </div>
+            <div style={{fontSize:10,color:C.muted,textAlign:"center",padding:"6px 0 2px",borderTop:`1px solid ${C.border}60`}}>
+              Net Worth = Bank Balances + Savings − Loan Outstanding − CC Outstanding
             </div>
           </div>
 
@@ -2886,7 +2886,7 @@ if (!user) {
         <div style={{padding:"8px 0",flex:1,overflowY:"auto"}}>
           <div style={{padding:"6px 20px 4px",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Navigation</div>
           {ALL_TABS.map(t=>{
-            const icons={"Dashboard":"🏠","Plan":"🎯","Cards":"💳","Transactions":"📋","Budget":"📊","Goals":"🌱","Insights":"🔍","Finance":"💹"};
+            const icons={"Dashboard":"🏠","Plan":"🎯","Cards":"💳","Transactions":"📋","Budget":"📊","Insights":"🔍","Finance":"💹"};
             return(
               <button key={t} className={`hmenu-item ${tab===t?"active":""}`} onClick={()=>{setTab(t);setShowMenu(false);}}>
                 <span style={{fontSize:16}}>{icons[t]||"•"}</span>{t}
@@ -2995,8 +2995,24 @@ if (!user) {
                 <div><div className="lbl">Interest Rate %</div><input className="inp" type="number" placeholder="e.g. 12" value={debtForm.interestRate} onChange={e=>setDebtForm(p=>({...p,interestRate:e.target.value}))}/></div>
               </div>
               <div className="g2">
-                <div><div className="lbl">Next Due Date</div><input className="inp" type="date" value={debtForm.dueDate} onChange={e=>setDebtForm(p=>({...p,dueDate:e.target.value}))}/></div>
-                <div><div className="lbl">Tenure</div><input className="inp" placeholder="e.g. 5 years" value={debtForm.tenure} onChange={e=>setDebtForm(p=>({...p,tenure:e.target.value}))}/></div>
+                <div>
+                  <div className="lbl">Next Due Date *</div>
+                  <input className="inp" type="date" value={debtForm.dueDate} onChange={e=>setDebtForm(p=>({...p,dueDate:e.target.value}))}/>
+                  <div style={{fontSize:10,color:C.muted,marginTop:4}}>The date your next EMI is due (e.g. 5th April)</div>
+                </div>
+                <div>
+                  <div className="lbl">First Auto-Deduction Date</div>
+                  <input className="inp" type="date" value={debtForm.emiStartDate} onChange={e=>setDebtForm(p=>({...p,emiStartDate:e.target.value}))}/>
+                  <div style={{fontSize:10,marginTop:4,color:debtForm.emiStartDate?C.accent:C.muted}}>
+                    {debtForm.emiStartDate
+                      ? `✅ App starts tracking from ${parseLocal(debtForm.emiStartDate)?.toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`
+                      : "Old loan? Leave blank — app tracks from this month only. New loan starting later? Set the first EMI date."}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="lbl">Tenure</div>
+                <input className="inp" placeholder="e.g. 5 years or 60 months" value={debtForm.tenure} onChange={e=>setDebtForm(p=>({...p,tenure:e.target.value}))}/>
               </div>
               <div><div className="lbl">Notes</div><input className="inp" placeholder="Any notes" value={debtForm.notes} onChange={e=>setDebtForm(p=>({...p,notes:e.target.value}))}/></div>
               <div style={{display:"flex",gap:9}}>
