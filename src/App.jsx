@@ -32,14 +32,14 @@ const CATEGORIES = {
 };
 const CAT_COLORS = ["#38bdf8","#10b981","#f59e0b","#6366f1","#f43f5e","#a78bfa","#34d399","#fb923c","#e879f9","#22d3ee","#84cc16","#f472b6","#60a5fa","#fbbf24","#6ee7b7","#c084fc"];
 const MOBILE_TABS = [
-  {id:"Dashboard",    icon:"🏠", label:"Home"},
-  {id:"Plan",         icon:"🎯", label:"Plan"},
-  {id:"CA",           icon:"🧠", label:"CA"},
+  {id:"Dashboard", icon:"🏠", label:"Home"},
   {id:"Transactions", icon:"📋", label:"Txns"},
-  {id:"Finance",      icon:"📊", label:"Finance"},
+  {id:"Finance",   icon:"📊", label:"Finance"},
+  {id:"Plan",      icon:"🎯", label:"Plan"},
+  {id:"Smart",     icon:"⚡", label:"Tools"},
 ];
-const ALL_TABS = ["Dashboard","Plan","Cards","Transactions","Budget","Goals","Insights","Finance","Smart","CA"];
-const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0],time:new Date().toTimeString().slice(0,5)};
+const ALL_TABS = ["Dashboard","Transactions","Finance","Plan","Cards","Budget","Goals","Insights","Smart"];
+const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:new Date().toISOString().split("T")[0],time:new Date().toTimeString().slice(0,5),_accountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
 const EMPTY_CC_EMI = {id:null, cardId:"", description:"", amount:"", monthsLeft:"", _totalMonths:""};
@@ -251,18 +251,7 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
 
-  // ── CA Advisor ──
-  const [caTab, setCaTab]                   = useState("roadmap"); // roadmap | prescription | whatif
-  const [prescription, setPrescription]     = useState(null);
-  const [prescLoading, setPrescLoading]     = useState(false);
-  const [roadmapData, setRoadmapData]       = useState(null);
-  const [roadmapLoading, setRoadmapLoading] = useState(false);
-  // What-If state
-  const [wiType, setWiType]       = useState("bonus");    // bonus | newloan | cutexpense | prepay
-  const [wiAmount, setWiAmount]   = useState("");
-  const [wiTarget, setWiTarget]   = useState("");         // loan id for prepay
-  const [wiResult, setWiResult]   = useState(null);
-  const [wiLoading, setWiLoading] = useState(false);
+
   const [txSearch, setTxSearch] = useState("");
   const [txType, setTxType]     = useState("all");
   const [txMode, setTxMode]     = useState("all");
@@ -321,7 +310,6 @@ useEffect(() => {
           if (data.allocationPct) setAllocationPct(data.allocationPct);
           if (data.customCats)    setCustomCats(data.customCats);
           if (data.recurringBills) setRecurringBills(data.recurringBills);
-          if (data.prescription)  setPrescription(data.prescription);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -344,7 +332,7 @@ useEffect(() => {
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-        accounts, allocationPct, customCats, recurringBills, prescription,
+        accounts, allocationPct, customCats, recurringBills,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -353,7 +341,7 @@ useEffect(() => {
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
       monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-      accounts, allocationPct, customCats, recurringBills, prescription, loaded]);
+      accounts, allocationPct, customCats, recurringBills, loaded]);
 
   // ─── AUTO-SALARY CREDIT ──────────────────────────────────────────────────
   useEffect(() => {
@@ -364,13 +352,20 @@ useEffect(() => {
     const alreadyCredited = transactions.some(t => t._salKey === thisMonthKey);
     if (alreadyCredited) return;
     if (now.getDate() >= creditDay) {
+      const salAmt = parseFloat(salary.amount);
+      const salAccount = accounts.find(a => a.bank && salary.bank && a.bank.toLowerCase().includes(salary.bank.toLowerCase()))
+                      || accounts.find(a => a.type === "savings")
+                      || accounts[0];
       const salTx = {
-        id: Date.now(), type: "income", amount: parseFloat(salary.amount),
+        id: Date.now(), type: "income", amount: salAmt,
         category: "Salary", paymentMode: "Net Banking", bank: salary.bank||"",
         note: "Auto: Monthly Salary", date: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(creditDay).padStart(2,"0")}`,
-        _salKey: thisMonthKey,
+        _salKey: thisMonthKey, _accountId: salAccount?.id || "",
       };
       setTransactions(p => [salTx, ...p]);
+      if (salAccount) {
+        setAccounts(p => p.map(a => a.id === salAccount.id ? {...a, balance: (parseFloat(a.balance)||0) + salAmt} : a));
+      }
     }
   }, [loaded, salary, transactions]);
 
@@ -385,9 +380,13 @@ useEffect(() => {
     // --- Loan EMIs ---
     debts.filter(d => !d.closed && d.dueDate && d.emi && d.autoEMI !== false).forEach(d => {
       const dueDay = new Date(d.dueDate).getDate();
-      // Check last 2 months for missed + current month
+      // Only current month (if today >= dueDay) and last month catch-up
       for (let mOffset = -1; mOffset <= 0; mOffset++) {
         const checkDate = new Date(yr, mo + mOffset, dueDay);
+        // ✅ NEVER auto-deduct future or today-not-yet-due dates
+        if (checkDate > now) continue;
+        // For current month: only deduct if today >= due day
+        if (mOffset === 0 && now.getDate() < dueDay) continue;
         const key = `emi_${d.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
         const already = transactions.some(t => t._emiKey === key);
         if (!already && checkDate <= now) {
@@ -411,6 +410,9 @@ useEffect(() => {
       if (!dueDay) return;
       for (let mOffset = -1; mOffset <= 0; mOffset++) {
         const checkDate = new Date(yr, mo + mOffset, dueDay);
+        if (checkDate > now) continue;
+        // For current month: only deduct if today >= due day
+        if (mOffset === 0 && now.getDate() < dueDay) continue;
         const key = `ccemi_${e.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
         const already = transactions.some(t => t._emiKey === key);
         if (!already && checkDate <= now) {
@@ -668,31 +670,55 @@ const filterByPeriod = useCallback((txList, period) => {
 
   // ─── ACTIONS ─────────────────────────────────────────────────────────────
   function saveTx() {
-  if (!txForm.amount||isNaN(txForm.amount)) return;
-  const tx = {...txForm, amount:parseFloat(txForm.amount)};
+    if (!txForm.amount || isNaN(txForm.amount)) return;
+    const tx = {...txForm, amount: parseFloat(txForm.amount)};
 
-  // If editing — reverse old CC charge if it was a CC expense
-  if (editTxId) {
-    const oldTx = transactions.find(t=>t.id===editTxId);
-    if (oldTx?.type==="expense" && oldTx.paymentMode==="Credit Card" && oldTx.bank) {
-      setCreditCards(p=>p.map(c=>
-        c.name===oldTx.bank ? {...c, outstanding:Math.max(0,(parseFloat(c.outstanding)||0)-oldTx.amount)} : c
+    const applyToAccount = (accountId, delta) => {
+      if (!accountId) return;
+      setAccounts(p => p.map(a =>
+        String(a.id) === String(accountId)
+          ? {...a, balance: (parseFloat(a.balance) || 0) + delta}
+          : a
       ));
+    };
+
+    if (editTxId) {
+      const oldTx = transactions.find(t => t.id === editTxId);
+      if (oldTx) {
+        if (oldTx.type === "expense" && oldTx.paymentMode === "Credit Card" && oldTx.bank) {
+          setCreditCards(p => p.map(c =>
+            c.name === oldTx.bank ? {...c, outstanding: Math.max(0,(parseFloat(c.outstanding)||0) - oldTx.amount)} : c
+          ));
+        }
+        if (oldTx._accountId) {
+          if (oldTx.type === "income") applyToAccount(oldTx._accountId, -oldTx.amount);
+          else if (oldTx.type === "expense" && oldTx.paymentMode !== "Credit Card") applyToAccount(oldTx._accountId, +oldTx.amount);
+        }
+      }
+      setTransactions(p => p.map(t => t.id === editTxId ? {...tx, id: editTxId} : t));
+    } else {
+      setTransactions(p => [{...tx, id: Date.now()}, ...p]);
     }
-    setTransactions(p=>p.map(t=>t.id===editTxId?{...tx,id:editTxId}:t));
-  } else {
-    setTransactions(p=>[{...tx,id:Date.now()},...p]);
-  }
 
-  // Auto-add to CC outstanding if paid by credit card
-  if (tx.type==="expense" && tx.paymentMode==="Credit Card" && tx.bank) {
-    setCreditCards(p=>p.map(c=>
-      c.name===tx.bank ? {...c, outstanding:(parseFloat(c.outstanding)||0)+tx.amount} : c
-    ));
-  }
+    if (tx.type === "expense" && tx.paymentMode === "Credit Card" && tx.bank) {
+      setCreditCards(p => p.map(c =>
+        c.name === tx.bank ? {...c, outstanding: (parseFloat(c.outstanding)||0) + tx.amount} : c
+      ));
+    } else if (tx.type === "expense" && tx.category === "Credit Card Bill" && tx.bank) {
+      setCreditCards(p => p.map(c =>
+        (c.bank === tx.bank || c.name === tx.bank)
+          ? {...c, outstanding: Math.max(0,(parseFloat(c.outstanding)||0) - tx.amount)}
+          : c
+      ));
+      if (tx._accountId) applyToAccount(tx._accountId, -tx.amount);
+    } else if (tx.type === "expense" && tx._accountId) {
+      applyToAccount(tx._accountId, -tx.amount);
+    } else if (tx.type === "income" && tx._accountId) {
+      applyToAccount(tx._accountId, +tx.amount);
+    }
 
-  setTxForm({...EMPTY_TX}); setShowTxForm(false); setEditTxId(null);
-}
+    setTxForm({...EMPTY_TX}); setShowTxForm(false); setEditTxId(null);
+  }
 
     
   function openEditTx(t) { setTxForm({...t}); setEditTxId(t.id); setShowTxForm(true); }
@@ -707,10 +733,17 @@ const filterByPeriod = useCallback((txList, period) => {
   function openEditDebt(d) { setDebtForm({...d}); setEditDebtId(d.id); setShowDebtForm(true); }
   function deleteDebt(id)  { setDebts(p=>p.filter(d=>d.id!==id)); }
   function toggleDebtClosed(id) { setDebts(p=>p.map(d=>d.id===id?{...d,closed:!d.closed}:d)); }
-  function recordLoanPayment(id, amt) {
+  function recordLoanPayment(id, amt, emiKey) {
     setDebts(p=>p.map(d=>{ if(d.id!==id)return d; const n=Math.max(0,(parseFloat(d.outstanding)||0)-amt); return{...d,outstanding:n,closed:n===0}; }));
     const d=debts.find(x=>x.id===id);
-    setTransactions(p=>[{id:Date.now(),type:"expense",amount:amt,category:"Loan EMI",paymentMode:"Net Banking",bank:d?.bank||"",note:`Payment: ${d?.name||""}`,date:today()},...p]);
+    const primaryAcc = accounts.find(a=>a.type==="savings")||accounts[0];
+    const tx = {id:Date.now(),type:"expense",amount:amt,category:"Loan EMI",paymentMode:"Net Banking",
+      bank:d?.lender||"",note:`Payment: ${d?.name||""}`,date:today(),
+      _accountId:primaryAcc?.id||"",
+      ...(emiKey?{_emiKey:emiKey}:{}),
+    };
+    setTransactions(p=>[tx,...p]);
+    if (primaryAcc) setAccounts(p=>p.map(a=>a.id===primaryAcc.id?{...a,balance:Math.max(0,(parseFloat(a.balance)||0)-amt)}:a));
   }
 
 function saveCCEmi() {
@@ -736,7 +769,13 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
   function recordCCPayment(id, amt) {
     setCreditCards(p=>p.map(c=>{ if(c.id!==id)return c; return{...c,outstanding:Math.max(0,(parseFloat(c.outstanding)||0)-amt)}; }));
     const cc=creditCards.find(c=>c.id===id);
-    setTransactions(p=>[{id:Date.now(),type:"expense",amount:amt,category:"Credit Card Bill",paymentMode:"Net Banking",bank:cc?.bank||"",note:`CC: ${cc?.name||""}`,date:today()},...p]);
+    const primaryAcc = accounts.find(a=>a.type==="savings")||accounts[0];
+    const tx = {id:Date.now(),type:"expense",amount:amt,category:"Credit Card Bill",
+      paymentMode:"Net Banking",bank:cc?.bank||"",note:`CC: ${cc?.name||""}`,date:today(),
+      _accountId:primaryAcc?.id||"",
+    };
+    setTransactions(p=>[tx,...p]);
+    if (primaryAcc) setAccounts(p=>p.map(a=>a.id===primaryAcc.id?{...a,balance:Math.max(0,(parseFloat(a.balance)||0)-amt)}:a));
   }
 
   function addBudget() { if(!budgetForm.limit)return; setBudgets(p=>({...p,[budgetForm.category]:parseFloat(budgetForm.limit)})); setBudgetForm({category:"Food",limit:""}); }
@@ -925,7 +964,7 @@ Provide (use emoji headers, max 350 words):
 ## 🛡️ Post-Debt Plan (health insurance, term life, investments — India-specific)
 ## ❤️ One line of encouragement`;
     try {
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1200,messages:[{role:"user",content:prompt}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1200,messages:[{role:"user",content:prompt}]})});
       const data=await res.json();
       if(data.content?.[0])setAiAdvice(data.content[0].text);
       else setAiAdvice("Could not generate. Try again.");
@@ -933,395 +972,217 @@ Provide (use emoji headers, max 350 words):
     setAiLoading(false);
   },[effectiveIncome,totalEMI,totalCCEMI,totalExpense,cashLeft,totalOutstanding,totalCCOut,health,activeDebts,creditCards,extraFund,recommended]);
 
-  // ─── CA ADVISOR HELPERS ───────────────────────────────────────────────────
-  const buildFinContext = useCallback(() => {
-    const dti = effectiveIncome>0?((totalEMI+totalCCEMI)/effectiveIncome*100).toFixed(1):"0";
-    return `FINANCIAL CONTEXT (India, ₹):
-Income: ${fc(effectiveIncome)}/mo | Cash Left: ${fc(cashLeft)}/mo | DTI: ${dti}%
-Expenses: ${fc(totalExpense)}/mo | Health Score: ${health.score}/100 (${health.grade})
-Savings: ${fc(savingsTotal)} | Emergency Fund: ${fc(parseFloat(emergencyFund)||0)}
-LOANS (${activeDebts.length}): ${activeDebts.map(d=>`${d.name}|${d.lender}|outstanding:₹${d.outstanding}|EMI:₹${d.emi}|rate:${d.interestRate}%|due:${d.dueDate||"?"}`).join(" ; ")||"None"}
-CREDIT CARDS (${creditCards.length}): ${creditCards.map(c=>`${c.name}|${c.bank}|out:₹${c.outstanding}|limit:₹${c.limit}|rate:${c.interestRate}%|due:${c.dueDate||"?"}`).join(" ; ")||"None"}
-CC EMIs: ${ccEmis.map(e=>`${e.description||"EMI"}:₹${e.amount}x${e.monthsLeft}mo`).join(", ")||"None"}
-Strategy: ${strategy} | Extra/mo: ${fc(parseFloat(extraFund)||0)}
-Total Owed: ${fc(totalOutstanding+totalCCOut)} | Total EMI/mo: ${fc(totalEMI+totalCCEMI)}`;
-  }, [effectiveIncome,cashLeft,totalEMI,totalCCEMI,totalExpense,health,savingsTotal,emergencyFund,activeDebts,creditCards,ccEmis,totalOutstanding,totalCCOut,strategy,extraFund]);
-
-  // ── Monthly Prescription ──────────────────────────────────────────────────
-  const getPrescription = useCallback(async()=>{
-    setPrescLoading(true); setPrescription(null);
-    const month = new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"});
-    const prompt=`You are a CA (Chartered Accountant) advisor for India. Analyse this person's finances and write a monthly prescription.
-
-${buildFinContext()}
-
-Write a MONTHLY PRESCRIPTION for ${month}. Format EXACTLY like this (use these exact headers):
-
-## 💊 PRESCRIPTION — ${month}
-
-**Rx1 — [Action title]**
-Action: [Exact ₹ amount and what to do]
-Why: [One line reason with specific numbers]
-Impact: [Measurable outcome]
-
-**Rx2 — [Action title]**  
-Action: [Exact ₹ amount and what to do]
-Why: [One line reason]
-Impact: [Measurable outcome]
-
-**Rx3 — [Action title]**
-Action: [Exact ₹ amount and what to do]
-Why: [One line reason]
-Impact: [Measurable outcome]
-
-## 🚨 CRITICAL WARNING (if any)
-[One specific warning based on their numbers, or "None this month ✅"]
-
-## 📊 THIS MONTH'S TARGET
-Health Score goal: [current] → [achievable target]
-One metric to move: [specific metric with target]
-
-## ❤️ MOTIVATION
-[One powerful, personal sentence about their debt-free journey based on their actual numbers]
-
-Be extremely specific with ₹ amounts. Max 300 words total.`;
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})});
-      const data = await res.json();
-      const text = data.content?.[0]?.text || "Could not generate. Try again.";
-      setPrescription({text, month, generatedAt: new Date().toISOString()});
-    } catch { setPrescription({text:"Connection error. Try again.", month, generatedAt:new Date().toISOString()}); }
-    setPrescLoading(false);
-  },[buildFinContext]);
-
-  // ── Debt Exit Roadmap ─────────────────────────────────────────────────────
-  const getRoadmap = useCallback(async()=>{
-    setRoadmapLoading(true); setRoadmapData(null);
-    const prompt=`You are a CA advisor for India. Build a precise debt exit roadmap.
-
-${buildFinContext()}
-
-Respond ONLY with a valid JSON object (no markdown, no backticks, no explanation):
-{
-  "summaryLine": "one powerful sentence about their journey to debt freedom",
-  "debtFreeDate": "Month Year (e.g. April 2028)",
-  "debtFreeWithExtra": "Month Year if they add extra each month (null if no extra set)",
-  "monthsSaved": number,
-  "interestSaved": number,
-  "milestones": [
-    {
-      "month": "Month Year",
-      "event": "short description (e.g. Bike Loan CLOSED)",
-      "type": "close|payment|goal|freedom",
-      "freedEMI": number,
-      "cumulativeFreed": number,
-      "balance": number
-    }
-  ],
-  "phases": [
-    {
-      "label": "Phase 1 — Attack [loan name]",
-      "months": "Month Year – Month Year",
-      "action": "specific action in ₹",
-      "result": "what happens at end of phase"
-    }
-  ],
-  "bonusTips": [
-    "specific tip with ₹ amount relevant to their situation"
-  ],
-  "cibilWarnings": [
-    "specific CIBIL-related warning if applicable"
-  ]
-}`;
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,messages:[{role:"user",content:prompt}]})});
-      const data = await res.json();
-      const raw = data.content?.[0]?.text||"{}";
-      const clean = raw.replace(/```json|```/g,"").trim();
-      setRoadmapData(JSON.parse(clean));
-    } catch(e) { setRoadmapData({error:"Could not generate roadmap. Check your loan data in Plan tab and try again."}); }
-    setRoadmapLoading(false);
-  },[buildFinContext]);
-
-  // ── What-If Simulator ─────────────────────────────────────────────────────
-  const runWhatIf = useCallback(async()=>{
-    if (!wiAmount && wiType!=="cutexpense") return;
-    setWiLoading(true); setWiResult(null);
-    const targetLoan = activeDebts.find(d=>String(d.id)===String(wiTarget));
-    const scenarios = {
-      bonus: `I received a windfall/bonus of ₹${wiAmount}. Should I prepay a specific loan, split across loans, invest, or keep as buffer? Which exact loan and how much?`,
-      newloan: `I am considering taking a NEW loan of ₹${wiAmount} (monthly EMI would be approx ₹${Math.round((parseFloat(wiAmount)||0)*0.025)}). How does this impact my finances, DTI, health score, and debt-free date?`,
-      cutexpense: `If I reduce my monthly expenses by ₹${wiAmount||2000}, what is the best way to redirect this money? Which loan to attack and what's the impact?`,
-      prepay: `I have ₹${wiAmount} to make a lump-sum prepayment. Target loan: ${targetLoan?`${targetLoan.name} (outstanding ₹${targetLoan.outstanding}, EMI ₹${targetLoan.emi}, ${targetLoan.interestRate}%)` : "the most optimal loan"}. Calculate exact months saved and interest saved.`,
-    };
-    const prompt=`You are a CA advisor for India. Answer this What-If scenario.
-
-${buildFinContext()}
-
-SCENARIO: ${scenarios[wiType]}
-
-Respond ONLY with valid JSON (no markdown, no backticks):
-{
-  "verdict": "✅ Good Move|⚠️ Risky|❌ Avoid|💡 Consider This Instead",
-  "headline": "one punchy sentence summarising the impact",
-  "before": {
-    "debtFreeMonths": number,
-    "healthScore": number,
-    "monthlyEMI": number,
-    "totalInterestRemaining": number
-  },
-  "after": {
-    "debtFreeMonths": number,
-    "healthScore": number,
-    "monthlyEMI": number,
-    "totalInterestRemaining": number
-  },
-  "monthsSaved": number,
-  "interestSaved": number,
-  "recommendation": "2-3 sentences of specific actionable advice with exact ₹ amounts",
-  "steps": [
-    "Step 1: ...",
-    "Step 2: ..."
-  ],
-  "caution": "one specific risk or caution to be aware of, or null"
-}`;
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})});
-      const data = await res.json();
-      const raw = data.content?.[0]?.text||"{}";
-      const clean = raw.replace(/```json|```/g,"").trim();
-      setWiResult(JSON.parse(clean));
-    } catch(e) { setWiResult({error:"Could not analyse. Try again."}); }
-    setWiLoading(false);
-  },[buildFinContext, wiType, wiAmount, wiTarget, activeDebts]);
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
-    
+
     :root {
-      --bg: ${C.bg};
-      --card: ${C.card};
-      --border: ${C.border};
-      --text: ${C.text};
-      --muted: ${C.muted};
-      --accent: ${C.accent};
-      --surface: ${C.surface};
-      --income: ${C.income};
-      --expense: ${C.expense};
-      --glow: ${C.glow};
+      --bg: ${C.bg}; --card: ${C.card}; --border: ${C.border}; --text: ${C.text};
+      --muted: ${C.muted}; --accent: ${C.accent}; --surface: ${C.surface};
+      --income: ${C.income}; --expense: ${C.expense}; --glow: ${C.glow};
     }
 
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
     html{overflow-x:hidden;}
     body{overflow-x:hidden;overscroll-behavior:none;background:${C.bg};}
-    
+
     ::-webkit-scrollbar{width:3px;}
     ::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
-    
+
     input,select,textarea{
       outline:none;-webkit-appearance:none;
       font-family:'JetBrains Mono',monospace;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
 
-    /* ── Core Cards ── */
+    /* ── Core Cards — more breathing room ── */
     .card {
       background:${C.card};
-      border:1px solid ${C.border};
-      border-radius:18px;
-      padding:20px;
-      position:relative;
-      overflow:hidden;
+      border:1.5px solid ${C.border};
+      border-radius:20px;
+      padding:22px 20px;
+      margin-bottom:16px;
+      position:relative;overflow:hidden;
     }
 
-    /* ── Buttons ── */
+    /* ── ALL BUTTONS — clearly visible, never invisible ── */
     .btn{
       cursor:pointer;border:none;border-radius:12px;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:13px;
-      padding:11px 20px;
+      padding:12px 22px;letter-spacing:0.1px;
       transition: all 0.18s cubic-bezier(.4,0,.2,1);
       display:inline-flex;align-items:center;gap:6px;justify-content:center;
       position:relative;overflow:hidden;
     }
-    .btn::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,0);transition:background 0.18s;}
-    .btn:hover::after{background:rgba(255,255,255,0.06);}
     .btn:active{transform:scale(0.96);}
-    
-    .btn-p{background:${C.accent};color:#fff;box-shadow:0 4px 16px ${C.accent}35;}
-    .btn-p:hover{box-shadow:0 6px 24px ${C.accent}50;}
-    .btn-g{background:${C.income};color:${darkMode?"#070810":"#fff"};box-shadow:0 4px 16px ${C.income}30;}
-    .btn-v{background:${C.loan};color:#fff;box-shadow:0 4px 16px ${C.loan}30;}
-    .btn-w{background:${C.warning};color:#070810;}
-    .btn-ai{background:linear-gradient(135deg,#5b4fd4,#9b6af7,#5b8def);color:#fff;box-shadow:0 4px 20px rgba(155,106,247,0.4);}
-    .btn-sm{padding:7px 14px;font-size:11px;border-radius:9px;}
-    .btn-danger{background:transparent;color:${C.expense};border:1px solid ${C.expense}30;font-size:11px;padding:5px 11px;cursor:pointer;border-radius:8px;font-family:'Cabinet Grotesk',sans-serif;font-weight:700;transition:all 0.15s;}
-    .btn-danger:hover{background:${C.expense}10;}
+    /* Primary — accent fill */
+    .btn-p{background:${C.accent};color:#fff;box-shadow:0 4px 16px ${C.accent}45;}
+    .btn-p:hover{box-shadow:0 6px 24px ${C.accent}60;filter:brightness(1.08);}
+    /* Green */
+    .btn-g{background:${C.income};color:${darkMode?"#070810":"#fff"};box-shadow:0 4px 14px ${C.income}35;}
+    .btn-g:hover{filter:brightness(1.08);}
+    /* Purple */
+    .btn-v{background:${C.loan};color:#fff;box-shadow:0 4px 14px ${C.loan}35;}
+    /* AI gradient */
+    .btn-ai{background:linear-gradient(135deg,#5b4fd4,#9b6af7,#5b8def);color:#fff;box-shadow:0 4px 20px rgba(155,106,247,0.45);}
+    .btn-ai:hover{filter:brightness(1.1);}
+    /* Small modifier */
+    .btn-sm{padding:8px 16px;font-size:11.5px;border-radius:10px;}
+    /* Danger — visible red outline */
+    .btn-danger{
+      background:${C.expense}12;color:${C.expense};
+      border:1.5px solid ${C.expense}50;
+      font-size:11px;padding:7px 13px;cursor:pointer;border-radius:10px;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:700;transition:all 0.15s;
+    }
+    .btn-danger:hover{background:${C.expense}22;border-color:${C.expense}80;}
+    /* Ghost — always has a visible border */
     .btn-ghost{
-      background:transparent;color:${C.muted};
-      border:1px solid ${C.border};
-      padding:7px 14px;border-radius:9px;cursor:pointer;
-      font-family:'Cabinet Grotesk',sans-serif;font-weight:600;font-size:11px;
+      background:transparent;color:${C.text};
+      border:1.5px solid ${C.border};
+      padding:8px 16px;border-radius:10px;cursor:pointer;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:600;font-size:11.5px;
       transition:all 0.15s;
     }
-    .btn-ghost:hover{background:${C.surface};color:${C.text};border-color:${C.muted}50;}
+    .btn-ghost:hover{background:${C.surface};border-color:${C.muted}70;}
 
-    /* ── Inputs ── */
+    /* ── Inputs — generous padding ── */
     .inp{
       background:${C.inputBg};
-      border:1px solid ${C.border};
+      border:1.5px solid ${C.border};
       border-radius:12px;
       color:${C.text};
-      padding:11px 15px;
+      padding:12px 16px;
       font-size:13px;
       width:100%;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .inp:focus{
-      border-color:${C.accent};
-      box-shadow: 0 0 0 3px ${C.accent}18;
-    }
+    .inp:focus{border-color:${C.accent};box-shadow: 0 0 0 3px ${C.accent}18;}
     .inp::placeholder{color:${C.muted};}
 
     /* ── Modal ── */
     .modal{
       position:fixed;inset:0;
-      background:rgba(0,0,0,0.75);
-      backdrop-filter:blur(16px);
-      -webkit-backdrop-filter:blur(16px);
-      z-index:200;
-      display:flex;align-items:flex-end;justify-content:center;
+      background:rgba(0,0,0,0.78);
+      backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+      z-index:200;display:flex;align-items:flex-end;justify-content:center;
     }
     .sheet{
       width:100%;max-width:560px;
       background:${C.card};
-      border:1px solid ${C.border};
+      border:1.5px solid ${C.border};
       border-radius:24px 24px 0 0;
-      padding:28px 24px 32px;
+      padding:32px 24px 36px;
       max-height:94vh;overflow-y:auto;
-      box-shadow:0 -20px 60px rgba(0,0,0,0.4);
+      box-shadow:0 -20px 60px rgba(0,0,0,0.45);
     }
-    @media(min-width:640px){
-      .modal{align-items:center;padding:20px;}
-      .sheet{border-radius:24px;}
-    }
+    @media(min-width:640px){.modal{align-items:center;padding:20px;}.sheet{border-radius:24px;}}
 
     /* ── Tags ── */
     .tag{
       display:inline-flex;align-items:center;
-      padding:3px 9px;border-radius:20px;
+      padding:4px 10px;border-radius:20px;
       font-size:10px;font-family:'Cabinet Grotesk',sans-serif;font-weight:700;
       letter-spacing:0.3px;
     }
 
     /* ── Progress bars ── */
-    .pbar{height:5px;background:${C.border};border-radius:99px;overflow:hidden;}
+    .pbar{height:6px;background:${C.border};border-radius:99px;overflow:hidden;margin:4px 0;}
     .pfill{height:100%;border-radius:99px;transition:width 0.6s cubic-bezier(.4,0,.2,1);}
 
     /* ── Labels ── */
     .lbl{
-      font-size:9px;color:${C.muted};
+      font-size:9.5px;color:${C.muted};
       font-family:'Cabinet Grotesk',sans-serif;
-      font-weight:700;letter-spacing:1.8px;
-      text-transform:uppercase;margin-bottom:5px;
+      font-weight:700;letter-spacing:1.6px;
+      text-transform:uppercase;margin-bottom:6px;
+      display:block;
     }
 
     /* ── Section titles ── */
     .stitle{
       font-family:'Cabinet Grotesk',sans-serif;
-      font-weight:800;font-size:15px;margin-bottom:14px;
+      font-weight:800;font-size:15px;margin-bottom:16px;
       letter-spacing:-0.2px;
     }
 
     /* ── Rows ── */
     .row{
       display:flex;justify-content:space-between;align-items:center;
-      padding:11px 0;
-      border-bottom:1px solid ${C.border}80;
+      padding:13px 0;
+      border-bottom:1px solid ${C.border}60;
       transition:background 0.15s;
     }
 
     /* ── Grids ── */
-    .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
     .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
-    @media(max-width:640px){
-      .g4{grid-template-columns:repeat(2,1fr);}
-      .g2{grid-template-columns:1fr;}
-    }
+    @media(max-width:640px){.g4{grid-template-columns:repeat(2,1fr);}.g2{grid-template-columns:1fr;}}
 
     /* ── Stat cards ── */
     .scard{
-      background:${C.card};
-      border:1px solid ${C.border};
-      border-radius:16px;
-      padding:16px;
+      background:${C.card};border:1.5px solid ${C.border};
+      border-radius:16px;padding:18px 16px;
       position:relative;overflow:hidden;
       transition: border-color 0.2s, transform 0.2s;
     }
-    .scard:hover{transform:translateY(-1px);}
+    .scard:hover{transform:translateY(-1px);border-color:${C.muted}50;}
 
     /* ── Filter buttons ── */
     .filter-btn{
-      cursor:pointer;padding:6px 13px;border-radius:99px;
+      cursor:pointer;padding:7px 14px;border-radius:99px;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:600;font-size:11px;
-      border:1px solid ${C.border};
+      border:1.5px solid ${C.border};
       background:transparent;color:${C.muted};
       transition:all 0.15s;white-space:nowrap;
     }
     .filter-btn:hover{border-color:${C.muted}80;color:${C.text};}
-    .filter-btn.on{
-      border-color:${C.accent};color:${C.accent};
-      background:${C.accent}14;
-    }
+    .filter-btn.on{border-color:${C.accent};color:${C.accent};background:${C.accent}14;}
 
     /* ── AI text ── */
-    .ai-txt{
-      white-space:pre-wrap;
-      font-size:12.5px;line-height:1.95;
-      font-family:'JetBrains Mono',monospace;
-    }
+    .ai-txt{white-space:pre-wrap;font-size:12.5px;line-height:1.95;font-family:'JetBrains Mono',monospace;}
 
     /* ── Shimmer ── */
     .shimmer{
       background:linear-gradient(90deg,${C.surface} 25%,${C.border} 50%,${C.surface} 75%);
-      background-size:200% 100%;
-      animation:shimmer 1.5s infinite;
-      border-radius:8px;
+      background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:8px;
     }
     @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-
-    /* ── Pulse ── */
     .pulse{animation:pulse 2s infinite;}
     @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
 
-    /* ── Bottom nav ── */
+    /* ── Bottom nav — clean minimal ── */
     .bnav{
       position:fixed;bottom:0;left:0;right:0;
       background:${C.glass};
-      backdrop-filter:blur(20px);
-      -webkit-backdrop-filter:blur(20px);
-      border-top:1px solid ${C.border};
+      backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+      border-top:1.5px solid ${C.border};
       display:flex;z-index:100;
       padding-bottom:env(safe-area-inset-bottom,0px);
     }
     .bn{
       display:flex;flex-direction:column;align-items:center;justify-content:center;
-      padding:10px 4px 8px;
+      padding:12px 4px 10px;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:9.5px;
-      color:${C.muted};cursor:pointer;border:none;background:transparent;gap:3px;flex:1;
-      transition:color 0.15s;letter-spacing:0.3px;
+      color:${C.muted};cursor:pointer;border:none;background:transparent;gap:4px;flex:1;
+      transition:color 0.15s;letter-spacing:0.4px;
     }
     .bn.act{color:${C.accent};}
-    .bn.act span:first-child{
-      filter: drop-shadow(0 0 6px ${C.accent}60);
+    .bn.act span:first-child{filter: drop-shadow(0 0 6px ${C.accent}60);}
+
+    /* ── Due badge ── */
+    .due-badge{
+      display:inline-flex;align-items:center;gap:3px;
+      padding:3px 8px;border-radius:99px;
+      font-size:9.5px;font-family:'Cabinet Grotesk',sans-serif;font-weight:700;
     }
 
     /* ── FAB ── */
     .fab{
-      position:fixed;bottom:72px;right:18px;
-      width:54px;height:54px;border-radius:16px;
-      background:${C.accent};
-      border:none;cursor:pointer;font-size:22px;
+      position:fixed;bottom:76px;right:18px;
+      width:56px;height:56px;border-radius:16px;
+      background:${C.accent};border:none;cursor:pointer;font-size:22px;
       display:flex;align-items:center;justify-content:center;
-      box-shadow:0 8px 28px ${C.accent}50;
+      box-shadow:0 8px 28px ${C.accent}55;
       z-index:99;color:#fff;font-weight:800;
       transition:transform 0.18s, box-shadow 0.18s;
     }
@@ -1331,7 +1192,7 @@ Respond ONLY with valid JSON (no markdown, no backticks):
 
     /* ── Sync dot ── */
     .sync-dot{
-      width:6px;height:6px;border-radius:50%;
+      width:7px;height:7px;border-radius:50%;
       background:${saving?"#ffb547":fbStatus==="ok"?"#00e5a0":"#ff4d6d"};
       display:inline-block;margin-right:5px;
       box-shadow: 0 0 6px ${saving?"#ffb547":fbStatus==="ok"?"#00e5a0":"#ff4d6d"}80;
@@ -1340,8 +1201,7 @@ Respond ONLY with valid JSON (no markdown, no backticks):
     /* ── Hamburger menu ── */
     .hmenu{
       position:fixed;top:0;left:0;width:80%;max-width:300px;height:100vh;
-      background:${C.card};
-      border-right:1px solid ${C.border};
+      background:${C.card};border-right:1.5px solid ${C.border};
       z-index:300;padding:0;display:flex;flex-direction:column;
       transform:translateX(-100%);
       transition:transform 0.28s cubic-bezier(.4,0,.2,1);
@@ -1350,11 +1210,11 @@ Respond ONLY with valid JSON (no markdown, no backticks):
     .hmenu.open{transform:translateX(0);}
     .hmenu-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:299;backdrop-filter:blur(4px);}
     .hmenu-item{
-      display:flex;align-items:center;gap:12px;padding:15px 20px;
+      display:flex;align-items:center;gap:12px;padding:16px 20px;
       cursor:pointer;border:none;background:transparent;
       color:${C.text};font-family:'Cabinet Grotesk',sans-serif;
       font-weight:600;font-size:13px;width:100%;text-align:left;
-      border-radius:0;transition:background 0.15s;
+      transition:background 0.15s;
     }
     .hmenu-item:hover{background:${C.surface};}
     .hmenu-item.active{color:${C.accent};background:${C.accent}10;}
@@ -1364,13 +1224,9 @@ Respond ONLY with valid JSON (no markdown, no backticks):
     .ptr-spinner{width:20px;height:20px;border:2px solid ${C.border};border-top-color:${C.accent};border-radius:50%;animation:spin 0.7s linear infinite;}
     @keyframes spin{to{transform:rotate(360deg)}}
 
-    /* ── Scrollbar in sheet ── */
-    .sheet::-webkit-scrollbar{width:3px;}
-    .sheet::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
-
-    /* ── Desktop header tabs ── */
+    /* ── Desktop tabs ── */
     .dtab-btn{
-      cursor:pointer;padding:7px 14px;border-radius:99px;
+      cursor:pointer;padding:8px 16px;border-radius:99px;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:12px;
       border:none;background:transparent;color:${C.muted};
       transition:all 0.15s;white-space:nowrap;
@@ -1378,33 +1234,23 @@ Respond ONLY with valid JSON (no markdown, no backticks):
     .dtab-btn:hover{color:${C.text};}
     .dtab-btn.act{background:${C.accent}18;color:${C.accent};}
 
-    /* ── Number highlight ── */
-    .num{
-      font-family:'Cabinet Grotesk',sans-serif;
-      font-weight:800;
-      font-variant-numeric:tabular-nums;
-    }
-
-    /* ── Divider ── */
-    .div{height:1px;background:${C.border}60;margin:12px 0;}
-
-    /* ── Glassmorphic stat ── */
-    .gstat{
-      background:${C.surface};
-      border:1px solid ${C.border};
-      border-radius:14px;
-      padding:14px 16px;
-      transition:all 0.2s;
-    }
+    /* ── Misc ── */
+    .num{font-family:'Cabinet Grotesk',sans-serif;font-weight:800;font-variant-numeric:tabular-nums;}
+    .div{height:1px;background:${C.border}60;margin:16px 0;}
+    .gstat{background:${C.surface};border:1.5px solid ${C.border};border-radius:14px;padding:16px;transition:all 0.2s;}
     .gstat:hover{border-color:${C.muted}40;transform:translateY(-1px);}
+    .sheet::-webkit-scrollbar{width:3px;}
+    .sheet::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
   `;
 
-  function DueBadge({days}){
-    if(days===null)return null;
-    if(days<0)return<span className="tag" style={{background:`${C.expense}18`,color:C.expense}}>Overdue {Math.abs(days)}d</span>;
-    if(days===0)return<span className="tag" style={{background:`${C.warning}18`,color:C.warning}}>Today!</span>;
-    if(days<=3)return<span className="tag" style={{background:`${C.warning}18`,color:C.warning}}>{days}d left</span>;
-    if(days<=7)return<span className="tag" style={{background:`${C.accent}18`,color:C.accent}}>{days}d</span>;
+  function DueBadge({days, dueDate}){
+    if(days===null && !dueDate) return null;
+    const dateStr = dueDate ? new Date(dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : null;
+    if(days!==null && days<0) return <span className="due-badge" style={{background:`${C.expense}18`,color:C.expense}}>⚠️ Overdue {Math.abs(days)}d{dateStr?` (${dateStr})`:""}</span>;
+    if(days===0) return <span className="due-badge" style={{background:`${C.warning}18`,color:C.warning}}>⚡ Due Today!</span>;
+    if(days!==null && days<=3) return <span className="due-badge" style={{background:`${C.warning}18`,color:C.warning}}>🔔 Due in {days}d{dateStr?` · ${dateStr}`:""}</span>;
+    if(days!==null && days<=10) return <span className="due-badge" style={{background:`${C.accent}14`,color:C.accent}}>📅 Due {dateStr||`in ${days}d`}</span>;
+    if(dateStr) return <span className="due-badge" style={{background:`${C.border}`,color:C.muted}}>📅 {dateStr}</span>;
     return null;
   }
   function ScoreRing({score,color,size=120}){
@@ -1512,7 +1358,7 @@ if (!user) {
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
             <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>setTab(t)}>
-              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Goals"?"🌱 Goals":t==="Finance"?"📊 Finance":t==="Smart"?"⚡ Smart":t==="CA"?"🧠 CA Advisor":t}
+              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Goals"?"🌱 Goals":t==="Finance"?"📊 Finance":t==="Smart"?"⚡ Smart":t}
             </button>
           ))}
         </div>
@@ -1572,7 +1418,143 @@ if (!user) {
     <button key={v} className={`filter-btn ${dashPeriod===v?"on":""}`} onClick={()=>setDashPeriod(v)}>{l}</button>
   ))}
 </div>
-            
+
+          {/* ══ MONEY OVERVIEW ══ */}
+          <div className="card" style={{marginBottom:12,borderColor:`${C.accent}25`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div className="stitle" style={{marginBottom:0}}>💰 My Money</div>
+              <button className="btn-ghost btn-sm" onClick={()=>setTab("Smart")} style={{fontSize:11}}>Manage Accounts →</button>
+            </div>
+
+            {accounts.length===0
+              ? <div style={{textAlign:"center",padding:"12px 0",color:C.muted,fontSize:12}}>
+                  No accounts added yet.{" "}
+                  <span onClick={()=>setTab("Smart")} style={{color:C.accent,cursor:"pointer",fontWeight:700}}>Add accounts →</span>
+                </div>
+              : <>
+                  {/* Bank + Cash accounts */}
+                  <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                    {accounts.map(a=>{
+                      const bal = parseFloat(a.balance)||0;
+                      const isCash = a.type==="cash";
+                      return(
+                        <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            <div style={{width:36,height:36,borderRadius:10,background:`${a.color||C.accent}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{a.icon||"🏦"}</div>
+                            <div>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{a.name}</div>
+                              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>{isCash?"Cash in hand":a.type}{a.bank?` · ${a.bank}`:""}</div>
+                            </div>
+                          </div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:bal>=0?C.income:C.expense}}>{fc(bal)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Total */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:`${C.income}10`,borderRadius:12,border:`1px solid ${C.income}25`,marginBottom:2}}>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income}}>Total Available</span>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18,color:C.income}}>{fc(totalAccountBalance)}</span>
+                  </div>
+                </>
+            }
+          </div>
+
+          {/* ══ CREDIT CARD UTILISATION ══ */}
+          {creditCards.length>0&&(
+            <div className="card" style={{marginBottom:12}}>
+              <div className="stitle" style={{marginBottom:10}}>💳 Credit Cards</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {creditCards.map(cc=>{
+                  const out = parseFloat(cc.outstanding)||0;
+                  const lim = parseFloat(cc.limit)||1;
+                  const util = Math.min(100,(out/lim)*100);
+                  const utilColor = util>=75?C.expense:util>=40?C.warning:C.income;
+                  return(
+                    <div key={cc.id} style={{padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${utilColor}25`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                        <div>
+                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{cc.name}</span>
+                          <span style={{fontSize:10,color:C.muted,marginLeft:8}}>{cc.bank}</span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:utilColor}}>{util.toFixed(0)}% used</span>
+                          {util>=75&&<span className="tag" style={{background:`${C.expense}15`,color:C.expense,fontSize:9}}>High!</span>}
+                        </div>
+                      </div>
+                      <div className="pbar" style={{marginBottom:4}}><div className="pfill" style={{width:`${util}%`,background:utilColor}}/></div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
+                        <span>Used: <span style={{color:utilColor,fontWeight:700}}>{fc(out)}</span></span>
+                        <span>Available: <span style={{color:C.income,fontWeight:700}}>{fc(Math.max(0,lim-out))}</span></span>
+                        <span>Limit: {fc(lim)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ══ EMI OVERVIEW ══ */}
+          {(activeDebts.length>0||ccEmis.length>0)&&(
+            <div className="card" style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div className="stitle" style={{marginBottom:0}}>📅 EMIs This Month</div>
+                <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.loan}}>{fc(totalEMI+totalCCEMI)}</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {activeDebts.filter(d=>d.emi).map(d=>{
+                  const dueDay = d.dueDate ? new Date(d.dueDate).getDate() : null;
+                  const today = new Date().getDate();
+                  const isPaid = dueDay && today > dueDay;
+                  const isDueToday = dueDay && today === dueDay;
+                  const daysLeft = dueDay ? dueDay - today : null;
+                  return(
+                    <div key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:C.surface,borderRadius:10,border:`1px solid ${isDueToday?C.warning+"50":isPaid?C.income+"25":C.border}`}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{width:8,height:8,borderRadius:"50%",background:isDueToday?C.warning:isPaid?C.income:C.loan,flexShrink:0}}/>
+                        <div>
+                          <div style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{d.name}</div>
+                          <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{d.lender}</div>
+                          {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate}/>}
+                        </div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.loan}}>{fc(parseFloat(d.emi)||0)}</div>
+                        <div style={{fontSize:9,color:isDueToday?C.warning:isPaid?C.income:C.muted}}>
+                          {isDueToday?"⚡ Due today":isPaid?"✅ Paid":daysLeft!==null?`in ${daysLeft}d`:""}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {ccEmis.map(e=>{
+                  const card = creditCards.find(c=>String(c.id)===String(e.cardId));
+                  const dueDay = card?.dueDate ? new Date(card.dueDate).getDate() : null;
+                  const today = new Date().getDate();
+                  const isPaid = dueDay && today > dueDay;
+                  return(
+                    <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:C.surface,borderRadius:10,border:`1px solid ${C.border}`}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{width:8,height:8,borderRadius:"50%",background:C.credit,flexShrink:0}}/>
+                        <div>
+                          <div style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{e.description||card?.name||"CC EMI"}</div>
+                          <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{e.monthsLeft}mo left</div>
+                          {card?.dueDate&&<DueBadge days={daysUntil(card.dueDate)} dueDate={card.dueDate}/>}
+                        </div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.credit}}>{fc(parseFloat(e.amount)||0)}</div>
+                        <div style={{fontSize:9,color:isPaid?C.income:C.muted}}>{isPaid?"✅ Paid":""}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Period Summary Strip */}
           <div className="g4" style={{marginBottom:12}}>
   {(()=>{
     const pt=filterByPeriod(transactions,dashPeriod);
@@ -1818,7 +1800,17 @@ if (!user) {
                       {d.totalAmount>0&&<><div className="pbar"><div className="pfill" style={{width:`${pct}%`,background:pc}}/></div><div style={{fontSize:10,color:C.muted,marginTop:3}}>{pct.toFixed(0)}% repaid</div></>}
                       {i===0&&<div style={{marginTop:8,padding:"6px 10px",background:pc+"12",borderRadius:8,fontSize:11,color:pc,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>⭐ Put all extra funds here first</div>}
                       <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
-                        <button className="btn btn-g btn-sm" onClick={()=>{const v=prompt(`Record payment for ${d.name}?\nOutstanding: ${fc(d.bal)}`);const n=parseFloat(v);if(!isNaN(n)&&n>0)recordLoanPayment(d.id,n);}}>💸 Pay</button>
+                        <button className="btn btn-p btn-sm" onClick={()=>{
+                          // Pay Early — records this month's EMI now, before due date
+                          const emiAmt = parseFloat(d.emi)||0;
+                          if (!emiAmt) return;
+                          const now = new Date();
+                          const key = `emi_${d.id}_${now.getFullYear()}_${now.getMonth()}`;
+                          const alreadyPaid = transactions.some(t=>t._emiKey===key);
+                          if (alreadyPaid) { alert(`${d.name} EMI already recorded this month`); return; }
+                          recordLoanPayment(d.id, emiAmt, key);
+                        }}>⚡ Pay EMI Early</button>
+                        <button className="btn btn-g btn-sm" onClick={()=>{const v=prompt(`Extra/custom payment for ${d.name}?\nOutstanding: ${fc(d.bal)}`);const n=parseFloat(v);if(!isNaN(n)&&n>0)recordLoanPayment(d.id,n);}}>💸 Custom Pay</button>
                         <button className="btn-ghost btn-sm" onClick={()=>openEditDebt(d)}>Edit</button>
                         <button className="btn btn-danger" onClick={()=>toggleDebtClosed(d.id)}>Mark Closed</button>
                       </div>
@@ -1971,7 +1963,7 @@ if (!user) {
                         <div style={{fontSize:14,fontWeight:700,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(det.idealPayment)}</div>
                         <div style={{fontSize:10,color:C.muted}}>saves {fc(det.interestSavedByFull)}/mo interest</div>
                       </div>
-                      {cc.dueDate&&<div><div className="lbl">Due Date</div><div style={{fontSize:13,fontWeight:600}}>{fd(cc.dueDate)}</div><DueBadge days={det.daysLeft}/></div>}
+                      {cc.dueDate&&<div><div className="lbl">Due Date</div><div style={{fontSize:13,fontWeight:600}}>{fd(cc.dueDate)}</div><DueBadge days={det.daysLeft} dueDate={cc.dueDate}/></div>}
                       {cc.statementDate&&<div><div className="lbl">Statement</div><div style={{fontSize:13}}>{cc.statementDate}</div></div>}
                     </div>
                     <div style={{padding:"8px 12px",background:det.status==="danger"?`${C.expense}10`:C.surface,borderRadius:10,fontSize:11,marginBottom:10,color:det.status==="danger"?C.expense:C.muted,lineHeight:1.6}}>
@@ -2353,7 +2345,8 @@ if (!user) {
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,flexWrap:"wrap",gap:6}}>
                           <div>
                             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>{d.name}</div>
-                            <div style={{fontSize:11,color:C.muted}}>{d.lender} · {d.interestRate}% p.a. · Outstanding {fc(d.bal)}</div>
+                            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{d.lender} · {d.interestRate}% p.a. · Outstanding {fc(d.bal)}</div>
+                            {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate}/>}
                           </div>
                           {d.monthsSaved>0&&(
                             <div style={{background:`${C.income}15`,borderRadius:10,padding:"6px 12px",border:`1px solid ${C.income}30`}}>
@@ -2600,366 +2593,6 @@ if (!user) {
         </>}
 
         {/* ════════ CA ADVISOR ════════ */}
-        {tab==="CA"&&<>
-
-          {/* ── Header ── */}
-          <div style={{marginBottom:16,padding:"16px 18px",background:`linear-gradient(135deg,${C.accent}15,${C.loan}10)`,borderRadius:18,border:`1px solid ${C.accent}25`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
-              <div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,marginBottom:4}}>🧠 CA Advisor</div>
-                <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>Your personal Chartered Accountant — knows your exact numbers.<br/>Roadmap · Monthly Prescription · What-If Scenarios</div>
-              </div>
-              <div style={{background:`${C.accent}20`,borderRadius:12,padding:"8px 14px",textAlign:"center"}}>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:C.accent}}>{health.score}</div>
-                <div style={{fontSize:10,color:C.muted,letterSpacing:1}}>HEALTH</div>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Sub-tab switcher ── */}
-          <div style={{display:"flex",gap:6,marginBottom:16,padding:"4px",background:C.surface,borderRadius:14,border:`1px solid ${C.border}`}}>
-            {[
-              {id:"roadmap",     icon:"🗺️", label:"Exit Roadmap"},
-              {id:"prescription",icon:"💊", label:"Prescription"},
-              {id:"whatif",      icon:"🔮", label:"What-If"},
-            ].map(t=>(
-              <button key={t.id} onClick={()=>setCaTab(t.id)} style={{
-                flex:1,padding:"10px 6px",borderRadius:10,border:"none",cursor:"pointer",
-                background:caTab===t.id?C.accent:"transparent",
-                color:caTab===t.id?"#fff":C.muted,
-                fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,
-                transition:"all 0.2s",
-              }}>
-                <div style={{fontSize:16,marginBottom:2}}>{t.icon}</div>
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* ══ DEBT EXIT ROADMAP ══ */}
-          {caTab==="roadmap"&&<>
-            <div className="card" style={{marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-                <div>
-                  <div className="stitle" style={{marginBottom:2}}>🗺️ Debt Exit Roadmap</div>
-                  <div style={{fontSize:11,color:C.muted}}>Your personalised path to ₹0 debt — with exact dates</div>
-                </div>
-                <button className="btn btn-ai btn-sm" onClick={getRoadmap} disabled={roadmapLoading}>
-                  {roadmapLoading?"⏳ Calculating...":"✨ Generate Roadmap"}
-                </button>
-              </div>
-
-              {!roadmapData&&!roadmapLoading&&(
-                <div style={{textAlign:"center",padding:"28px 16px",color:C.muted}}>
-                  <div style={{fontSize:40,marginBottom:10}}>🗺️</div>
-                  <div style={{fontSize:13,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:6}}>See your exact debt-free date</div>
-                  <div style={{fontSize:11,lineHeight:1.8}}>The CA will analyse all your loans, EMIs, and cash flow<br/>then build a month-by-month roadmap to freedom.</div>
-                  {activeDebts.length===0&&<div style={{marginTop:10,fontSize:11,color:C.warning}}>⚠️ Add loans in Plan tab first</div>}
-                </div>
-              )}
-
-              {roadmapLoading&&(
-                <div style={{padding:"20px 0"}}>
-                  {[90,75,85,60,70,80].map((w,i)=>(
-                    <div key={i} className="shimmer" style={{height:14,marginBottom:10,width:w+"%",borderRadius:7}}/>
-                  ))}
-                </div>
-              )}
-
-              {roadmapData&&!roadmapData.error&&(
-                <>
-                  {/* Summary banner */}
-                  <div style={{padding:"14px 16px",background:`linear-gradient(135deg,${C.income}12,${C.accent}08)`,borderRadius:14,border:`1px solid ${C.income}25`,marginBottom:16}}>
-                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income,marginBottom:6}}>{roadmapData.summaryLine}</div>
-                    <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-                      <div><div className="lbl">Debt-Free By</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.income}}>{roadmapData.debtFreeDate}</div></div>
-                      {roadmapData.debtFreeWithExtra&&<div><div className="lbl">With Extra ₹/mo</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.accent}}>{roadmapData.debtFreeWithExtra}</div></div>}
-                      {roadmapData.monthsSaved>0&&<div><div className="lbl">Months Saved</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.warning}}>{roadmapData.monthsSaved}mo</div></div>}
-                      {roadmapData.interestSaved>0&&<div><div className="lbl">Interest Saved</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.income}}>{fc(roadmapData.interestSaved)}</div></div>}
-                    </div>
-                  </div>
-
-                  {/* Phases */}
-                  {roadmapData.phases?.length>0&&(
-                    <div style={{marginBottom:16}}>
-                      <div className="lbl" style={{marginBottom:8}}>ATTACK PHASES</div>
-                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                        {roadmapData.phases.map((p,i)=>{
-                          const colors=[C.expense,C.warning,C.accent,C.income,C.loan];
-                          const pc=colors[i%colors.length];
-                          return(
-                            <div key={i} style={{display:"flex",gap:12,padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${pc}25`}}>
-                              <div style={{width:28,height:28,borderRadius:8,background:`${pc}20`,color:pc,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:12,flexShrink:0}}>{i+1}</div>
-                              <div style={{flex:1}}>
-                                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:pc,marginBottom:2}}>{p.label}</div>
-                                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{p.months}</div>
-                                <div style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{p.action}</div>
-                                <div style={{fontSize:11,color:C.income,marginTop:3}}>→ {p.result}</div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Milestones timeline */}
-                  {roadmapData.milestones?.length>0&&(
-                    <div style={{marginBottom:16}}>
-                      <div className="lbl" style={{marginBottom:8}}>KEY MILESTONES</div>
-                      <div style={{position:"relative",paddingLeft:20}}>
-                        <div style={{position:"absolute",left:7,top:8,bottom:8,width:2,background:`${C.border}`,borderRadius:2}}/>
-                        {roadmapData.milestones.map((m,i)=>{
-                          const dotColor = m.type==="freedom"?C.income:m.type==="close"?C.accent:m.type==="goal"?C.warning:C.loan;
-                          return(
-                            <div key={i} style={{display:"flex",gap:12,marginBottom:12,position:"relative"}}>
-                              <div style={{width:16,height:16,borderRadius:"50%",background:dotColor,border:`2px solid ${C.card}`,flexShrink:0,zIndex:1,boxShadow:`0 0 6px ${dotColor}60`,marginTop:2}}/>
-                              <div style={{flex:1,padding:"8px 12px",background:m.type==="freedom"?`${C.income}10`:C.surface,borderRadius:10,border:`1px solid ${m.type==="freedom"?C.income+"30":C.border}`}}>
-                                <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
-                                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:dotColor}}>{m.event}</div>
-                                  <div style={{fontSize:10,color:C.muted}}>{m.month}</div>
-                                </div>
-                                {m.freedEMI>0&&<div style={{fontSize:11,color:C.income,marginTop:2}}>+{fc(m.freedEMI)}/mo freed → total freed: {fc(m.cumulativeFreed)}/mo</div>}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Bonus tips & CIBIL warnings */}
-                  {roadmapData.bonusTips?.length>0&&(
-                    <div style={{marginBottom:12}}>
-                      <div className="lbl" style={{marginBottom:8}}>💡 ACCELERATOR TIPS</div>
-                      {roadmapData.bonusTips.map((tip,i)=>(
-                        <div key={i} style={{fontSize:12,color:C.muted,padding:"7px 12px",background:C.surface,borderRadius:8,marginBottom:6,borderLeft:`3px solid ${C.accent}`}}>{tip}</div>
-                      ))}
-                    </div>
-                  )}
-                  {roadmapData.cibilWarnings?.length>0&&(
-                    <div>
-                      <div className="lbl" style={{marginBottom:8}}>⚠️ CIBIL ALERTS</div>
-                      {roadmapData.cibilWarnings.map((w,i)=>(
-                        <div key={i} style={{fontSize:12,color:C.warning,padding:"7px 12px",background:`${C.warning}10`,borderRadius:8,marginBottom:6,borderLeft:`3px solid ${C.warning}`}}>{w}</div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-              {roadmapData?.error&&<div style={{padding:16,color:C.expense,fontSize:12}}>{roadmapData.error}</div>}
-            </div>
-          </>}
-
-          {/* ══ MONTHLY PRESCRIPTION ══ */}
-          {caTab==="prescription"&&<>
-            <div className="card" style={{marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-                <div>
-                  <div className="stitle" style={{marginBottom:2}}>💊 Monthly Prescription</div>
-                  <div style={{fontSize:11,color:C.muted}}>3 exact actions to take this month — like a CA's prescription pad</div>
-                </div>
-                <button className="btn btn-ai btn-sm" onClick={getPrescription} disabled={prescLoading}>
-                  {prescLoading?"⏳ Writing...":prescription?"↻ Refresh":"✨ Get Prescription"}
-                </button>
-              </div>
-
-              {!prescription&&!prescLoading&&(
-                <div style={{textAlign:"center",padding:"28px 16px",color:C.muted}}>
-                  <div style={{fontSize:40,marginBottom:10}}>💊</div>
-                  <div style={{fontSize:13,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:6}}>Your CA writes your monthly action plan</div>
-                  <div style={{fontSize:11,lineHeight:1.8}}>3 specific actions with exact ₹ amounts.<br/>Refreshes each month as your situation changes.</div>
-                </div>
-              )}
-
-              {prescLoading&&(
-                <div style={{padding:"20px 0"}}>
-                  {[85,70,90,65,80,75,60].map((w,i)=>(
-                    <div key={i} className="shimmer" style={{height:14,marginBottom:10,width:w+"%",borderRadius:7}}/>
-                  ))}
-                </div>
-              )}
-
-              {prescription&&!prescLoading&&(
-                <div>
-                  <div className="ai-txt" style={{lineHeight:1.9}}>{prescription.text}</div>
-                  <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                    <div style={{fontSize:10,color:C.muted,fontFamily:"'JetBrains Mono',monospace"}}>
-                      Generated: {prescription.generatedAt?new Date(prescription.generatedAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—"}
-                    </div>
-                    <div style={{fontSize:10,color:C.muted}}>⚠️ For planning only. Consult a SEBI-registered advisor for investments.</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </>}
-
-          {/* ══ WHAT-IF SIMULATOR ══ */}
-          {caTab==="whatif"&&<>
-            <div className="card" style={{marginBottom:12}}>
-              <div className="stitle" style={{marginBottom:4}}>🔮 What-If Simulator</div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:16}}>Ask "what happens if I…" — get instant CA-level analysis</div>
-
-              {/* Scenario type selector */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
-                {[
-                  {id:"bonus",      icon:"💰", label:"I get a Bonus",        sub:"Windfall allocation"},
-                  {id:"prepay",     icon:"🎯", label:"I Prepay a Loan",      sub:"Lump-sum impact"},
-                  {id:"cutexpense", icon:"✂️",  label:"I Cut Expenses",       sub:"Redirect savings"},
-                  {id:"newloan",    icon:"⚠️",  label:"I Take a New Loan",    sub:"Impact analysis"},
-                ].map(s=>(
-                  <button key={s.id} onClick={()=>{setWiType(s.id);setWiResult(null);}} style={{
-                    padding:"12px",borderRadius:12,border:`1px solid ${wiType===s.id?C.accent+"60":C.border}`,
-                    background:wiType===s.id?`${C.accent}12`:C.surface,cursor:"pointer",textAlign:"left",
-                    transition:"all 0.2s",
-                  }}>
-                    <div style={{fontSize:20,marginBottom:4}}>{s.icon}</div>
-                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:wiType===s.id?C.accent:C.text}}>{s.label}</div>
-                    <div style={{fontSize:10,color:C.muted}}>{s.sub}</div>
-                  </button>
-                ))}
-              </div>
-
-              {/* Input */}
-              <div style={{padding:"14px",background:C.surface,borderRadius:14,border:`1px solid ${C.border}`,marginBottom:14}}>
-                <div className="g2" style={{gap:10}}>
-                  <div>
-                    <div className="lbl">{wiType==="cutexpense"?"Monthly Savings ₹":"Amount ₹"}</div>
-                    <input className="inp" type="number" placeholder={wiType==="bonus"?"e.g. 20000":wiType==="newloan"?"e.g. 50000":wiType==="cutexpense"?"e.g. 2000":"e.g. 15000"}
-                      value={wiAmount} onChange={e=>{setWiAmount(e.target.value);setWiResult(null);}}/>
-                  </div>
-                  {wiType==="prepay"&&(
-                    <div>
-                      <div className="lbl">Target Loan</div>
-                      <select className="inp" value={wiTarget} onChange={e=>{setWiTarget(e.target.value);setWiResult(null);}}>
-                        <option value="">Best loan (auto)</option>
-                        {activeDebts.map(d=><option key={d.id} value={d.id}>{d.name} — {fc(d.outstanding)}</option>)}
-                      </select>
-                    </div>
-                  )}
-                </div>
-                <button className="btn btn-ai" style={{width:"100%",marginTop:12}} onClick={runWhatIf} disabled={wiLoading||(!wiAmount&&wiType!=="cutexpense")}>
-                  {wiLoading?"⏳ Analysing...":"🔮 Analyse This Scenario"}
-                </button>
-              </div>
-
-              {/* Loading */}
-              {wiLoading&&(
-                <div style={{padding:"16px 0"}}>
-                  {[80,65,90,70,75].map((w,i)=>(
-                    <div key={i} className="shimmer" style={{height:13,marginBottom:9,width:w+"%",borderRadius:6}}/>
-                  ))}
-                </div>
-              )}
-
-              {/* Results */}
-              {wiResult&&!wiResult.error&&!wiLoading&&(
-                <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                  {/* Verdict */}
-                  <div style={{padding:"14px 16px",background:wiResult.verdict?.includes("✅")?`${C.income}10`:wiResult.verdict?.includes("❌")?`${C.expense}10`:`${C.warning}10`,borderRadius:14,border:`1px solid ${wiResult.verdict?.includes("✅")?C.income+"30":wiResult.verdict?.includes("❌")?C.expense+"30":C.warning+"30"}`}}>
-                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,marginBottom:4}}>{wiResult.verdict}</div>
-                    <div style={{fontSize:13,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{wiResult.headline}</div>
-                  </div>
-
-                  {/* Before vs After */}
-                  {wiResult.before&&wiResult.after&&(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      {[
-                        {label:"BEFORE",data:wiResult.before,color:C.muted},
-                        {label:"AFTER",data:wiResult.after,color:C.income},
-                      ].map(side=>(
-                        <div key={side.label} style={{padding:"12px",background:C.surface,borderRadius:12,border:`1px solid ${side.color}25`}}>
-                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:11,color:side.color,letterSpacing:1,marginBottom:8}}>{side.label}</div>
-                          {[
-                            {k:"debtFreeMonths",l:"Debt Free"},
-                            {k:"healthScore",l:"Health Score"},
-                            {k:"monthlyEMI",l:"Monthly EMI",money:true},
-                            {k:"totalInterestRemaining",l:"Interest Left",money:true},
-                          ].map(row=>(
-                            <div key={row.k} style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11}}>
-                              <span style={{color:C.muted}}>{row.l}</span>
-                              <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,color:side.color}}>
-                                {row.money?fc(side.data[row.k]):row.k==="debtFreeMonths"?`${side.data[row.k]}mo`:`${side.data[row.k]}/100`}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Savings summary */}
-                  {(wiResult.monthsSaved>0||wiResult.interestSaved>0)&&(
-                    <div style={{display:"flex",gap:8}}>
-                      {wiResult.monthsSaved>0&&<div style={{flex:1,padding:"10px",background:`${C.income}10`,borderRadius:12,textAlign:"center",border:`1px solid ${C.income}25`}}>
-                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,color:C.income}}>{wiResult.monthsSaved}mo</div>
-                        <div style={{fontSize:10,color:C.muted}}>months saved</div>
-                      </div>}
-                      {wiResult.interestSaved>0&&<div style={{flex:1,padding:"10px",background:`${C.income}10`,borderRadius:12,textAlign:"center",border:`1px solid ${C.income}25`}}>
-                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.income}}>{fc(wiResult.interestSaved)}</div>
-                        <div style={{fontSize:10,color:C.muted}}>interest saved</div>
-                      </div>}
-                    </div>
-                  )}
-
-                  {/* Recommendation */}
-                  <div style={{padding:"12px 14px",background:`${C.accent}08`,borderRadius:12,border:`1px solid ${C.accent}25`}}>
-                    <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,marginBottom:6}}>CA RECOMMENDATION</div>
-                    <div style={{fontSize:13,lineHeight:1.8,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{wiResult.recommendation}</div>
-                  </div>
-
-                  {/* Steps */}
-                  {wiResult.steps?.length>0&&(
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      {wiResult.steps.map((step,i)=>(
-                        <div key={i} style={{display:"flex",gap:10,padding:"8px 12px",background:C.surface,borderRadius:10,fontSize:12}}>
-                          <div style={{width:20,height:20,borderRadius:"50%",background:`${C.accent}20`,color:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:10,flexShrink:0}}>{i+1}</div>
-                          <span>{step.replace(/^Step \d+:\s*/,"")}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Caution */}
-                  {wiResult.caution&&(
-                    <div style={{fontSize:12,color:C.warning,padding:"8px 12px",background:`${C.warning}10`,borderRadius:10,border:`1px solid ${C.warning}25`}}>
-                      ⚠️ {wiResult.caution}
-                    </div>
-                  )}
-                </div>
-              )}
-              {wiResult?.error&&<div style={{padding:12,color:C.expense,fontSize:12}}>{wiResult.error}</div>}
-            </div>
-
-            {/* Quick-fire scenarios */}
-            <div className="card" style={{marginBottom:12}}>
-              <div className="stitle" style={{marginBottom:10}}>⚡ Quick Scenarios</div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {[
-                  {type:"bonus",amount:"10000",label:"₹10,000 bonus — best use?"},
-                  {type:"bonus",amount:"25000",label:"₹25,000 bonus — prepay or invest?"},
-                  {type:"cutexpense",amount:"2000",label:"Cut ₹2,000/mo from food — impact?"},
-                  {type:"prepay",amount:"5000",label:"₹5,000 prepayment — which loan?"},
-                  {type:"newloan",amount:"100000",label:"New ₹1L loan — can I afford it?"},
-                ].map((s,i)=>(
-                  <button key={i} onClick={()=>{setWiType(s.type);setWiAmount(s.amount);setWiResult(null);}} style={{
-                    textAlign:"left",padding:"10px 14px",borderRadius:10,background:C.surface,
-                    border:`1px solid ${C.border}`,cursor:"pointer",fontSize:12,
-                    fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,color:C.text,
-                    transition:"all 0.15s",
-                  }}
-                  onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent+"50"}
-                  onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
-                    {s.label} →
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>}
-
-        </>}
-
-        {/* ════════ FINANCE ════════ */}
         {tab==="Finance"&&<>
           {/* 1. Monthly Scorecard */}
           <div className="card" style={{marginBottom:12}}>
@@ -3299,19 +2932,26 @@ if (!user) {
               <div><div className="lbl">Amount ₹</div><input className="inp" type="number" placeholder="0" value={txForm.amount} onChange={e=>setTxForm(p=>({...p,amount:e.target.value}))}/></div>
               <div className="g2">
                 <div><div className="lbl">Category</div><select className="inp" value={txForm.category} onChange={e=>setTxForm(p=>({...p,category:e.target.value}))}>{allCategories[txForm.type].map(c=><option key={c}>{c}</option>)}</select></div>
-                <div><div className="lbl">Payment Mode</div><select className="inp" value={txForm.paymentMode} onChange={e=>setTxForm(p=>({...p,paymentMode:e.target.value}))}>{PAYMENT_MODES.map(m=><option key={m}>{m}</option>)}</select></div>
+                <div><div className="lbl">Payment Mode</div><select className="inp" value={txForm.paymentMode} onChange={e=>setTxForm(p=>({...p,paymentMode:e.target.value,bank:""}))}>{PAYMENT_MODES.map(m=><option key={m}>{m}</option>)}</select></div>
               </div>
+              {/* Account selector — smart based on payment mode */}
               <div className="g2">
-  <div><div className="lbl">Bank / Account</div>
-    <select className="inp" value={txForm.bank} onChange={e=>setTxForm(p=>({...p,bank:e.target.value}))}>
-      <option value="">Select</option>
-      {txForm.paymentMode==="Credit Card"
-        ? creditCards.map(c=><option key={c.id} value={c.name}>{c.name} · {c.bank}</option>)
-        : banks.map(b=><option key={b}>{b}</option>)
-      }
-    </select>
-  </div>
-  <div><div className="lbl">Date</div><input className="inp" type="date" value={txForm.date} onChange={e=>setTxForm(p=>({...p,date:e.target.value}))}/></div>
+                <div>
+                  <div className="lbl">
+                    {txForm.paymentMode==="Credit Card"?"Credit Card Used":txForm.type==="income"?"Deposit To Account":"Paid From Account"}
+                  </div>
+                  {txForm.paymentMode==="Credit Card"
+                    ? <select className="inp" value={txForm.bank} onChange={e=>setTxForm(p=>({...p,bank:e.target.value,_accountId:""}))}>
+                        <option value="">Select card</option>
+                        {creditCards.map(c=><option key={c.id} value={c.name}>{c.name} · {c.bank}</option>)}
+                      </select>
+                    : <select className="inp" value={txForm._accountId} onChange={e=>setTxForm(p=>({...p,_accountId:e.target.value}))}>
+                        <option value="">No account (manual)</option>
+                        {accounts.map(a=><option key={a.id} value={a.id}>{a.icon||"🏦"} {a.name} — {fc(parseFloat(a.balance)||0)}</option>)}
+                      </select>
+                  }
+                </div>
+                <div><div className="lbl">Date</div><input className="inp" type="date" value={txForm.date} onChange={e=>setTxForm(p=>({...p,date:e.target.value}))}/></div>
 </div>
 
 <div className="g2">
