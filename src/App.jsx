@@ -201,6 +201,8 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [refreshing, setRefreshing] = useState(false);
   const [pullY, setPullY] = useState(0);
   const pullStartY = useRef(null);
+  const [notifPermission, setNotifPermission] = useState("default"); // default | granted | denied
+  const notifScheduled = useRef(false); // prevent re-scheduling on every render
 
   // Pull-to-refresh
   useEffect(()=>{
@@ -369,24 +371,32 @@ useEffect(() => {
     const now = new Date();
     const creditDay = parseInt(salary.creditDay) || 1;
     const thisMonthKey = `sal_${now.getFullYear()}_${now.getMonth()}`;
+    // IMPORTANT: Read transactions synchronously at effect time to check if already credited
+    // Using a ref-based guard to prevent double-credit even if transactions state is stale
     const alreadyCredited = transactions.some(t => t._salKey === thisMonthKey);
     if (alreadyCredited) return;
-    if (now.getDate() >= creditDay) {
-      const salAmt = parseFloat(salary.amount);
-      const salAccount = accounts.find(a => a.bank && salary.bank && a.bank.toLowerCase().includes(salary.bank.toLowerCase()))
-                      || accounts.find(a => a.type === "savings")
-                      || accounts[0];
-      const salTx = {
-        id: Date.now(), type: "income", amount: salAmt,
-        category: "Salary", paymentMode: "Net Banking", bank: salary.bank||"",
-        note: "Auto: Monthly Salary", date: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(creditDay).padStart(2,"0")}`,
-        _salKey: thisMonthKey, _accountId: salAccount?.id || "",
-      };
-      setTransactions(p => [salTx, ...p]);
-      if (salAccount) {
-        setAccounts(p => p.map(a => a.id === salAccount.id ? {...a, balance: (parseFloat(a.balance)||0) + salAmt} : a));
-      }
-    }
+    if (now.getDate() < creditDay) return; // not yet credit day this month
+    const salAmt = parseFloat(salary.amount);
+    if (!salAmt) return;
+    // Find matching account
+    const salAccount = accounts.find(a => a.bank && salary.bank && a.bank.toLowerCase().includes(salary.bank.toLowerCase()))
+                    || accounts.find(a => a.type === "savings")
+                    || accounts[0];
+    const salTx = {
+      id: Date.now(), type: "income", amount: salAmt,
+      category: "Salary", paymentMode: "Net Banking", bank: salary.bank||"",
+      note: "Auto: Monthly Salary",
+      date: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(creditDay).padStart(2,"0")}`,
+      _salKey: thisMonthKey, _accountId: salAccount?.id || "",
+    };
+    setTransactions(p => {
+      // Double-check inside the updater with the LATEST transactions list — prevents race condition
+      if (p.some(t => t._salKey === thisMonthKey)) return p;
+      return [salTx, ...p];
+    });
+    // NOTE: We do NOT auto-update account balance here.
+    // Account balance is set manually by the user and reflects their real bank balance.
+    // Auto-crediting here caused repeated additions every time the app opened.
   }, [loaded, salary, transactions]);
 
   // ─── EMI AUTO ENGINE ─────────────────────────────────────────────────────
@@ -477,8 +487,16 @@ useEffect(() => {
     });
 
     if (txsToAdd.length > 0) {
-      setTransactions(p => [...txsToAdd, ...p]);
+      // Use functional updater to double-check keys against LATEST transactions — prevents race condition
+      setTransactions(p => {
+        const newOnes = txsToAdd.filter(t => !p.some(existing => existing._emiKey === t._emiKey));
+        if (newOnes.length === 0) return p;
+        return [...newOnes, ...p];
+      });
     }
+    // NOTE: We do NOT auto-deduct from account balance here.
+    // Account balance is managed manually by the user — reflects their real bank balance.
+    // Auto-deducting here caused balance to drain to 0 every time the app opened.
     if (Object.keys(debtsToUpdate).length > 0) {
       setDebts(p => p.map(d => debtsToUpdate[d.id] !== undefined
         ? { ...d, outstanding: debtsToUpdate[d.id], closed: debtsToUpdate[d.id] === 0 }
@@ -491,18 +509,7 @@ useEffect(() => {
         : e
       ));
     }
-    // Deduct from accounts
-    if (txsToAdd.length > 0 && accounts.length > 0) {
-      const totalAuto = txsToAdd.reduce((s, t) => s + t.amount, 0);
-      const primaryAcc = accounts.find(a => a.type === "savings") || accounts[0];
-      if (primaryAcc) {
-        setAccounts(p => p.map(a => a.id === primaryAcc.id
-          ? { ...a, balance: Math.max(0, (parseFloat(a.balance) || 0) - totalAuto) }
-          : a
-        ));
-      }
-    }
-  }, [loaded, debts, ccEmis, creditCards, accounts]);
+  }, [loaded, debts, ccEmis, creditCards]);
 
   // ─── RECURRING BILLS AUTO ENGINE ─────────────────────────────────────────
   useEffect(() => {
@@ -1320,7 +1327,106 @@ Provide (use emoji headers, max 350 words):
     </svg>;
   }
 
-  
+  // ─── NOTIFICATION ENGINE ─────────────────────────────────────────────────
+  // Register service worker on first load
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    if ("Notification" in window) {
+      setNotifPermission(Notification.permission);
+    }
+  }, []);
+
+  // Request permission helper
+  async function requestNotifPermission() {
+    if (!("Notification" in window)) return;
+    const result = await Notification.requestPermission();
+    setNotifPermission(result);
+    if (result === "granted") {
+      showNotif("✅ FinTrack Notifications On", "You will get EMI reminders, budget alerts and daily expense nudges.", "welcome");
+    }
+  }
+
+  // Core notification sender
+  function showNotif(title, body, tag = "fintrack", actions = []) {
+    if (notifPermission !== "granted") return;
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.ready.then(reg => {
+      reg.showNotification(title, {
+        body,
+        icon: "/icon-192.png",
+        badge: "/icon-72.png",
+        tag,
+        renotify: true,
+        vibrate: [200, 100, 200],
+        actions,
+      });
+    });
+  }
+
+  // Smart notification scheduler — runs once after data loads
+  useEffect(() => {
+    if (!loaded || notifPermission !== "granted" || notifScheduled.current) return;
+    notifScheduled.current = true;
+    const now = new Date();
+    const todayDate = now.getDate();
+
+    // 1. EMI Due Reminders
+    activeDebts.forEach(d => {
+      if (!d.dueDate || !d.emi) return;
+      const days = daysUntil(d.dueDate);
+      if (days === 3) showNotif("EMI Due in 3 Days", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " due on " + parseLocal(d.dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"}), "emi-3d-" + d.id);
+      else if (days === 1) showNotif("EMI Due Tomorrow!", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " — make sure funds are ready.", "emi-1d-" + d.id);
+      else if (days === 0) showNotif("EMI Due Today!", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " is being debited today.", "emi-today-" + d.id);
+      else if (days !== null && days < 0) showNotif("EMI Overdue!", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " was due " + Math.abs(days) + " days ago!", "emi-over-" + d.id);
+    });
+
+    // 2. Credit Card Due Reminders
+    creditCards.forEach(cc => {
+      if (!cc.dueDate) return;
+      const days = daysUntil(cc.dueDate);
+      const out = parseFloat(cc.outstanding) || 0;
+      if (out === 0) return;
+      if (days === 3) showNotif("CC Bill Due in 3 Days", cc.name + " — Rs." + out.toLocaleString("en-IN") + " outstanding. Pay before " + parseLocal(cc.dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"}) + ".", "cc-3d-" + cc.id);
+      else if (days === 1) showNotif("CC Bill Due Tomorrow!", cc.name + " — Rs." + out.toLocaleString("en-IN") + " due. Avoid late fees!", "cc-1d-" + cc.id);
+      else if (days === 0) showNotif("CC Bill Due Today!", cc.name + " — Pay Rs." + out.toLocaleString("en-IN") + " today to avoid interest.", "cc-today-" + cc.id);
+      else if (days !== null && days < 0) showNotif("CC Bill Overdue!", cc.name + " — Rs." + out.toLocaleString("en-IN") + " is overdue! Pay now to stop interest.", "cc-over-" + cc.id);
+    });
+
+    // 3. Budget Overspend Alerts
+    spendAlerts.forEach(a => {
+      if (a.over) showNotif("Budget Exceeded — " + a.cat, "You have spent Rs." + a.spent.toLocaleString("en-IN") + " vs Rs." + a.limit.toLocaleString("en-IN") + " budget (" + a.pct + "%).", "budget-over-" + a.cat);
+      else if (a.pct >= 90) showNotif("Budget Almost Full — " + a.cat, a.pct + "% used — only Rs." + (a.limit - a.spent).toLocaleString("en-IN") + " left this month.", "budget-90-" + a.cat);
+    });
+
+    // 4. Daily Expense Reminder at 9 PM
+    const target = new Date();
+    target.setHours(21, 0, 0, 0);
+    if (target <= now) target.setDate(target.getDate() + 1);
+    const delay = target - now;
+    setTimeout(() => {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.showNotification("Log Today Expenses", "Do not forget to add today spending to FinTrack!", {
+          icon: "/icon-192.png", badge: "/icon-72.png",
+          tag: "daily-nudge", vibrate: [200, 100, 200],
+        });
+      });
+    }, delay);
+
+    // 5. Low Balance Warning
+    if (cashLeft < totalEMI && totalEMI > 0) {
+      showNotif("Low Balance Warning", "Cash left Rs." + Math.max(0,cashLeft).toLocaleString("en-IN") + " may not cover upcoming EMIs Rs." + totalEMI.toLocaleString("en-IN") + ".", "low-balance");
+    }
+
+    // 6. Salary Day Reminder
+    if (salary.active && salary.creditDay && parseInt(salary.creditDay) === todayDate) {
+      const salAmt = parseFloat(salary.amount) || 0;
+      if (salAmt > 0) showNotif("Salary Day!", "Rs." + salAmt.toLocaleString("en-IN") + " should be credited today. Check your account!", "salary-day");
+    }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, notifPermission]);
+
   // ─── GOOGLE LOGIN SCREEN ─────────────────────────────────────────────────
 if (!user) {
   return (
@@ -3149,7 +3255,8 @@ if (!user) {
 
       {/* Settings */}
       {showSettings&&<SettingsModal C={C} salary={salary} setSalary={setSalary} banks={banks} 
-    setBanks={setBanks} onClose={() => setShowSettings(false)} />}
+    setBanks={setBanks} onClose={() => setShowSettings(false)} 
+    notifPermission={notifPermission} onEnableNotif={requestNotifPermission} />}
 
       {/* ── Category Manager Modal ── */}
       {showCatManager&&(
@@ -3311,13 +3418,47 @@ if (!user) {
 }
 
 // ─── SETTINGS MODAL ──────────────────────────────────────────────────────────
-function SettingsModal({ C, salary, setSalary, banks, setBanks, onClose }) {
+function SettingsModal({ C, salary, setSalary, banks, setBanks, onClose, notifPermission, onEnableNotif }) {
   const [newBank, setNewBank] = useState("");
 
   return(
     <div className="modal" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="sheet">
         <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:18}}>⚙️ Settings</div>
+
+        {/* Notifications */}
+        <div style={{marginBottom:20,padding:"14px 16px",borderRadius:14,border:`1.5px solid ${notifPermission==="granted"?C.income:C.border}`,background:notifPermission==="granted"?`${C.income}08`:"transparent"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:notifPermission==="granted"?C.income:C.text}}>🔔 Notifications</div>
+            {notifPermission==="granted"
+              ? <span style={{fontSize:11,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>✅ Enabled</span>
+              : notifPermission==="denied"
+              ? <span style={{fontSize:11,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>❌ Blocked in browser</span>
+              : <button onClick={onEnableNotif} className="btn btn-g btn-sm">Enable Notifications</button>
+            }
+          </div>
+          {notifPermission==="granted" && (
+            <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
+              You will get alerts for:<br/>
+              • EMI due in 3 days, 1 day, today &amp; overdue<br/>
+              • Credit card bill due reminders<br/>
+              • Budget overspend warnings<br/>
+              • Daily expense reminder at 9 PM<br/>
+              • Low balance warning before EMI dates<br/>
+              • Salary credit day reminder
+            </div>
+          )}
+          {notifPermission==="denied" && (
+            <div style={{fontSize:11,color:C.muted,marginTop:4}}>
+              Go to browser Settings → Site Settings → Notifications → allow for this site.
+            </div>
+          )}
+          {notifPermission==="default" && (
+            <div style={{fontSize:11,color:C.muted,marginTop:4}}>
+              Get EMI reminders, budget alerts and daily expense nudges.
+            </div>
+          )}
+        </div>
 
         {/* Auto Salary */}
         <div style={{marginBottom:20}}>
