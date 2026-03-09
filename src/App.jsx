@@ -352,204 +352,21 @@ useEffect(() => {
       if (!user) return;
       setSaving(true);
       const ok = await saveData(user.uid, {
-        transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
+        transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-        accounts, allocationPct, customCats, recurringBills,
+        accounts, allocationPct, customCats,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
       if (ok) setLastSaved(new Date());
       else setFbStatus("error");
     }, 1200);
-  }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks, salary,
+  }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-      accounts, allocationPct, customCats, recurringBills, loaded]);
+      accounts, allocationPct, customCats, loaded]);
 
-  // ─── AUTO-SALARY CREDIT ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (!loaded || !salary.active || !salary.amount) return;
-    const now = new Date();
-    const creditDay = parseInt(salary.creditDay) || 1;
-    const thisMonthKey = `sal_${now.getFullYear()}_${now.getMonth()}`;
-    // IMPORTANT: Read transactions synchronously at effect time to check if already credited
-    // Using a ref-based guard to prevent double-credit even if transactions state is stale
-    const alreadyCredited = transactions.some(t => t._salKey === thisMonthKey);
-    if (alreadyCredited) return;
-    if (now.getDate() < creditDay) return; // not yet credit day this month
-    const salAmt = parseFloat(salary.amount);
-    if (!salAmt) return;
-    // Find matching account
-    const salAccount = accounts.find(a => a.bank && salary.bank && a.bank.toLowerCase().includes(salary.bank.toLowerCase()))
-                    || accounts.find(a => a.type === "savings")
-                    || accounts[0];
-    const salTx = {
-      id: Date.now(), type: "income", amount: salAmt,
-      category: "Salary", paymentMode: "Net Banking", bank: salary.bank||"",
-      note: "Auto: Monthly Salary",
-      date: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(creditDay).padStart(2,"0")}`,
-      _salKey: thisMonthKey, _accountId: salAccount?.id || "",
-    };
-    setTransactions(p => {
-      // Double-check inside the updater with the LATEST transactions list — prevents race condition
-      if (p.some(t => t._salKey === thisMonthKey)) return p;
-      return [salTx, ...p];
-    });
-    // NOTE: We do NOT auto-update account balance here.
-    // Account balance is set manually by the user and reflects their real bank balance.
-    // Auto-crediting here caused repeated additions every time the app opened.
-  }, [loaded, salary, transactions]);
 
-  // ─── EMI AUTO ENGINE ─────────────────────────────────────────────────────
-  // Auto-deducts EMIs on due date, reduces loan balance, and handles catch-up
-  useEffect(() => {
-    if (!loaded) return;
-    const now = new Date();
-    const yr = now.getFullYear(), mo = now.getMonth();
-    let txsToAdd = [], debtsToUpdate = {}, ccsToUpdate = {}, ccEmisToUpdate = {};
 
-    // --- Loan EMIs ---
-    debts.filter(d => !d.closed && d.dueDate && d.emi && d.autoEMI !== false).forEach(d => {
-      const dueDay = parseLocal(d.dueDate)?.getDate();
-      if (!dueDay) return;
-
-      // emiStartDate controls when engine first auto-deducts.
-      // If blank (old loan added now): default startD = current month's due date
-      //   so engine only considers current month (and previous month via mOffset=-1)
-      //   This prevents generating back-EMIs for loans the bank already deducted.
-      // If set explicitly (new loan starting next month): respects that future date.
-      let startD;
-      if (d.emiStartDate) {
-        startD = parseLocal(d.emiStartDate);
-      } else {
-        // Default: treat this month as the first possible EMI month
-        const nowD = new Date();
-        startD = new Date(nowD.getFullYear(), nowD.getMonth(), dueDay);
-      }
-      if (!startD) return;
-      const startYr = startD.getFullYear(), startMo = startD.getMonth();
-
-      // Only look back 1 month max — enough to catch a missed due date
-      // Old loans added now: emiStartDate defaults to dueDate month, blocking earlier catch-up
-      // New loans (future emiStartDate): startD guard below blocks premature deduction
-      for (let mOffset = -1; mOffset <= 0; mOffset++) {
-        const checkDate = new Date(yr, mo + mOffset, dueDay);
-
-        // Never generate EMI before the loan's first EMI month
-        if (checkDate.getFullYear() < startYr ||
-           (checkDate.getFullYear() === startYr && checkDate.getMonth() < startMo)) continue;
-
-        // Never in the future
-        if (checkDate > now) continue;
-
-        // Current month: only if today >= due day
-        if (mOffset === 0 && now.getDate() < dueDay) continue;
-
-        const key = `emi_${d.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
-        const already = transactions.some(t => t._emiKey === key);
-        if (!already) {
-          const amt = parseFloat(d.emi) || 0;
-          const dateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth()+1).padStart(2,"0")}-${String(dueDay).padStart(2,"0")}`;
-          txsToAdd.push({
-            id: Date.now() + Math.random(), type: "expense", amount: amt,
-            category: "Loan EMI", paymentMode: "Net Banking", bank: d.lender || "",
-            note: `Auto EMI: ${d.name}`, date: dateStr,
-            _emiKey: key, _debtId: d.id,
-          });
-          debtsToUpdate[d.id] = Math.max(0, (debtsToUpdate[d.id] ?? parseFloat(d.outstanding) ?? 0) - amt);
-        }
-      }
-    });
-
-    // --- CC EMIs ---
-    ccEmis.filter(e => e.autoEMI !== false && e.monthsLeft > 0).forEach(e => {
-      const card = creditCards.find(c => String(c.id) === String(e.cardId));
-      const dueDay = card?.dueDate ? parseLocal(card.dueDate)?.getDate() : null;
-      if (!dueDay) return;
-      // Only look back 1 month — same conservative rule as loan EMIs
-      for (let mOffset = -1; mOffset <= 0; mOffset++) {
-        const checkDate = new Date(yr, mo + mOffset, dueDay);
-        if (checkDate > now) continue;
-        if (mOffset === 0 && now.getDate() < dueDay) continue;
-        const key = `ccemi_${e.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
-        const already = transactions.some(t => t._emiKey === key);
-        if (!already) {
-          const amt = parseFloat(e.amount) || 0;
-          const dateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth()+1).padStart(2,"0")}-${String(dueDay).padStart(2,"0")}`;
-          txsToAdd.push({
-            id: Date.now() + Math.random(), type: "expense", amount: amt,
-            category: "Credit Card EMI", paymentMode: "Credit Card",
-            bank: card?.name || "", note: `Auto CC EMI: ${e.description || card?.name || ""}`,
-            date: dateStr, _emiKey: key, _ccEmiId: e.id,
-          });
-          ccEmisToUpdate[e.id] = Math.max(0, (ccEmisToUpdate[e.id] ?? parseInt(e.monthsLeft) ?? 0) - 1);
-        }
-      }
-    });
-
-    if (txsToAdd.length > 0) {
-      // Use functional updater to double-check keys against LATEST transactions — prevents race condition
-      setTransactions(p => {
-        const newOnes = txsToAdd.filter(t => !p.some(existing => existing._emiKey === t._emiKey));
-        if (newOnes.length === 0) return p;
-        return [...newOnes, ...p];
-      });
-    }
-    // NOTE: We do NOT auto-deduct from account balance here.
-    // Account balance is managed manually by the user — reflects their real bank balance.
-    // Auto-deducting here caused balance to drain to 0 every time the app opened.
-    if (Object.keys(debtsToUpdate).length > 0) {
-      setDebts(p => p.map(d => debtsToUpdate[d.id] !== undefined
-        ? { ...d, outstanding: debtsToUpdate[d.id], closed: debtsToUpdate[d.id] === 0 }
-        : d
-      ));
-    }
-    if (Object.keys(ccEmisToUpdate).length > 0) {
-      setCcEmis(p => p.map(e => ccEmisToUpdate[e.id] !== undefined
-        ? { ...e, monthsLeft: ccEmisToUpdate[e.id] }
-        : e
-      ));
-    }
-  }, [loaded, debts, ccEmis, creditCards]);
-
-  // ─── RECURRING BILLS AUTO ENGINE ─────────────────────────────────────────
-  useEffect(() => {
-    if (!loaded || !recurringBills.length) return;
-    const now = new Date();
-    const yr = now.getFullYear(), mo = now.getMonth();
-    const txsToAdd = [];
-
-    recurringBills.filter(b => b.active && b.dueDay && b.amount).forEach(b => {
-      const dueDay = parseInt(b.dueDay) || 1;
-      // Check current month and last month for catch-up
-      for (let mOffset = -1; mOffset <= 0; mOffset++) {
-        const checkDate = new Date(yr, mo + mOffset, dueDay);
-        // Current month: only if today >= due day
-        if (mOffset === 0 && now.getDate() < dueDay) continue;
-        if (checkDate > now) continue;
-        const key = `rec_${b.id}_${checkDate.getFullYear()}_${checkDate.getMonth()}`;
-        const already = transactions.some(t => t._recKey === key);
-        if (!already) {
-          const dateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth()+1).padStart(2,"0")}-${String(dueDay).padStart(2,"0")}`;
-          txsToAdd.push({
-            id: Date.now() + Math.random(),
-            type: b.type || "expense",
-            amount: parseFloat(b.amount),
-            category: b.category || "Utilities",
-            paymentMode: b.paymentMode || "UPI",
-            bank: "",
-            note: `Auto: ${b.name}`,
-            date: dateStr,
-            _recKey: key,
-            _recurringId: b.id,
-          });
-        }
-      }
-    });
-
-    if (txsToAdd.length > 0) {
-      setTransactions(p => [...txsToAdd, ...p]);
-    }
-  }, [loaded, recurringBills]);
 
   // ─── COMPUTED ────────────────────────────────────────────────────────────
   const totalIncome    = useMemo(() => transactions.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0), [transactions]);
@@ -1418,11 +1235,7 @@ Provide (use emoji headers, max 350 words):
       showNotif("Low Balance Warning", "Cash left Rs." + Math.max(0,cashLeft).toLocaleString("en-IN") + " may not cover upcoming EMIs Rs." + totalEMI.toLocaleString("en-IN") + ".", "low-balance");
     }
 
-    // 6. Salary Day Reminder
-    if (salary.active && salary.creditDay && parseInt(salary.creditDay) === todayDate) {
-      const salAmt = parseFloat(salary.amount) || 0;
-      if (salAmt > 0) showNotif("Salary Day!", "Rs." + salAmt.toLocaleString("en-IN") + " should be credited today. Check your account!", "salary-day");
-    }
+    // Salary day notification removed — salary is added manually
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, notifPermission]);
@@ -2609,62 +2422,6 @@ if (!user) {
             </div>
           </div>
 
-          {/* ── Recurring Bills ── */}
-          <div className="card" style={{marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div>
-                <div className="stitle" style={{marginBottom:2}}>🔄 Recurring Bills</div>
-                <div style={{fontSize:11,color:C.muted}}>Netflix, electricity, insurance — auto-tracked every month</div>
-              </div>
-              <button className="btn btn-p btn-sm" onClick={()=>{setRecurringForm({...EMPTY_RECURRING});setEditRecurringId(null);setShowRecurringForm(true);}}>+ Add Bill</button>
-            </div>
-            {recurringBills.length===0
-              ? <div style={{textAlign:"center",padding:"20px 0",color:C.muted,fontSize:12,lineHeight:1.8}}>
-                  No recurring bills yet.<br/>
-                  <span style={{color:C.accent}}>Add Netflix, electricity, gym etc. — they'll auto-deduct monthly.</span>
-                </div>
-              : <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {recurringBills.map(b=>{
-                    const icon = RECURRING_ICONS[b.name] || "📌";
-                    const daysLeft = b.dueDay ? (() => {
-                      const now = new Date(); const due = new Date(now.getFullYear(), now.getMonth(), parseInt(b.dueDay));
-                      if (due < now) due.setMonth(due.getMonth()+1);
-                      return Math.ceil((due-now)/864e5);
-                    })() : null;
-                    return(
-                      <div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${b.active?C.border:C.border+"50"}`,opacity:b.active?1:0.55}}>
-                        <div style={{display:"flex",alignItems:"center",gap:10}}>
-                          <div style={{width:38,height:38,borderRadius:10,background:`${C.accent}14`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{icon}</div>
-                          <div>
-                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{b.name}</div>
-                            <div style={{fontSize:10,color:C.muted}}>{b.category} · Due {b.dueDay}{["st","nd","rd"][b.dueDay-1]||"th"} every month{daysLeft!==null?` · `+( daysLeft===0?"due today":daysLeft===1?"tomorrow":`${daysLeft}d left`):""}</div>
-                          </div>
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:10}}>
-                          <div style={{textAlign:"right"}}>
-                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:b.type==="income"?C.income:C.expense}}>{b.type==="income"?"+":"-"}{fc(parseFloat(b.amount)||0)}</div>
-                            <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>monthly</div>
-                          </div>
-                          <div style={{display:"flex",gap:4}}>
-                            <div onClick={()=>toggleRecurring(b.id)} style={{width:36,height:20,borderRadius:99,cursor:"pointer",background:b.active?C.income:C.border,position:"relative",transition:"background 0.2s",flexShrink:0}}>
-                              <div style={{position:"absolute",top:2,left:b.active?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
-                            </div>
-                            <button className="btn-ghost" style={{padding:"3px 8px",fontSize:10}} onClick={()=>{setRecurringForm({...b,amount:String(b.amount),dueDay:String(b.dueDay)});setEditRecurringId(b.id);setShowRecurringForm(true);}}>Edit</button>
-                            <button className="btn-danger" style={{padding:"3px 8px",fontSize:10}} onClick={()=>deleteRecurring(b.id)}>✕</button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div style={{marginTop:4,padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{fontSize:12,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>Total recurring/month</span>
-                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.expense}}>
-                      {fc(recurringBills.filter(b=>b.active&&b.type!=="income").reduce((s,b)=>s+(parseFloat(b.amount)||0),0))}
-                    </span>
-                  </div>
-                </div>
-            }
-          </div>
 
           {/* ── Export & Reports ── */}
           <div className="card" style={{marginBottom:14}}>
@@ -3254,9 +3011,7 @@ if (!user) {
       )}
 
       {/* Settings */}
-      {showSettings&&<SettingsModal C={C} salary={salary} setSalary={setSalary} banks={banks} 
-    setBanks={setBanks} onClose={() => setShowSettings(false)} 
-    notifPermission={notifPermission} onEnableNotif={requestNotifPermission} />}
+      {showSettings&&<SettingsModal C={C} banks={banks} setBanks={setBanks} onClose={() => setShowSettings(false)} notifPermission={notifPermission} onEnableNotif={requestNotifPermission} />}
 
       {/* ── Category Manager Modal ── */}
       {showCatManager&&(
@@ -3307,67 +3062,6 @@ if (!user) {
       )}
 
       {/* ── Recurring Bill Form Modal ── */}
-      {showRecurringForm&&(
-        <div className="modal" onClick={e=>e.target===e.currentTarget&&setShowRecurringForm(false)}>
-          <div className="sheet">
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18}}>{editRecurringId?"Edit Recurring Bill":"Add Recurring Bill"}</div>
-              <button className="btn-ghost btn-sm" onClick={()=>setShowRecurringForm(false)}>✕</button>
-            </div>
-            {/* Quick-pick suggestions */}
-            {!editRecurringId&&(
-              <div style={{marginBottom:14}}>
-                <div className="lbl" style={{marginBottom:8}}>QUICK ADD</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                  {RECURRING_SUGGESTIONS.map(s=>(
-                    <button key={s} className="btn-ghost btn-sm" style={{fontSize:11}}
-                      onClick={()=>setRecurringForm(p=>({...p,name:s}))}>
-                      {RECURRING_ICONS[s]||"📌"} {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <div><div className="lbl">Bill Name</div>
-                <input className="inp" placeholder="e.g. Netflix, Electricity" value={recurringForm.name} onChange={e=>setRecurringForm(p=>({...p,name:e.target.value}))}/>
-              </div>
-              <div className="g2">
-                <div><div className="lbl">Amount ₹</div>
-                  <input className="inp" type="number" placeholder="e.g. 499" value={recurringForm.amount} onChange={e=>setRecurringForm(p=>({...p,amount:e.target.value}))}/>
-                </div>
-                <div><div className="lbl">Due Day</div>
-                  <input className="inp" type="number" min="1" max="31" placeholder="e.g. 5" value={recurringForm.dueDay} onChange={e=>setRecurringForm(p=>({...p,dueDay:e.target.value}))}/>
-                </div>
-              </div>
-              <div className="g2">
-                <div><div className="lbl">Type</div>
-                  <select className="inp" value={recurringForm.type} onChange={e=>setRecurringForm(p=>({...p,type:e.target.value}))}>
-                    <option value="expense">Expense</option>
-                    <option value="income">Income</option>
-                  </select>
-                </div>
-                <div><div className="lbl">Category</div>
-                  <select className="inp" value={recurringForm.category} onChange={e=>setRecurringForm(p=>({...p,category:e.target.value}))}>
-                    {allCategories[recurringForm.type].map(c=><option key={c}>{c}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div><div className="lbl">Notes (optional)</div>
-                <input className="inp" placeholder="e.g. Family plan, auto-pay" value={recurringForm.notes} onChange={e=>setRecurringForm(p=>({...p,notes:e.target.value}))}/>
-              </div>
-              <div style={{display:"flex",gap:10,marginTop:4}}>
-                <button className="btn btn-p" style={{flex:1}} onClick={saveRecurring}>
-                  {editRecurringId?"Update Bill":"Add Bill"}
-                </button>
-                <button className="btn-ghost" style={{flex:1}} onClick={()=>setShowRecurringForm(false)}>Cancel</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Account Form Modal ── */}
       {showAccountForm&&(
         <div className="modal" onClick={e=>e.target===e.currentTarget&&setShowAccountForm(false)}>
           <div className="sheet">
@@ -3418,7 +3112,7 @@ if (!user) {
 }
 
 // ─── SETTINGS MODAL ──────────────────────────────────────────────────────────
-function SettingsModal({ C, salary, setSalary, banks, setBanks, onClose, notifPermission, onEnableNotif }) {
+function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableNotif }) {
   const [newBank, setNewBank] = useState("");
 
   return(
@@ -3456,27 +3150,6 @@ function SettingsModal({ C, salary, setSalary, banks, setBanks, onClose, notifPe
           {notifPermission==="default" && (
             <div style={{fontSize:11,color:C.muted,marginTop:4}}>
               Get EMI reminders, budget alerts and daily expense nudges.
-            </div>
-          )}
-        </div>
-
-        {/* Auto Salary */}
-        <div style={{marginBottom:20}}>
-          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,marginBottom:10,color:C.accent}}>💰 Auto Monthly Salary</div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontSize:12,color:C.muted}}>Auto-add salary every month</div>
-            <button onClick={()=>setSalary(p=>({...p,active:!p.active}))} style={{padding:"5px 14px",borderRadius:20,border:`1px solid ${salary.active?C.income:C.border}`,background:salary.active?`${C.income}15`:"transparent",color:salary.active?C.income:C.muted,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:11}}>
-              {salary.active?"ON ✓":"OFF"}
-            </button>
-          </div>
-          {salary.active&&(
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <div><div className="lbl">Monthly Salary ₹</div><input className="inp" type="number" placeholder="e.g. 50000" value={salary.amount} onChange={e=>setSalary(p=>({...p,amount:e.target.value}))}/></div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                <div><div className="lbl">Credit Day (date of month)</div><input className="inp" type="number" min="1" max="31" placeholder="1" value={salary.creditDay} onChange={e=>setSalary(p=>({...p,creditDay:e.target.value}))}/></div>
-                <div><div className="lbl">Bank Account</div><select className="inp" value={salary.bank} onChange={e=>setSalary(p=>({...p,bank:e.target.value}))}><option value="">Select bank</option>{banks.map(b=><option key={b}>{b}</option>)}</select></div>
-              </div>
-              <div style={{fontSize:11,color:C.muted,padding:"8px 12px",background:`${C.income}10`,borderRadius:8}}>Salary of ₹{parseInt(salary.amount||0).toLocaleString("en-IN")} will be auto-added on day {salary.creditDay} of each month.</div>
             </div>
           )}
         </div>
