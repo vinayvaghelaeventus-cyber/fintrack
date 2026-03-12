@@ -2528,8 +2528,6 @@ if (!user) {
 
         </>}
 
-        </>}
-
         {/* ════════ STATISTICS ════════ */}
         {tab==="Statistics"&&(()=>{
           // ── Period selector state (local via closure trick — use dashPeriod reuse) ──
