@@ -2679,6 +2679,121 @@ if (!user) {
             </div>
           </div>
 
+          {/* ── Recurring Bills ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🔁 Recurring Bills</div>
+                <div style={{fontSize:11,color:C.muted}}>Subscriptions, utilities & monthly fixed expenses</div>
+              </div>
+              <button className="btn btn-p btn-sm" onClick={()=>{setRecurringForm({...EMPTY_RECURRING});setEditRecurringId(null);setShowRecurringForm(true);}}>+ Add</button>
+            </div>
+
+            {/* Inline add/edit form */}
+            {showRecurringForm&&(
+              <div style={{background:C.surface,borderRadius:12,padding:"14px",border:`1.5px solid ${C.accent}40`,marginBottom:14}}>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,marginBottom:12}}>{editRecurringId?"✏️ Edit Bill":"➕ New Recurring Bill"}</div>
+
+                {/* Quick suggestions */}
+                {!editRecurringId&&(
+                  <div style={{marginBottom:10}}>
+                    <div className="lbl" style={{marginBottom:6}}>QUICK ADD</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {RECURRING_SUGGESTIONS.slice(0,8).map(s=>(
+                        <button key={s} onClick={()=>setRecurringForm(p=>({...p,name:s}))}
+                          style={{padding:"4px 10px",borderRadius:99,border:`1px solid ${C.border}`,background:recurringForm.name===s?`${C.accent}20`:C.card,color:recurringForm.name===s?C.accent:C.muted,fontSize:11,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>
+                          {RECURRING_ICONS[s]||"📌"} {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,marginBottom:12}}>
+                  <div>
+                    <div className="lbl">Name *</div>
+                    <input className="inp" placeholder="e.g. Netflix" value={recurringForm.name} onChange={e=>setRecurringForm(p=>({...p,name:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <div className="lbl">Amount ₹ *</div>
+                    <input className="inp" type="number" placeholder="e.g. 649" value={recurringForm.amount} onChange={e=>setRecurringForm(p=>({...p,amount:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <div className="lbl">Type</div>
+                    <select className="inp" value={recurringForm.type} onChange={e=>setRecurringForm(p=>({...p,type:e.target.value}))}>
+                      <option value="expense">Expense</option>
+                      <option value="income">Income</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div className="lbl">Category</div>
+                    <select className="inp" value={recurringForm.category} onChange={e=>setRecurringForm(p=>({...p,category:e.target.value}))}>
+                      {allCategories.expense.map(c=><option key={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div className="lbl">Due Day (1–31)</div>
+                    <input className="inp" type="number" min="1" max="31" placeholder="e.g. 5" value={recurringForm.dueDay} onChange={e=>setRecurringForm(p=>({...p,dueDay:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <div className="lbl">Notes</div>
+                    <input className="inp" placeholder="optional" value={recurringForm.notes} onChange={e=>setRecurringForm(p=>({...p,notes:e.target.value}))}/>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button className="btn btn-p btn-sm" onClick={saveRecurring}>💾 Save</button>
+                  <button className="btn-ghost btn-sm" onClick={()=>{setShowRecurringForm(false);setRecurringForm({...EMPTY_RECURRING});setEditRecurringId(null);}}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* Bills list */}
+            {recurringBills.length===0?(
+              <div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:12}}>
+                <div style={{fontSize:28,marginBottom:8}}>🔁</div>
+                No recurring bills yet. Add Netflix, rent, insurance etc.
+              </div>
+            ):(
+              <>
+                <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
+                  {recurringBills.map(b=>{
+                    const dueDay = parseInt(b.dueDay||1);
+                    const todayD = new Date().getDate();
+                    const daysLeft = dueDay>=todayD?dueDay-todayD:30-(todayD-dueDay);
+                    const urgent = daysLeft<=3, soon = daysLeft<=7;
+                    return(
+                      <div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${!b.active?C.border:urgent?C.expense+"50":soon?C.warning+"40":C.border}`,opacity:b.active?1:0.5}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <span style={{fontSize:20}}>{RECURRING_ICONS[b.name]||"📌"}</span>
+                          <div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{b.name}</div>
+                            <div style={{fontSize:10,color:C.muted}}>
+                              Due day {b.dueDay} · {b.category}
+                              {b.active&&<> · <span style={{color:urgent?C.expense:soon?C.warning:C.muted}}>{daysLeft===0?"Today!":daysLeft===1?"Tomorrow":`${daysLeft}d left`}</span></>}
+                              {!b.active&&<span style={{color:C.muted}}> · Paused</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:b.type==="income"?C.income:C.expense,textAlign:"right"}}>
+                            {b.type==="income"?"+":"-"}{fc(parseFloat(b.amount||0))}
+                          </div>
+                          <button onClick={()=>toggleRecurring(b.id)} style={{fontSize:10,padding:"3px 8px",borderRadius:99,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>{b.active?"Pause":"Resume"}</button>
+                          <button onClick={()=>{setRecurringForm({...b});setEditRecurringId(b.id);setShowRecurringForm(true);}} style={{fontSize:10,padding:"3px 8px",borderRadius:99,border:`1px solid ${C.border}`,background:"transparent",color:C.accent,cursor:"pointer"}}>Edit</button>
+                          <button onClick={()=>deleteRecurring(b.id)} style={{fontSize:10,padding:"3px 8px",borderRadius:99,border:`1px solid ${C.expense}30`,background:"transparent",color:C.expense,cursor:"pointer"}}>✕</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",padding:"10px 14px",background:`${C.expense}08`,borderRadius:10,border:`1px solid ${C.expense}20`}}>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>Monthly Fixed Outflow</span>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.expense}}>{fc(recurringBills.filter(b=>b.active&&b.type==="expense").reduce((s,b)=>s+parseFloat(b.amount||0),0))}</span>
+                </div>
+              </>
+            )}
+          </div>
+
         </>}
 
         {/* ════════ STATISTICS ════════ */}
