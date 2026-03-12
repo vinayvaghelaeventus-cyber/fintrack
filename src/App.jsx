@@ -281,12 +281,10 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
 
-
   const [txSearch, setTxSearch] = useState("");
   const [txType, setTxType]     = useState("all");
   const [txMode, setTxMode]     = useState("all");
   const [txBank, setTxBank]     = useState("all");
-
 
   const contentRef = useRef(null);
 
@@ -307,8 +305,6 @@ useEffect(() => {
     return () => { unsubscribe(); clearTimeout(timeout); };
 }, []);
 
-
-
 // ✅ new
 const handleLogin = async () => {
     try {
@@ -323,8 +319,6 @@ const handleLogin = async () => {
   await signOut(auth);
 };
   
-
-
 
   // ─── FIREBASE LOAD ───────────────────────────────────────────────────────
 useEffect(() => {
@@ -387,9 +381,6 @@ useEffect(() => {
       accounts, allocationPct, customCats, mutualFunds,
       recurringBills, salary, loaded]);
 
-
-
-
   // ─── COMPUTED ────────────────────────────────────────────────────────────
   const totalIncome    = useMemo(() => transactions.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0), [transactions]);
   const totalExpense   = useMemo(() => transactions.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0), [transactions]);
@@ -400,20 +391,9 @@ useEffect(() => {
   const totalCCEMI = useMemo(() => ccEmis.reduce((s,e)=>s+(parseFloat(e.amount)||0),0), [ccEmis]);
   const effectiveIncome = parseFloat(monthlyIncome) || totalIncome || 0;
   const savingsTotal   = useMemo(() => savings.reduce((s,g)=>s+(parseFloat(g.current)||0),0), [savings]);
-  const avgMonthlyExp   = useMemo(() => {
-    const months = last6Months.filter(m=>m.expense>0);
-    return months.length ? months.reduce((s,m)=>s+m.expense,0)/months.length : (effectiveIncome*0.7)||1;
-  }, [last6Months, effectiveIncome]);
-  const emergencyMonths = useMemo(() => {
-    const ef = parseFloat(emergencyFund)||savingsTotal;
-    return ef / Math.max(avgMonthlyExp, 1);
-  }, [emergencyFund, savingsTotal, avgMonthlyExp]);
-  const cashLeft = effectiveIncome - totalEMI - totalCCEMI - thisMonthExp;
 
   const recommended   = useMemo(() => recommendStrategy(activeDebts, cashLeft), [activeDebts, cashLeft]);
   const payoffPlan    = useMemo(() => calcPayoffPlan(activeDebts, parseFloat(extraFund)||0, strategy), [activeDebts, extraFund, strategy]);
-  const health        = useMemo(() => calcHealthScore({income:effectiveIncome, emi:totalEMI+totalCCEMI, expense:thisMonthExp, outstanding:totalOutstanding+totalCCOut, savings:savingsTotal, emergency:emergencyMonths}), [effectiveIncome,totalEMI,totalCCEMI,thisMonthExp,totalOutstanding,totalCCOut,savingsTotal,emergencyMonths]);
-
 
 const filterByPeriod = useCallback((txList, period) => {
   const now = new Date(); now.setHours(23,59,59,999);
@@ -481,11 +461,22 @@ const filterByPeriod = useCallback((txList, period) => {
   const thisMonthTx = useMemo(()=>{const n=new Date();return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const lastMonthTx = useMemo(()=>{const n=new Date();n.setMonth(n.getMonth()-1);return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
+  const cashLeft = effectiveIncome - totalEMI - totalCCEMI - thisMonthExp;
   const lastMonthExp = useMemo(()=>lastMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
   const thisMonthInc = useMemo(()=>thisMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
   const lastMonthInc = useMemo(()=>lastMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
   const catComparison = useMemo(()=>allCategories.expense.map(cat=>({cat,thisMonth:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),lastMonth:lastMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0)})).filter(c=>c.thisMonth>0||c.lastMonth>0),[thisMonthTx,lastMonthTx,allCategories]);
   const savingsRateTrend = useMemo(()=>last6Months.map(m=>({label:m.label,rate:m.income>0?Math.max(0,((m.income-m.expense)/m.income)*100):0})),[last6Months]);
+  // ─── ORDER-DEPENDENT COMPUTEDS (need last6Months + thisMonthExp) ──────────
+  const avgMonthlyExp   = useMemo(() => {
+    const months = last6Months.filter(m=>m.expense>0);
+    return months.length ? months.reduce((s,m)=>s+m.expense,0)/months.length : (effectiveIncome*0.7)||1;
+  }, [last6Months, effectiveIncome]);
+  const emergencyMonths = useMemo(() => {
+    const ef = parseFloat(emergencyFund)||savingsTotal;
+    return ef / Math.max(avgMonthlyExp, 1);
+  }, [emergencyFund, savingsTotal, avgMonthlyExp]);
+  const health        = useMemo(() => calcHealthScore({income:effectiveIncome, emi:totalEMI+totalCCEMI, expense:thisMonthExp, outstanding:totalOutstanding+totalCCOut, savings:savingsTotal, emergency:emergencyMonths}), [effectiveIncome,totalEMI,totalCCEMI,thisMonthExp,totalOutstanding,totalCCOut,savingsTotal,emergencyMonths]);
   const debtFreeMonths = useMemo(()=>{
     if(totalOutstanding+totalCCOut===0)return 0;
     const extra=parseFloat(extraFund)||0;
@@ -843,7 +834,6 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
   function toggleCCEmiAuto(id) {
     setCcEmis(p => p.map(e => e.id===id ? {...e, autoEMI: e.autoEMI===false ? true : false} : e));
   }
-
 
   // ─── CSV IMPORT ──────────────────────────────────────────────────────────
   function guessCategory(n) {
@@ -1746,9 +1736,6 @@ if (!user) {
             </div>
           )}
 
-
-
-
           {/* ── Spend Health Strip ── */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:12}}>
             {(()=>{
@@ -2080,7 +2067,6 @@ if (!user) {
           </div>
         </>}
 
-
         {/* ════════ TRANSACTIONS ════════ */}
         {tab==="Transactions"&&<>
           <div className="card" style={{marginBottom:10}}>
@@ -2226,7 +2212,6 @@ if (!user) {
                 </>
             }
           </div>
-
 
           {/* ── Savings Goals ── */}
           <div className="card" style={{marginBottom:14}}>
@@ -2518,7 +2503,6 @@ if (!user) {
               </div>
             </div>
           </div>
-
 
           {/* ── Export & Reports ── */}
           <div className="card" style={{marginBottom:14}}>
@@ -3522,7 +3506,6 @@ if (!user) {
               )}
             </div>
 
-
             {/* ── 30-Day Cash Flow Forecast ── */}
             <div className="card" style={{marginBottom:12}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -4089,7 +4072,6 @@ function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableN
             <button className="btn btn-p btn-sm" onClick={()=>{if(newBank.trim()&&!banks.includes(newBank.trim())){setBanks(p=>[...p,newBank.trim()]);setNewBank("");}}}>Add</button>
           </div>
         </div>
-
 
         {/* Lock */}
         <button className="btn-ghost" onClick={onClose} style={{width:"100%",textAlign:"center"}}>Close</button>
