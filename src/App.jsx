@@ -392,9 +392,6 @@ useEffect(() => {
   const effectiveIncome = parseFloat(monthlyIncome) || totalIncome || 0;
   const savingsTotal   = useMemo(() => savings.reduce((s,g)=>s+(parseFloat(g.current)||0),0), [savings]);
 
-  const recommended   = useMemo(() => recommendStrategy(activeDebts, cashLeft), [activeDebts, cashLeft]);
-  const payoffPlan    = useMemo(() => calcPayoffPlan(activeDebts, parseFloat(extraFund)||0, strategy), [activeDebts, extraFund, strategy]);
-
 const filterByPeriod = useCallback((txList, period) => {
   const now = new Date(); now.setHours(23,59,59,999);
   // Parse date strings as LOCAL dates, not UTC — avoids timezone-shift to wrong month
@@ -461,7 +458,9 @@ const filterByPeriod = useCallback((txList, period) => {
   const thisMonthTx = useMemo(()=>{const n=new Date();return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const lastMonthTx = useMemo(()=>{const n=new Date();n.setMonth(n.getMonth()-1);return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
   const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
-  const cashLeft = effectiveIncome - totalEMI - totalCCEMI - thisMonthExp;
+  const cashLeft      = effectiveIncome - totalEMI - totalCCEMI - thisMonthExp;
+  const recommended   = useMemo(() => recommendStrategy(activeDebts, cashLeft), [activeDebts, cashLeft]);
+  const payoffPlan    = useMemo(() => calcPayoffPlan(activeDebts, parseFloat(extraFund)||0, strategy), [activeDebts, extraFund, strategy]);
   const lastMonthExp = useMemo(()=>lastMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
   const thisMonthInc = useMemo(()=>thisMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
   const lastMonthInc = useMemo(()=>lastMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
