@@ -375,6 +375,7 @@ useEffect(() => {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
         accounts, allocationPct, customCats, mutualFunds,
+        recurringBills, salary,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -383,7 +384,8 @@ useEffect(() => {
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-      accounts, allocationPct, customCats, mutualFunds, loaded]);
+      accounts, allocationPct, customCats, mutualFunds,
+      recurringBills, salary, loaded]);
 
 
 
@@ -1837,7 +1839,8 @@ if (!user) {
                         }}>⚡ Pay EMI Early</button>
                         <button className="btn btn-g btn-sm" onClick={()=>{const v=prompt(`Extra/custom payment for ${d.name}?\nOutstanding: ${fc(d.bal)}`);const n=parseFloat(v);if(!isNaN(n)&&n>0)recordLoanPayment(d.id,n);}}>💸 Custom Pay</button>
                         <button className="btn-ghost btn-sm" onClick={()=>openEditDebt(d)}>Edit</button>
-                        <button className="btn btn-danger" onClick={()=>toggleDebtClosed(d.id)}>Mark Closed</button>
+                        <button className="btn btn-danger btn-sm" onClick={()=>{if(window.confirm(`Delete "${d.name}"? This cannot be undone.`))deleteDebt(d.id);}}>Delete</button>
+                        <button className="btn btn-danger" onClick={()=>toggleDebtClosed(d.id)}>{d.closed?"Reopen":"Mark Closed"}</button>
                       </div>
                     </div>
                   );
@@ -2130,6 +2133,71 @@ if (!user) {
                   </div>
                 </>
             }
+          </div>
+
+
+          {/* ── Savings Goals ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🎯 Savings Goals</div>
+                <div style={{fontSize:11,color:C.muted}}>Track progress toward your targets</div>
+              </div>
+            </div>
+
+            {/* Add goal form */}
+            <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+              <input className="inp" style={{flex:"2 1 120px",fontSize:12}} placeholder="Goal name (e.g. Emergency Fund)" value={savForm.name} onChange={e=>setSavForm(p=>({...p,name:e.target.value}))}/>
+              <input className="inp" type="number" style={{flex:"1 1 90px",fontSize:12}} placeholder="Target ₹" value={savForm.goal} onChange={e=>setSavForm(p=>({...p,goal:e.target.value}))}/>
+              <input className="inp" type="number" style={{flex:"1 1 90px",fontSize:12}} placeholder="Saved so far ₹" value={savForm.current} onChange={e=>setSavForm(p=>({...p,current:e.target.value}))}/>
+              <button className="btn btn-p btn-sm" onClick={addGoal}>+ Add</button>
+            </div>
+
+            {savings.length===0 ? (
+              <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:12}}>No goals yet. Add your first savings goal above.</div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {savings.map(g=>{
+                  const goal    = parseFloat(g.goal)||1;
+                  const current = parseFloat(g.current)||0;
+                  const pct     = Math.min(100,(current/goal)*100);
+                  const left    = Math.max(0,goal-current);
+                  const pColor  = pct>=100?C.income:pct>=50?C.accent:C.warning;
+                  return(
+                    <div key={g.id} style={{background:C.surface,borderRadius:14,padding:"14px 16px",border:`1px solid ${pColor}25`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                        <div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13}}>{g.name}</div>
+                          <div style={{fontSize:10,color:C.muted,marginTop:2}}>Target: {fc(goal)} · Left: {fc(left)}</div>
+                        </div>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:pColor}}>{pct.toFixed(0)}%</span>
+                          <button onClick={()=>setSavings(p=>p.filter(s=>s.id!==g.id))} style={{fontSize:10,padding:"2px 7px",borderRadius:99,border:`1px solid ${C.expense}30`,background:"transparent",color:C.expense,cursor:"pointer"}}>✕</button>
+                        </div>
+                      </div>
+                      <div className="pbar" style={{marginBottom:10}}>
+                        <div className="pfill" style={{width:`${pct}%`,background:pColor}}/>
+                      </div>
+                      <div style={{display:"flex",gap:8}}>
+                        <div style={{flex:1}}>
+                          <div className="lbl">Saved</div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income}}>{fc(current)}</div>
+                        </div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button className="btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{const v=prompt(`Add to "${g.name}"?`);const n=parseFloat(v);if(!isNaN(n)&&n!==0)updateGoal(g.id,n);}}>+ Add ₹</button>
+                          <button className="btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{const v=prompt(`Deduct from "${g.name}"?`);const n=parseFloat(v);if(!isNaN(n)&&n>0)updateGoal(g.id,-n);}}>- Deduct</button>
+                        </div>
+                      </div>
+                      {pct>=100&&<div style={{marginTop:8,padding:"6px 12px",background:`${C.income}15`,borderRadius:8,fontSize:11,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>🎉 Goal reached! Congratulations!</div>}
+                    </div>
+                  );
+                })}
+                <div style={{display:"flex",justifyContent:"space-between",padding:"10px 14px",background:`${C.savings}08`,borderRadius:10,border:`1px solid ${C.savings}20`}}>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>Total Saved Across Goals</span>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.savings}}>{fc(savings.reduce((s,g)=>s+parseFloat(g.current||0),0))}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── EMI Auto Engine Status ── */}
@@ -2875,18 +2943,34 @@ if (!user) {
                         <div className="pbar"><div className="pfill" style={{width:`${util}%`,background:utilColor}}/></div>
                       </div>
                       {/* Key stats */}
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:myEmis.length>0?10:0}}>
-                        {[
-                          {label:"Available",  val:fc(Math.max(0,lim-out)), color:C.income},
-                          {label:"Min Due",     val:fc(parseFloat(cc.minDue||out*0.05)), color:C.warning},
-                          {label:"Due In",      val:daysLeft!==null?`${daysLeft}d`:"—", color:daysLeft!==null&&daysLeft<=5?C.expense:C.muted},
-                        ].map(item=>(
-                          <div key={item.label} style={{background:C.card,borderRadius:10,padding:"8px 10px",textAlign:"center"}}>
-                            <div className="lbl" style={{textAlign:"center",fontSize:9}}>{item.label}</div>
-                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:item.color}}>{item.val}</div>
-                          </div>
-                        ))}
-                      </div>
+                      {(()=>{
+                        const det = calcCCDetails(cc);
+                        return(
+                          <>
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
+                              {[
+                                {label:"Available",    val:fc(Math.max(0,lim-out)),    color:C.income},
+                                {label:"Min Due",      val:fc(det.minDue),              color:C.warning},
+                                {label:"Due In",       val:daysLeft!==null?`${daysLeft}d`:"—", color:daysLeft!==null&&daysLeft<=5?C.expense:C.muted},
+                              ].map(item=>(
+                                <div key={item.label} style={{background:C.card,borderRadius:10,padding:"8px 10px",textAlign:"center"}}>
+                                  <div className="lbl" style={{textAlign:"center",fontSize:9}}>{item.label}</div>
+                                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:item.color}}>{item.val}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {out>0&&(
+                              <div style={{display:"flex",gap:8,marginBottom:myEmis.length>0?10:0}}>
+                                <button className="btn btn-p btn-sm" style={{flex:1,fontSize:11}} onClick={()=>{const v=prompt(`Pay how much on ${cc.name}?\nMin due: ${fc(det.minDue)}\nFull: ${fc(out)}`);const n=parseFloat(v);if(!isNaN(n)&&n>0)recordCCPayment(cc.id,n);}}>💳 Pay Bill</button>
+                                {det.interestSavedByFull>0&&<div style={{flex:1,background:`${C.income}10`,borderRadius:10,padding:"6px 10px",border:`1px solid ${C.income}20`,textAlign:"center"}}>
+                                  <div style={{fontSize:9,color:C.muted}}>Save in interest/mo</div>
+                                  <div style={{fontSize:11,fontWeight:700,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(det.interestSavedByFull)}</div>
+                                </div>}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                       {/* CC EMIs on this card */}
                       {myEmis.length>0&&(
                         <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8}}>
