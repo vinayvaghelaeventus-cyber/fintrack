@@ -281,18 +281,23 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [txBank, setTxBank]     = useState("all");
 
 
+  const contentRef = useRef(null);
+
   // ─── RESET SCROLL ON TAB CHANGE ─────────────────────────────────────────
   useEffect(() => {
     window.scrollTo({top: 0, behavior: "instant"});
+    if (contentRef.current) contentRef.current.scrollTop = 0;
   }, [tab]);
 
-// ✅ REPLACE with this — clean and simple
 useEffect(() => {
+    // Fallback: if Firebase doesn't respond in 6s, stop loading so user sees sign-in
+    const timeout = setTimeout(() => setAuthLoading(false), 6000);
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        clearTimeout(timeout);
         setUser(currentUser);
         setAuthLoading(false);
     });
-    return () => unsubscribe();
+    return () => { unsubscribe(); clearTimeout(timeout); };
 }, []);
 
 
@@ -1129,8 +1134,10 @@ Provide (use emoji headers, max 350 words):
     .sheet::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
   `;
 
-  function DueBadge({days, dueDate, closed}){
+  function DueBadge({days, dueDate, closed, outstanding}){
     if(closed) return null;
+    // If outstanding is explicitly passed as 0, don't show overdue
+    if(outstanding !== undefined && parseFloat(outstanding) <= 0) return null;
     if(days===null && !dueDate) return null;
     const dateStr = dueDate ? new Date(dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : null;
     if(days!==null && days<0) return <span className="due-badge" style={{background:`${C.expense}18`,color:C.expense}}>⚠️ Overdue {Math.abs(days)}d{dateStr?` (${dateStr})`:""}</span>;
@@ -1369,20 +1376,26 @@ if (!user) {
 
       {/* ── Mobile Header ── */}
       <div style={{
-        borderBottom:`1px solid ${C.border}`,padding:"12px 16px",
+        borderBottom:`1px solid ${C.border}`,padding:"10px 16px",
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,
         background:C.glass,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",
         zIndex:50,gap:8,
       }}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:32,height:32,background:`linear-gradient(135deg,${C.accent},${C.loan})`,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:15,boxShadow:`0 3px 10px ${C.accent}35`}}>₹</div>
-          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,letterSpacing:"-0.3px"}}>FinTrack</span>
-          <span className="sync-dot"/>
+          <div>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,letterSpacing:"-0.3px",lineHeight:1.1}}>FinTrack</div>
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <span className="sync-dot"/>
+              <span style={{fontSize:10,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{user?.displayName?.split(" ")[0]||""}</span>
+            </div>
+          </div>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           {health.score>0&&<span className="tag" style={{background:health.color+"20",color:health.color,fontSize:10}}>{health.score}</span>}
           {overdueCount>0&&<span className="pulse tag" style={{background:`${C.expense}15`,color:C.expense,fontSize:10}}>⚠{overdueCount}</span>}
+          {user?.photoURL&&<img src={user.photoURL} alt="avatar" style={{width:28,height:28,borderRadius:"50%",border:`2px solid ${C.accent}40`,flexShrink:0}}/>}
           <button className="btn-ghost btn-sm" onClick={()=>setDarkMode(p=>!p)} style={{padding:"5px 9px",fontSize:13}}>{darkMode?"☀":"🌙"}</button>
           <button className="btn-ghost btn-sm" onClick={()=>setShowMenu(true)} style={{padding:"5px 11px",fontSize:15,lineHeight:1}}>☰</button>
         </div>
@@ -1399,7 +1412,7 @@ if (!user) {
         {refreshing&&<div className="ptr-spinner"/>}
       </div>
 
-      <div style={{maxWidth:1200,margin:"0 auto",padding:"16px 14px 16px",paddingBottom:100}}>
+      <div ref={contentRef} style={{maxWidth:1200,margin:"0 auto",padding:"16px 14px 16px",paddingBottom:100}}>
 
         {/* ── Page Title ── */}
         {(()=>{
@@ -1535,7 +1548,7 @@ if (!user) {
                         <div>
                           <div style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{d.name}</div>
                           <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{d.lender}</div>
-                          {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate} closed={d.closed}/>}
+                          {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate} closed={d.closed} outstanding={d.outstanding}/>}
                         </div>
                       </div>
                       <div style={{textAlign:"right"}}>
@@ -2324,7 +2337,7 @@ if (!user) {
                           <div>
                             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>{d.name}</div>
                             <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{d.lender} · {d.interestRate}% p.a. · Outstanding {fc(d.bal)}</div>
-                            {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate} closed={d.closed}/>}
+                            {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate} closed={d.closed} outstanding={d.bal}/>}
                           </div>
                           {d.monthsSaved>0&&(
                             <div style={{background:`${C.income}15`,borderRadius:10,padding:"6px 12px",border:`1px solid ${C.income}30`}}>
