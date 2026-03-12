@@ -38,7 +38,7 @@ const MOBILE_TABS = [
   {id:"Plan",        icon:"🎯", label:"Plan"},
   {id:"Smart",       icon:"⚡", label:"Tools"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Statistics","Finance","Plan","Smart"];
+const ALL_TABS = ["Dashboard","Transactions","Statistics","Finance","Plan","Smart","Investments","Outlook"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
@@ -49,6 +49,8 @@ const EMPTY_ACCOUNT = {id:null, name:"", type:"savings", balance:"", bank:"", co
 const ACCOUNT_TYPES = ["savings","current","cash","wallet","fd","other"];
 const ACCOUNT_ICONS = ["🏦","💰","💵","📱","🏧","💼"];
 const EMPTY_RECURRING = {id:null, name:"", amount:"", category:"Utilities", type:"expense", dueDay:"1", frequency:"monthly", active:true, notes:""};
+const EMPTY_MF = {id:null, name:"", type:"SIP", amount:"", units:"", buyPrice:"", currentNav:"", startDate:"", folioNo:"", notes:""};
+const MF_TYPES = ["SIP","Lumpsum"];
 const RECURRING_ICONS = {"Netflix":"🎬","Spotify":"🎵","Amazon Prime":"📦","Hotstar":"📺","YouTube":"▶️","Electricity":"💡","Water":"💧","Gas":"🔥","Internet":"🌐","Mobile":"📱","Insurance":"🛡️","Rent":"🏠","Gym":"💪","Other":"📌"};
 const RECURRING_SUGGESTIONS = ["Netflix","Spotify","Amazon Prime","Hotstar","YouTube Premium","Electricity","Water Bill","Gas","Internet","Mobile Recharge","Health Insurance","Life Insurance","Rent","Gym","Other"];
 
@@ -269,6 +271,12 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [recurringForm, setRecurringForm] = useState({...EMPTY_RECURRING});
   const [editRecurringId, setEditRecurringId] = useState(null);
 
+  // ── Mutual Funds ──
+  const [mutualFunds, setMutualFunds] = useState([]);
+  const [showMFForm, setShowMFForm] = useState(false);
+  const [mfForm, setMfForm] = useState({...EMPTY_MF});
+  const [editMFId, setEditMFId] = useState(null);
+
   // ── Export Panel ──
   const [showExportPanel, setShowExportPanel] = useState(false);
   const [exportDateFrom, setExportDateFrom] = useState("");
@@ -344,6 +352,7 @@ useEffect(() => {
           if (data.allocationPct) setAllocationPct(data.allocationPct);
           if (data.customCats)    setCustomCats(data.customCats);
           if (data.recurringBills) setRecurringBills(data.recurringBills);
+          if (data.mutualFunds)   setMutualFunds(data.mutualFunds);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -366,7 +375,7 @@ useEffect(() => {
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-        accounts, allocationPct, customCats,
+        accounts, allocationPct, customCats, mutualFunds,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -375,7 +384,7 @@ useEffect(() => {
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-      accounts, allocationPct, customCats, loaded]);
+      accounts, allocationPct, customCats, mutualFunds, loaded]);
 
 
 
@@ -709,6 +718,22 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
   }
   function deleteRecurring(id) { setRecurringBills(p => p.filter(b=>b.id!==id)); }
   function toggleRecurring(id) { setRecurringBills(p => p.map(b => b.id===id?{...b,active:!b.active}:b)); }
+
+  // ─── MUTUAL FUND CRUD ────────────────────────────────────────────────────
+  function saveMF() {
+    if (!mfForm.name.trim()) return alert("Fund name required");
+    if (!mfForm.amount || isNaN(mfForm.amount)) return alert("Invested amount required");
+    if (editMFId) {
+      setMutualFunds(p => p.map(f => f.id===editMFId ? {...mfForm, id:editMFId} : f));
+    } else {
+      setMutualFunds(p => [...p, {...mfForm, id: Date.now().toString()}]);
+    }
+    setShowMFForm(false);
+    setMfForm({...EMPTY_MF});
+    setEditMFId(null);
+  }
+  function deleteMF(id) { setMutualFunds(p => p.filter(f=>f.id!==id)); }
+  function openEditMF(f) { setMfForm({...f}); setEditMFId(f.id); setShowMFForm(true); }
 
   // ─── ENHANCED EXPORT ─────────────────────────────────────────────────────
   function getFilteredTxForExport() {
@@ -1417,12 +1442,14 @@ if (!user) {
         {/* ── Page Title ── */}
         {(()=>{
           const titles = {
-            Dashboard:   {icon:"🏠", label:"Dashboard",    sub:"Your financial overview"},
-            Transactions:{icon:"📋", label:"Transactions",  sub:"All income & expenses"},
-            Statistics:  {icon:"📊", label:"Statistics",    sub:"Cash flow, trends & spending breakdown"},
-            Finance:     {icon:"💹", label:"Finance",       sub:"Loans & credit cards"},
-            Plan:        {icon:"🎯", label:"Plan",          sub:"Debt payoff & budgets"},
-            Smart:       {icon:"⚡", label:"Smart Tools",   sub:"Accounts, insights & more"},
+            Dashboard:   {icon:"🏠", label:"Dashboard",        sub:"Your financial overview"},
+            Transactions:{icon:"📋", label:"Transactions",      sub:"All income & expenses"},
+            Statistics:  {icon:"📊", label:"Statistics",        sub:"Cash flow, trends & spending breakdown"},
+            Finance:     {icon:"💹", label:"Finance",           sub:"Loans & credit cards"},
+            Plan:        {icon:"🎯", label:"Plan",              sub:"Debt payoff & budgets"},
+            Smart:       {icon:"⚡", label:"Smart Tools",       sub:"Accounts, insights & more"},
+            Investments: {icon:"📈", label:"Investments",       sub:"Mutual fund portfolio tracker"},
+            Outlook:     {icon:"🔮", label:"Future Outlook",    sub:"Predictions, goals & recurring bills"},
           };
           const t = titles[tab];
           if (!t) return null;
@@ -3226,6 +3253,320 @@ if (!user) {
             }
           </div>
         </>}
+
+        {/* ════════ INVESTMENTS ════════ */}
+        {tab==="Investments"&&(()=>{
+          const totalInvested = mutualFunds.reduce((s,f)=>s+parseFloat(f.amount||0),0);
+          const totalCurrent  = mutualFunds.reduce((s,f)=>{
+            if(f.units && f.currentNav) return s+parseFloat(f.units)*parseFloat(f.currentNav);
+            if(f.buyPrice && f.amount) {
+              const u=parseFloat(f.amount)/parseFloat(f.buyPrice);
+              return s+u*(parseFloat(f.currentNav||f.buyPrice));
+            }
+            return s+parseFloat(f.amount||0);
+          },0);
+          const totalGain    = totalCurrent-totalInvested;
+          const totalGainPct = totalInvested>0?(totalGain/totalInvested)*100:0;
+          return(<>
+            {/* Summary strip */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:12}}>
+              {[
+                {label:"Total Invested", val:fc(totalInvested), color:C.accent},
+                {label:"Current Value",  val:fc(totalCurrent),  color:totalCurrent>=totalInvested?C.income:C.expense},
+                {label:"Gain / Loss",    val:(totalGain>=0?"+":"")+fc(totalGain), color:totalGain>=0?C.income:C.expense},
+                {label:"Overall Return", val:(totalGainPct>=0?"+":"")+totalGainPct.toFixed(2)+"%", color:totalGainPct>=0?C.income:C.expense},
+              ].map(item=>(
+                <div key={item.label} style={{background:C.card,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+                  <div className="lbl">{item.label}</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:16,color:item.color,marginTop:4}}>{item.val}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Add button */}
+            <button className="btn btn-p btn-sm" style={{marginBottom:12,width:"100%"}}
+              onClick={()=>{setMfForm({...EMPTY_MF});setEditMFId(null);setShowMFForm(true);}}>
+              + Add Mutual Fund
+            </button>
+
+            {/* Form */}
+            {showMFForm&&(
+              <div className="card" style={{marginBottom:12,border:`1.5px solid ${C.accent}40`}}>
+                <div className="stitle" style={{marginBottom:12}}>{editMFId?"✏️ Edit Fund":"➕ Add Fund"}</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:10,marginBottom:12}}>
+                  <div><div className="lbl">Fund Name *</div><input className="inp" placeholder="e.g. Mirae Asset Large Cap" value={mfForm.name} onChange={e=>setMfForm(p=>({...p,name:e.target.value}))}/></div>
+                  <div><div className="lbl">Type</div><select className="inp" value={mfForm.type} onChange={e=>setMfForm(p=>({...p,type:e.target.value}))}>{MF_TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
+                  <div><div className="lbl">Invested ₹ *</div><input className="inp" type="number" placeholder="50000" value={mfForm.amount} onChange={e=>setMfForm(p=>({...p,amount:e.target.value}))}/></div>
+                  <div><div className="lbl">Units Held</div><input className="inp" type="number" placeholder="142.5" value={mfForm.units} onChange={e=>setMfForm(p=>({...p,units:e.target.value}))}/></div>
+                  <div><div className="lbl">Avg Buy NAV ₹</div><input className="inp" type="number" placeholder="85.50" value={mfForm.buyPrice} onChange={e=>setMfForm(p=>({...p,buyPrice:e.target.value}))}/></div>
+                  <div><div className="lbl">Current NAV ₹</div><input className="inp" type="number" placeholder="102.30" value={mfForm.currentNav} onChange={e=>setMfForm(p=>({...p,currentNav:e.target.value}))}/></div>
+                  <div><div className="lbl">Start Date</div><input className="inp" type="date" value={mfForm.startDate} onChange={e=>setMfForm(p=>({...p,startDate:e.target.value}))}/></div>
+                  <div><div className="lbl">Folio No.</div><input className="inp" placeholder="optional" value={mfForm.folioNo} onChange={e=>setMfForm(p=>({...p,folioNo:e.target.value}))}/></div>
+                  <div style={{gridColumn:"1/-1"}}><div className="lbl">Notes</div><input className="inp" placeholder="optional" value={mfForm.notes} onChange={e=>setMfForm(p=>({...p,notes:e.target.value}))}/></div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button className="btn btn-p btn-sm" onClick={saveMF}>💾 Save</button>
+                  <button className="btn-ghost btn-sm" onClick={()=>{setShowMFForm(false);setMfForm({...EMPTY_MF});setEditMFId(null);}}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* Fund cards */}
+            {mutualFunds.length===0?(
+              <div className="card" style={{textAlign:"center",padding:32,color:C.muted}}>
+                <div style={{fontSize:36,marginBottom:8}}>📈</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14}}>No funds added yet</div>
+                <div style={{fontSize:12,marginTop:4}}>Track your SIPs and lumpsum investments here</div>
+              </div>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {mutualFunds.map((f,i)=>{
+                  const invested = parseFloat(f.amount||0);
+                  const units    = f.units?parseFloat(f.units):(f.buyPrice&&invested>0?invested/parseFloat(f.buyPrice):0);
+                  const current  = (f.currentNav&&units>0)?units*parseFloat(f.currentNav):invested;
+                  const gain     = current-invested;
+                  const gainPct  = invested>0?(gain/invested)*100:0;
+                  const isPos    = gain>=0;
+                  const startDays= f.startDate?Math.floor((Date.now()-new Date(f.startDate))/86400000):0;
+                  const yrs      = startDays/365;
+                  const xirr     = yrs>0.08&&invested>0?(Math.pow(current/invested,1/yrs)-1)*100:null;
+                  return(
+                    <div key={f.id} style={{background:C.card,borderRadius:14,padding:"14px 16px",border:`1.5px solid ${isPos?C.income+"30":C.expense+"30"}`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>{f.name}</div>
+                          <div style={{display:"flex",gap:6,marginTop:4,flexWrap:"wrap"}}>
+                            <span className="tag" style={{background:`${C.accent}15`,color:C.accent,fontSize:10}}>{f.type}</span>
+                            {f.startDate&&<span className="tag" style={{background:`${C.muted}15`,color:C.muted,fontSize:10}}>Since {new Date(f.startDate).toLocaleDateString("en-IN",{month:"short",year:"numeric"})}</span>}
+                            {f.folioNo&&<span className="tag" style={{background:`${C.muted}15`,color:C.muted,fontSize:10}}>Folio: {f.folioNo}</span>}
+                          </div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:isPos?C.income:C.expense}}>{isPos?"+":""}{gainPct.toFixed(2)}%</div>
+                          <div style={{fontSize:11,color:isPos?C.income:C.expense,fontWeight:700}}>{isPos?"+":""}{fc(gain)}</div>
+                        </div>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:10}}>
+                        {[
+                          {label:"Invested",   val:fc(invested), color:C.muted},
+                          {label:"Current",    val:fc(current),  color:isPos?C.income:C.expense},
+                          {label:xirr!=null?"XIRR":"Return", val:xirr!=null?xirr.toFixed(1)+"%/yr":gainPct.toFixed(1)+"%", color:isPos?C.income:C.expense},
+                        ].map(item=>(
+                          <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"8px 10px",textAlign:"center"}}>
+                            <div className="lbl" style={{textAlign:"center",fontSize:9}}>{item.label}</div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:item.color}}>{item.val}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {f.buyPrice&&f.currentNav&&(
+                        <div style={{marginBottom:10}}>
+                          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginBottom:4}}>
+                            <span>Buy NAV: ₹{parseFloat(f.buyPrice).toFixed(2)}</span>
+                            <span>Current NAV: ₹{parseFloat(f.currentNav).toFixed(2)}</span>
+                          </div>
+                          <div className="pbar"><div className="pfill" style={{width:`${Math.min(100,(parseFloat(f.currentNav)/parseFloat(f.buyPrice))*100)}%`,background:isPos?C.income:C.expense}}/></div>
+                        </div>
+                      )}
+                      <div style={{display:"flex",gap:8}}>
+                        <button className="btn-ghost btn-sm" onClick={()=>openEditMF(f)}>✏️ Edit</button>
+                        <button className="btn btn-danger btn-sm" onClick={()=>{if(window.confirm("Delete this fund?"))deleteMF(f.id);}}>🗑 Delete</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Portfolio breakdown */}
+            {mutualFunds.length>1&&(
+              <div className="card" style={{marginTop:12}}>
+                <div className="stitle">📊 Portfolio Breakdown</div>
+                {mutualFunds.map((f,i)=>{
+                  const invested=parseFloat(f.amount||0);
+                  const pct=totalInvested>0?(invested/totalInvested)*100:0;
+                  return(
+                    <div key={f.id} style={{marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{width:8,height:8,borderRadius:"50%",background:CAT_COLORS[i%CAT_COLORS.length]}}/>
+                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,fontSize:12}}>{f.name}</span>
+                        </div>
+                        <span style={{fontSize:11,fontWeight:700}}>{pct.toFixed(1)}% · {fc(invested)}</span>
+                      </div>
+                      <div className="pbar"><div className="pfill" style={{width:`${pct}%`,background:CAT_COLORS[i%CAT_COLORS.length]}}/></div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>);
+        })()}
+
+        {/* ════════ OUTLOOK ════════ */}
+        {tab==="Outlook"&&(()=>{
+          const last3   = last6Months.slice(-3);
+          const avgInc  = last3.length?last3.reduce((s,m)=>s+m.income,0)/last3.length:0;
+          const avgExp  = last3.length?last3.reduce((s,m)=>s+m.expense,0)/last3.length:0;
+          const avgSav  = avgInc-avgExp;
+          const today   = new Date();
+          const todayDate = today.getDate();
+          const predictions = [1,2,3].map(offset=>{
+            const d   = new Date(today.getFullYear(),today.getMonth()+offset,1);
+            const lbl = d.toLocaleDateString("en-IN",{month:"short",year:"numeric"});
+            const monthRecurring = recurringBills.filter(b=>b.active&&b.type==="expense").reduce((s,b)=>s+parseFloat(b.amount||0),0);
+            const emiTotal = activeDebts.reduce((s,d)=>s+parseFloat(d.emi||0),0);
+            const predExp = Math.max(0,avgExp);
+            const predInc = avgInc;
+            return {lbl, predInc, predExp, predSav:predInc-predExp, monthRecurring, emiTotal};
+          });
+          const efTarget  = avgExp*6;
+          const efCurrent = parseFloat(emergencyFund||0);
+          const efPct     = efTarget>0?Math.min(100,(efCurrent/efTarget)*100):0;
+          const efMonths  = avgExp>0?efCurrent/avgExp:0;
+          const yearlyProjected = avgSav*12;
+          const monthsToLakh = avgSav>0?Math.ceil(100000/avgSav):null;
+          const upcomingBills = recurringBills.filter(b=>b.active).map(b=>{
+            const dueDay = parseInt(b.dueDay||1);
+            const daysLeft = dueDay>=todayDate?dueDay-todayDate:30-(todayDate-dueDay);
+            return {...b,daysLeft:Math.max(0,daysLeft)};
+          }).sort((a,b)=>a.daysLeft-b.daysLeft);
+
+          return(<>
+            {/* Next 3 months */}
+            <div className="card" style={{marginBottom:12}}>
+              <div className="stitle" style={{marginBottom:2}}>🔮 Next 3 Months Prediction</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:14}}>Based on your last 3 months average</div>
+              {avgInc===0&&avgExp===0?(
+                <div style={{color:C.muted,textAlign:"center",padding:"16px 0",fontSize:12}}>Add transactions to see predictions.</div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {predictions.map((p,i)=>(
+                    <div key={i} style={{background:C.surface,borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,marginBottom:8}}>{p.lbl}</div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:6}}>
+                        {[
+                          {label:"Income",  val:fc(p.predInc), color:C.income},
+                          {label:"Expense", val:fc(p.predExp), color:C.expense},
+                          {label:"Savings", val:fc(p.predSav), color:p.predSav>=0?C.income:C.expense},
+                        ].map(item=>(
+                          <div key={item.label} style={{textAlign:"center"}}>
+                            <div className="lbl" style={{textAlign:"center",fontSize:9}}>{item.label}</div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:item.color}}>{item.val}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {(p.monthRecurring>0||p.emiTotal>0)&&(
+                        <div style={{fontSize:10,color:C.muted,borderTop:`1px solid ${C.border}`,paddingTop:6}}>
+                          {p.monthRecurring>0&&<>📌 Recurring: <span style={{fontWeight:700,color:C.warning}}>{fc(p.monthRecurring)}</span></>}
+                          {p.emiTotal>0&&<> · EMIs: <span style={{fontWeight:700,color:C.expense}}>{fc(p.emiTotal)}</span></>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Savings milestones */}
+            <div className="card" style={{marginBottom:12}}>
+              <div className="stitle">🏆 Savings Milestones</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:12}}>
+                {[
+                  {label:"Avg Monthly Savings", val:avgSav>0?fc(avgSav):"—",          color:avgSav>=0?C.income:C.expense},
+                  {label:"Projected Yearly",    val:yearlyProjected>0?fc(yearlyProjected):"—", color:C.income},
+                  {label:"Months to ₹1L",       val:monthsToLakh?`${monthsToLakh} mo`:"—",    color:C.accent},
+                  {label:"Years to ₹10L",       val:avgSav>0?`${(1000000/(avgSav*12)).toFixed(1)} yr`:"—", color:C.accent},
+                ].map(item=>(
+                  <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                    <div className="lbl" style={{textAlign:"center"}}>{item.label}</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:item.color,marginTop:4}}>{item.val}</div>
+                  </div>
+                ))}
+              </div>
+              {avgSav>0&&(
+                <div style={{background:`${C.accent}10`,border:`1px solid ${C.accent}30`,borderRadius:12,padding:"12px 14px"}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.accent,marginBottom:8}}>📐 SIP Projections (15% p.a. assumed)</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {[{sip:Math.round(avgSav*0.3),yrs:10},{sip:Math.round(avgSav*0.5),yrs:15},{sip:Math.round(avgSav*0.3),yrs:20}].map((s,i)=>{
+                      const fv=s.sip>0?s.sip*((Math.pow(1+0.15/12,s.yrs*12)-1)/(0.15/12))*(1+0.15/12):0;
+                      return(
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11}}>
+                          <span style={{color:C.muted}}>{fc(s.sip)}/mo × {s.yrs} yrs</span>
+                          <span style={{fontWeight:700,color:C.income}}>→ {fv>=10000000?`₹${(fv/10000000).toFixed(1)}Cr`:`₹${(fv/100000).toFixed(1)}L`}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Emergency fund */}
+            <div className="card" style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div className="stitle" style={{marginBottom:0}}>🛡️ Emergency Fund</div>
+                <span className="tag" style={{background:efPct>=100?`${C.income}15`:efPct>=50?`${C.warning}15`:`${C.expense}15`,color:efPct>=100?C.income:efPct>=50?C.warning:C.expense}}>{efPct.toFixed(0)}%</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+                {[
+                  {label:"Current",     val:fc(efCurrent),       color:C.accent},
+                  {label:"Target (6M)", val:fc(efTarget),        color:C.muted},
+                  {label:"Coverage",    val:`${efMonths.toFixed(1)} mo`, color:efMonths>=6?C.income:efMonths>=3?C.warning:C.expense},
+                ].map(item=>(
+                  <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px",textAlign:"center"}}>
+                    <div className="lbl" style={{textAlign:"center",fontSize:9}}>{item.label}</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:item.color}}>{item.val}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="pbar" style={{height:10,borderRadius:6}}>
+                <div className="pfill" style={{width:`${efPct}%`,background:efPct>=100?C.income:efPct>=50?C.warning:C.expense,borderRadius:6}}/>
+              </div>
+              <div style={{fontSize:11,color:C.muted,marginTop:8,lineHeight:1.6}}>
+                {efPct>=100?"✅ Fully funded! You are protected.":efPct>=50?"⚠️ Halfway there — keep building.":"🚨 Below 50%. Build emergency fund first."}
+                {efTarget>efCurrent&&avgSav>0&&<> <span style={{fontWeight:700}}>~{Math.ceil((efTarget-efCurrent)/avgSav)} months to target</span> at current savings rate.</>}
+              </div>
+            </div>
+
+            {/* Upcoming bills */}
+            <div className="card">
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div className="stitle" style={{marginBottom:0}}>📌 Upcoming Recurring Bills</div>
+                <button className="btn-ghost btn-sm" onClick={()=>setTab("Smart")} style={{fontSize:11}}>Manage →</button>
+              </div>
+              {upcomingBills.length===0?(
+                <div style={{color:C.muted,textAlign:"center",padding:"16px 0",fontSize:12}}>No recurring bills. Add them in Smart Tools.</div>
+              ):(
+                <>
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {upcomingBills.slice(0,8).map(b=>{
+                      const urgent=b.daysLeft<=3, soon=b.daysLeft<=7;
+                      return(
+                        <div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:10,border:`1px solid ${urgent?C.expense+"50":soon?C.warning+"40":C.border}`}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{fontSize:16}}>{RECURRING_ICONS[b.name]||"📌"}</span>
+                            <div>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{b.name}</div>
+                              <div style={{fontSize:10,color:urgent?C.expense:C.muted}}>{b.daysLeft===0?"Due today!":b.daysLeft===1?"Tomorrow":`In ${b.daysLeft} days`}</div>
+                            </div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:urgent?C.expense:C.text}}>{fc(parseFloat(b.amount||0))}</div>
+                            {urgent&&<span className="tag" style={{background:`${C.expense}15`,color:C.expense,fontSize:9}}>Urgent</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:10,textAlign:"right"}}>
+                    Total this month: <span style={{fontWeight:700,color:C.expense}}>{fc(upcomingBills.reduce((s,b)=>s+parseFloat(b.amount||0),0))}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </>);
+        })()}
+
       </div>
 
       {/* ── Mobile Bottom Nav ── */}
