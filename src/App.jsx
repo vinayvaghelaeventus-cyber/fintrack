@@ -32,13 +32,13 @@ const CATEGORIES = {
 };
 const CAT_COLORS = ["#38bdf8","#10b981","#f59e0b","#6366f1","#f43f5e","#a78bfa","#34d399","#fb923c","#e879f9","#22d3ee","#84cc16","#f472b6","#60a5fa","#fbbf24","#6ee7b7","#c084fc"];
 const MOBILE_TABS = [
-  {id:"Dashboard", icon:"🏠", label:"Home"},
-  {id:"Transactions", icon:"📋", label:"Txns"},
-  {id:"Finance",   icon:"📊", label:"Finance"},
-  {id:"Plan",      icon:"🎯", label:"Plan"},
-  {id:"Smart",     icon:"⚡", label:"Tools"},
+  {id:"Dashboard",   icon:"🏠", label:"Home"},
+  {id:"Transactions",icon:"📋", label:"Txns"},
+  {id:"Statistics",  icon:"📊", label:"Stats"},
+  {id:"Plan",        icon:"🎯", label:"Plan"},
+  {id:"Smart",       icon:"⚡", label:"Tools"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Finance","Plan","Smart"];
+const ALL_TABS = ["Dashboard","Transactions","Statistics","Finance","Plan","Smart"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
@@ -1417,11 +1417,12 @@ if (!user) {
         {/* ── Page Title ── */}
         {(()=>{
           const titles = {
-            Dashboard:  {icon:"🏠", label:"Dashboard",    sub:"Your financial overview"},
+            Dashboard:   {icon:"🏠", label:"Dashboard",    sub:"Your financial overview"},
             Transactions:{icon:"📋", label:"Transactions",  sub:"All income & expenses"},
-            Finance:    {icon:"📊", label:"Finance",       sub:"Loans & credit cards"},
-            Plan:       {icon:"🎯", label:"Plan",          sub:"Debt payoff & budgets"},
-            Smart:      {icon:"⚡", label:"Smart Tools",   sub:"Accounts, insights & more"},
+            Statistics:  {icon:"📊", label:"Statistics",    sub:"Cash flow, trends & spending breakdown"},
+            Finance:     {icon:"💹", label:"Finance",       sub:"Loans & credit cards"},
+            Plan:        {icon:"🎯", label:"Plan",          sub:"Debt payoff & budgets"},
+            Smart:       {icon:"⚡", label:"Smart Tools",   sub:"Accounts, insights & more"},
           };
           const t = titles[tab];
           if (!t) return null;
@@ -2526,6 +2527,308 @@ if (!user) {
           </div>
 
         </>}
+
+        </>}
+
+        {/* ════════ STATISTICS ════════ */}
+        {tab==="Statistics"&&(()=>{
+          // ── Period selector state (local via closure trick — use dashPeriod reuse) ──
+          const statPeriods = [
+            {v:"week",  l:"7D"},
+            {v:"month", l:"1M"},
+            {v:"3months",l:"3M"},
+            {v:"lastmonth",l:"Last M"},
+            {v:"all",   l:"All"},
+          ];
+
+          // ── Filtered transactions for selected period ──
+          const pt = filterByPeriod(transactions, dashPeriod);
+          const ptInc = pt.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
+          const ptExp = pt.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+          const ptNet = ptInc - ptExp;
+          const cfStatus = ptNet >= 0 ? "healthy" : "overspend";
+
+          // ── Cash flow gauge value (−100 to +100) ──
+          const gaugeVal = ptInc > 0 ? Math.max(-100, Math.min(100, Math.round((ptNet / ptInc) * 100))) : (ptExp > 0 ? -100 : 0);
+          const gaugeColor = gaugeVal >= 20 ? C.income : gaugeVal >= 0 ? C.warning : C.expense;
+
+          // ── Spending by category ──
+          const byCat = allCategories.expense.map((cat,i)=>({
+            name:cat,
+            value: pt.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),
+            color: CAT_COLORS[i%CAT_COLORS.length],
+          })).filter(d=>d.value>0).sort((a,b)=>b.value-a.value);
+
+          // ── Income by category ──
+          const byIncCat = allCategories.income.map((cat,i)=>({
+            name:cat,
+            value: pt.filter(t=>t.type==="income"&&t.category===cat).reduce((s,t)=>s+t.amount,0),
+            color: CAT_COLORS[(i+5)%CAT_COLORS.length],
+          })).filter(d=>d.value>0).sort((a,b)=>b.value-a.value);
+
+          // ── Payment mode breakdown ──
+          const byMode = PAYMENT_MODES.map((m,i)=>({
+            name:m,
+            value: pt.filter(t=>t.type==="expense"&&t.paymentMode===m).reduce((s,t)=>s+t.amount,0),
+            color: CAT_COLORS[(i+3)%CAT_COLORS.length],
+          })).filter(d=>d.value>0).sort((a,b)=>b.value-a.value);
+
+          // ── Daily spending for bar chart ──
+          const dailyMap = {};
+          pt.filter(t=>t.type==="expense").forEach(t=>{
+            dailyMap[t.date] = (dailyMap[t.date]||0) + t.amount;
+          });
+          const dailyBars = Object.entries(dailyMap)
+            .sort(([a],[b])=>a.localeCompare(b))
+            .map(([date,val])=>({
+              label: parseLocal(date)?.toLocaleDateString("en-IN",{day:"numeric",month:"short"})||date,
+              value: val,
+            }));
+
+          // ── 6-month trend (always shown regardless of period filter) ──
+          const trend6 = last6Months;
+
+          // ── Avg daily spend ──
+          const daysInPeriod = dailyBars.length || 1;
+          const avgDaily = ptExp / daysInPeriod;
+
+          // ── Top spending day ──
+          const topDay = dailyBars.length ? dailyBars.reduce((a,b)=>b.value>a.value?b:a) : null;
+
+          return (
+            <>
+              {/* ── Period Filter ── */}
+              <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+                {statPeriods.map(({v,l})=>(
+                  <button key={v} className={`filter-btn ${dashPeriod===v?"on":""}`} onClick={()=>setDashPeriod(v)}>{l}</button>
+                ))}
+              </div>
+
+              {/* ── Cash Flow Gauge ── */}
+              <div className="card" style={{marginBottom:12,textAlign:"center"}}>
+                <div className="stitle" style={{marginBottom:14}}>💧 Cash Flow</div>
+                {/* Gauge arc */}
+                <div style={{position:"relative",display:"inline-block",marginBottom:8}}>
+                  <svg width={220} height={120} viewBox="0 0 220 120">
+                    {/* Background arc */}
+                    <path d="M 20 110 A 90 90 0 0 1 200 110" fill="none" stroke={C.border} strokeWidth="14" strokeLinecap="round"/>
+                    {/* Colored arc — maps gaugeVal from -100..100 to 0..180deg */}
+                    {(()=>{
+                      const pct = (gaugeVal + 100) / 200; // 0..1
+                      const angle = pct * Math.PI; // 0..π
+                      const x = 110 - 90 * Math.cos(angle);
+                      const y = 110 - 90 * Math.sin(angle);
+                      const largeArc = pct > 0.5 ? 1 : 0;
+                      return (
+                        <path
+                          d={`M 20 110 A 90 90 0 ${largeArc} 1 ${x.toFixed(1)} ${y.toFixed(1)}`}
+                          fill="none" stroke={gaugeColor} strokeWidth="14" strokeLinecap="round"
+                          style={{filter:`drop-shadow(0 0 8px ${gaugeColor}60)`}}
+                        />
+                      );
+                    })()}
+                    {/* Needle */}
+                    {(()=>{
+                      const pct = (gaugeVal + 100) / 200;
+                      const angle = pct * Math.PI;
+                      const nx = 110 - 72 * Math.cos(angle);
+                      const ny = 110 - 72 * Math.sin(angle);
+                      return <line x1="110" y1="110" x2={nx.toFixed(1)} y2={ny.toFixed(1)} stroke={gaugeColor} strokeWidth="3" strokeLinecap="round"/>;
+                    })()}
+                    <circle cx="110" cy="110" r="5" fill={gaugeColor}/>
+                    {/* Labels */}
+                    <text x="12" y="108" fill={C.expense} fontSize="9" fontFamily="Cabinet Grotesk" fontWeight="700">Spending</text>
+                    <text x="155" y="108" fill={C.income} fontSize="9" fontFamily="Cabinet Grotesk" fontWeight="700">Healthy</text>
+                  </svg>
+                </div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:gaugeColor}}>{gaugeVal > 0 ? "+" : ""}{gaugeVal}%</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{cfStatus==="healthy" ? "✅ Spending less than earning" : "🚨 Spending more than earning"}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                  {[
+                    {label:"Income",  val:fc(ptInc),  color:C.income},
+                    {label:"Expenses",val:fc(ptExp),  color:C.expense},
+                    {label:"Net",     val:fc(ptNet),  color:ptNet>=0?C.income:C.expense},
+                  ].map(item=>(
+                    <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px 8px",border:`1px solid ${C.border}`}}>
+                      <div className="lbl">{item.label}</div>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:item.color}}>{item.val}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Quick Stats ── */}
+              <div className="g4" style={{marginBottom:12}}>
+                {[
+                  {label:"Avg Daily Spend", val:fc(avgDaily),         color:C.expense},
+                  {label:"Transactions",    val:pt.length,            color:C.accent},
+                  {label:"Top Day Spend",   val:topDay?fc(topDay.value):"—", color:C.warning},
+                  {label:"Categories Used", val:byCat.length,         color:C.loan},
+                ].map(item=>(
+                  <div key={item.label} className="scard">
+                    <div className="lbl">{item.label}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div>
+                    {item.label==="Top Day Spend"&&topDay&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>{topDay.label}</div>}
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Daily Spending Bar Chart ── */}
+              {dailyBars.length > 0 && (
+                <div className="card" style={{marginBottom:12}}>
+                  <div className="stitle">📅 Daily Spending</div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={dailyBars} margin={{top:4,right:4,left:0,bottom:0}}>
+                      <XAxis dataKey="label" tick={{fontSize:9,fill:C.muted,fontFamily:"Cabinet Grotesk"}} interval="preserveStartEnd" axisLine={false} tickLine={false}/>
+                      <YAxis tick={{fontSize:9,fill:C.muted}} axisLine={false} tickLine={false} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v} width={32}/>
+                      <Tooltip formatter={v=>[fc(v),"Spent"]} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontSize:11,color:C.text}} cursor={{fill:C.border+"50"}}/>
+                      <Bar dataKey="value" fill={C.expense} radius={[4,4,0,0]} maxBarSize={28}/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* ── Spending Breakdown by Category ── */}
+              <div className="card" style={{marginBottom:12}}>
+                <div className="stitle">🗂 Spending Breakdown</div>
+                {byCat.length === 0
+                  ? <div style={{color:C.muted,fontSize:12,textAlign:"center",padding:20}}>No expense data for this period.</div>
+                  : <>
+                    <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:14}}>
+                      <ResponsiveContainer width={110} height={110}>
+                        <PieChart>
+                          <Pie data={byCat} dataKey="value" cx="50%" cy="50%" innerRadius={28} outerRadius={50} paddingAngle={2}>
+                            {byCat.map((_,i)=><Cell key={i} fill={byCat[i].color}/>)}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div style={{flex:1,display:"flex",flexDirection:"column",gap:5}}>
+                        {byCat.slice(0,5).map(d=>{
+                          const pct = ptExp>0 ? ((d.value/ptExp)*100).toFixed(0) : 0;
+                          return(
+                            <div key={d.name}>
+                              <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                                <div style={{display:"flex",alignItems:"center",gap:5}}>
+                                  <div style={{width:7,height:7,borderRadius:"50%",background:d.color,flexShrink:0}}/>
+                                  <span style={{fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,color:C.text}}>{d.name}</span>
+                                </div>
+                                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                                  <span style={{fontSize:10,color:C.muted}}>{pct}%</span>
+                                  <span style={{fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{fc(d.value)}</span>
+                                </div>
+                              </div>
+                              <div className="pbar"><div className="pfill" style={{width:`${pct}%`,background:d.color}}/></div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {byCat.length > 5 && (
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6,paddingTop:8,borderTop:`1px solid ${C.border}60`}}>
+                        {byCat.slice(5).map(d=>(
+                          <div key={d.name} style={{display:"flex",alignItems:"center",gap:4,background:C.surface,borderRadius:8,padding:"4px 8px"}}>
+                            <div style={{width:6,height:6,borderRadius:"50%",background:d.color}}/>
+                            <span style={{fontSize:10,color:C.muted}}>{d.name}</span>
+                            <span style={{fontSize:10,fontWeight:700}}>{fc(d.value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                }
+              </div>
+
+              {/* ── Payment Mode Breakdown ── */}
+              {byMode.length > 0 && (
+                <div className="card" style={{marginBottom:12}}>
+                  <div className="stitle">💳 By Payment Mode</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {byMode.map(d=>{
+                      const pct = ptExp>0 ? ((d.value/ptExp)*100).toFixed(0) : 0;
+                      return(
+                        <div key={d.name}>
+                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <div style={{width:8,height:8,borderRadius:"50%",background:d.color}}/>
+                              <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{d.name}</span>
+                            </div>
+                            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                              <span style={{fontSize:11,color:C.muted}}>{pct}%</span>
+                              <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{fc(d.value)}</span>
+                            </div>
+                          </div>
+                          <div className="pbar"><div className="pfill" style={{width:`${pct}%`,background:d.color}}/></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── 6-Month Income vs Expense Trend ── */}
+              <div className="card" style={{marginBottom:12}}>
+                <div className="stitle">📈 6-Month Trend</div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={trend6} margin={{top:4,right:4,left:0,bottom:0}}>
+                    <XAxis dataKey="label" tick={{fontSize:9,fill:C.muted,fontFamily:"Cabinet Grotesk"}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fontSize:9,fill:C.muted}} axisLine={false} tickLine={false} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v} width={32}/>
+                    <Tooltip formatter={(v,n)=>[fc(v),n==="income"?"Income":"Expense"]} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontSize:11,color:C.text}}/>
+                    <Bar dataKey="income"  fill={C.income}  radius={[4,4,0,0]} maxBarSize={20}/>
+                    <Bar dataKey="expense" fill={C.expense} radius={[4,4,0,0]} maxBarSize={20}/>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:10,height:10,borderRadius:3,background:C.income}}/><span style={{fontSize:10,color:C.muted}}>Income</span></div>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:10,height:10,borderRadius:3,background:C.expense}}/><span style={{fontSize:10,color:C.muted}}>Expense</span></div>
+                </div>
+              </div>
+
+              {/* ── Savings Rate Trend ── */}
+              <div className="card" style={{marginBottom:12}}>
+                <div className="stitle">💚 Savings Rate Trend</div>
+                <ResponsiveContainer width="100%" height={140}>
+                  <LineChart data={savingsRateTrend} margin={{top:4,right:4,left:0,bottom:0}}>
+                    <XAxis dataKey="label" tick={{fontSize:9,fill:C.muted}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fontSize:9,fill:C.muted}} axisLine={false} tickLine={false} unit="%" width={32} domain={[0,100]}/>
+                    <Tooltip formatter={v=>[v.toFixed(1)+"%","Savings Rate"]} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontSize:11,color:C.text}}/>
+                    <Line type="monotone" dataKey="rate" stroke={C.income} strokeWidth={2.5} dot={{fill:C.income,r:4}} activeDot={{r:6}}/>
+                  </LineChart>
+                </ResponsiveContainer>
+                <div style={{display:"flex",justifyContent:"space-between",padding:"8px 4px 0",borderTop:`1px solid ${C.border}60`,marginTop:4}}>
+                  <span style={{fontSize:11,color:C.muted}}>Ideal savings rate: <span style={{color:C.income,fontWeight:700}}>20%+</span></span>
+                  <span style={{fontSize:11,color:C.muted}}>Latest: <span style={{color:C.income,fontWeight:700}}>{savingsRateTrend[savingsRateTrend.length-1]?.rate.toFixed(1)}%</span></span>
+                </div>
+              </div>
+
+              {/* ── Income Breakdown ── */}
+              {byIncCat.length > 0 && (
+                <div className="card" style={{marginBottom:12}}>
+                  <div className="stitle">💰 Income Sources</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                    {byIncCat.map(d=>{
+                      const pct = ptInc>0 ? ((d.value/ptInc)*100).toFixed(0) : 0;
+                      return(
+                        <div key={d.name}>
+                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <div style={{width:8,height:8,borderRadius:"50%",background:d.color}}/>
+                              <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{d.name}</span>
+                            </div>
+                            <div style={{display:"flex",gap:10}}>
+                              <span style={{fontSize:11,color:C.muted}}>{pct}%</span>
+                              <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,color:C.income}}>{fc(d.value)}</span>
+                            </div>
+                          </div>
+                          <div className="pbar"><div className="pfill" style={{width:`${pct}%`,background:d.color}}/></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* ════════ CA ADVISOR ════════ */}
         {tab==="Finance"&&<>
