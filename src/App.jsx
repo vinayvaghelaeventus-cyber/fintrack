@@ -38,7 +38,7 @@ const MOBILE_TABS = [
   {id:"Plan",      icon:"🎯", label:"Plan"},
   {id:"Smart",     icon:"⚡", label:"Tools"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Finance","Plan","Cards","Budget","Insights","Smart"];
+const ALL_TABS = ["Dashboard","Transactions","Finance","Plan","Smart"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
@@ -159,6 +159,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [tab, setTab] = useState("Dashboard");
   const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
 const [ccEmis, setCcEmis] = useState([]);
     const [dashPeriod, setDashPeriod] = useState("month");
 const [showCCEmiForm, setShowCCEmiForm] = useState(false);
@@ -280,10 +281,16 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [txBank, setTxBank]     = useState("all");
 
 
+  // ─── RESET SCROLL ON TAB CHANGE ─────────────────────────────────────────
+  useEffect(() => {
+    window.scrollTo({top: 0, behavior: "instant"});
+  }, [tab]);
+
 // ✅ REPLACE with this — clean and simple
 useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
         setUser(currentUser);
+        setAuthLoading(false);
     });
     return () => unsubscribe();
 }, []);
@@ -1122,7 +1129,8 @@ Provide (use emoji headers, max 350 words):
     .sheet::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
   `;
 
-  function DueBadge({days, dueDate}){
+  function DueBadge({days, dueDate, closed}){
+    if(closed) return null;
     if(days===null && !dueDate) return null;
     const dateStr = dueDate ? new Date(dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : null;
     if(days!==null && days<0) return <span className="due-badge" style={{background:`${C.expense}18`,color:C.expense}}>⚠️ Overdue {Math.abs(days)}d{dateStr?` (${dateStr})`:""}</span>;
@@ -1241,6 +1249,17 @@ Provide (use emoji headers, max 350 words):
   }, [loaded, notifPermission]);
 
   // ─── GOOGLE LOGIN SCREEN ─────────────────────────────────────────────────
+if (authLoading) {
+  return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg,color:C.text,flexDirection:"column",gap:16}}>
+      <style>{css}</style>
+      <div style={{width:48,height:48,background:`linear-gradient(135deg,${C.accent},${C.loan})`,borderRadius:14,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:22,boxShadow:`0 8px 24px ${C.accent}40`}}>₹</div>
+      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,letterSpacing:"-0.3px"}}>FinTrack</div>
+      <div style={{width:24,height:24,border:`2px solid ${C.border}`,borderTop:`2px solid ${C.accent}`,borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
+    </div>
+  );
+}
+
 if (!user) {
   return (
     <div style={{
@@ -1342,6 +1361,8 @@ if (!user) {
           <button className="btn-ghost btn-sm" onClick={()=>setShowImport(true)}>↑ Import</button>
           <button className="btn-ghost btn-sm" onClick={exportTransactions}>↓ Export</button>
           <button className="btn btn-p btn-sm" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+ Add</button>
+          {user?.photoURL&&<img src={user.photoURL} alt="avatar" style={{width:28,height:28,borderRadius:"50%",border:`2px solid ${C.accent}`,flexShrink:0}}/>}
+          <span style={{fontSize:12,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.displayName?.split(" ")[0]||"User"}</span>
           <button className="btn-ghost btn-sm" onClick={handleLogout} style={{color:C.expense,borderColor:C.expense+"30"}}>Logout</button>
         </div>
       </div>
@@ -1379,6 +1400,30 @@ if (!user) {
       </div>
 
       <div style={{maxWidth:1200,margin:"0 auto",padding:"16px 14px 16px",paddingBottom:100}}>
+
+        {/* ── Page Title ── */}
+        {(()=>{
+          const titles = {
+            Dashboard:  {icon:"🏠", label:"Dashboard",    sub:"Your financial overview"},
+            Transactions:{icon:"📋", label:"Transactions",  sub:"All income & expenses"},
+            Finance:    {icon:"📊", label:"Finance",       sub:"Loans & credit cards"},
+            Plan:       {icon:"🎯", label:"Plan",          sub:"Debt payoff & budgets"},
+            Smart:      {icon:"⚡", label:"Smart Tools",   sub:"Accounts, insights & more"},
+          };
+          const t = titles[tab];
+          if (!t) return null;
+          return (
+            <div style={{marginBottom:16,paddingBottom:14,borderBottom:`1px solid ${C.border}40`}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:20}}>{t.icon}</span>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,letterSpacing:"-0.3px",color:C.text}}>{t.label}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:1}}>{t.sub}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ════════ DASHBOARD ════════ */}
         {tab==="Dashboard"&&<>
@@ -1490,7 +1535,7 @@ if (!user) {
                         <div>
                           <div style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{d.name}</div>
                           <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{d.lender}</div>
-                          {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate}/>}
+                          {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate} closed={d.closed}/>}
                         </div>
                       </div>
                       <div style={{textAlign:"right"}}>
@@ -2279,7 +2324,7 @@ if (!user) {
                           <div>
                             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>{d.name}</div>
                             <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{d.lender} · {d.interestRate}% p.a. · Outstanding {fc(d.bal)}</div>
-                            {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate}/>}
+                            {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate} closed={d.closed}/>}
                           </div>
                           {d.monthsSaved>0&&(
                             <div style={{background:`${C.income}15`,borderRadius:10,padding:"6px 12px",border:`1px solid ${C.income}30`}}>
