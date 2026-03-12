@@ -1867,6 +1867,132 @@ if (!user) {
             <button className="btn btn-v btn-sm" style={{marginTop:12}} onClick={()=>{setDebtForm({...EMPTY_DEBT});setEditDebtId(null);setShowDebtForm(true);}}>+ Add Loan</button>
           </div>
 
+          {/* ── Budget Performance ── */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🎯 Budget Performance</div>
+                <div style={{fontSize:11,color:C.muted}}>{new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</div>
+              </div>
+              <button className="btn-ghost btn-sm" onClick={()=>{setBudgetForm({category:"Food",limit:""});}} style={{fontSize:11}}>+ Set Limit</button>
+            </div>
+
+            {/* Set budget inline */}
+            <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+              <select className="inp" style={{flex:"1 1 130px",fontSize:12}} value={budgetForm.category} onChange={e=>setBudgetForm(p=>({...p,category:e.target.value}))}>
+                {allCategories.expense.map(c=><option key={c}>{c}</option>)}
+              </select>
+              <input className="inp" style={{flex:"1 1 100px",fontSize:12}} placeholder="₹ monthly limit" type="number" value={budgetForm.limit} onChange={e=>setBudgetForm(p=>({...p,limit:e.target.value}))}/>
+              <button className="btn btn-p btn-sm" onClick={addBudget}>Set</button>
+            </div>
+
+            {/* Overall budget health summary */}
+            {(()=>{
+              const withLimit = allCategories.expense.filter(cat => budgets[cat] > 0);
+              if (withLimit.length === 0) return (
+                <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:12}}>
+                  No budgets set yet. Add limits above to track performance.
+                </div>
+              );
+              const results = withLimit.map(cat => {
+                const limit = budgets[cat];
+                const spent = thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0);
+                const pct = Math.min(100,(spent/limit)*100);
+                const status = spent > limit ? "over" : pct >= 80 ? "warning" : "good";
+                return {cat, limit, spent, pct, status, remaining: Math.max(0, limit-spent)};
+              });
+              const overCount  = results.filter(r=>r.status==="over").length;
+              const warnCount  = results.filter(r=>r.status==="warning").length;
+              const goodCount  = results.filter(r=>r.status==="good").length;
+              const totalBudget = results.reduce((s,r)=>s+r.limit,0);
+              const totalSpent  = results.reduce((s,r)=>s+r.spent,0);
+              const overallPct  = totalBudget>0 ? Math.min(100,(totalSpent/totalBudget)*100) : 0;
+              const overallColor = overCount>0 ? C.expense : warnCount>0 ? C.warning : C.income;
+
+              return (<>
+                {/* Summary strip */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
+                  {[
+                    {label:"Total Budget", val:fc(totalBudget),  color:C.accent},
+                    {label:"Total Spent",  val:fc(totalSpent),   color:overallColor},
+                    {label:"Remaining",    val:fc(Math.max(0,totalBudget-totalSpent)), color:C.income},
+                    {label:"Overall",      val:overallPct.toFixed(0)+"%", color:overallColor},
+                  ].map(item=>(
+                    <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px 8px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                      <div className="lbl" style={{textAlign:"center"}}>{item.label}</div>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:item.color}}>{item.val}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Status badges */}
+                <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+                  {overCount>0&&<span className="tag" style={{background:`${C.expense}15`,color:C.expense}}>🚨 {overCount} Over Budget</span>}
+                  {warnCount>0&&<span className="tag" style={{background:`${C.warning}15`,color:C.warning}}>⚠️ {warnCount} Near Limit</span>}
+                  {goodCount>0&&<span className="tag" style={{background:`${C.income}15`,color:C.income}}>✅ {goodCount} On Track</span>}
+                </div>
+
+                {/* Per category performance bars */}
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {results.sort((a,b)=>b.pct-a.pct).map((r,i)=>{
+                    const barColor = r.status==="over" ? C.expense : r.status==="warning" ? C.warning : CAT_COLORS[i%CAT_COLORS.length];
+                    const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate();
+                    const daysPassed  = new Date().getDate();
+                    const expectedPct = (daysPassed/daysInMonth)*100;
+                    const onPace = r.pct <= expectedPct + 10;
+                    return (
+                      <div key={r.cat} style={{background:C.surface,borderRadius:12,padding:"12px 14px",border:`1.5px solid ${r.status==="over"?C.expense+"50":r.status==="warning"?C.warning+"40":C.border}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{width:8,height:8,borderRadius:"50%",background:barColor,flexShrink:0}}/>
+                            <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{r.cat}</span>
+                            {r.status==="over" && <span className="tag" style={{background:`${C.expense}15`,color:C.expense,fontSize:9}}>Over!</span>}
+                            {r.status==="warning" && <span className="tag" style={{background:`${C.warning}15`,color:C.warning,fontSize:9}}>Near!</span>}
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:barColor}}>{r.pct.toFixed(0)}%</div>
+                          </div>
+                        </div>
+
+                        {/* Progress bar with expected pace marker */}
+                        <div style={{position:"relative",marginBottom:6}}>
+                          <div className="pbar" style={{marginBottom:0}}>
+                            <div className="pfill" style={{width:`${r.pct}%`,background:barColor}}/>
+                          </div>
+                          {/* Expected pace marker */}
+                          <div style={{position:"absolute",top:-2,left:`${Math.min(expectedPct,100)}%`,width:2,height:10,background:C.muted+"80",borderRadius:1}}/>
+                        </div>
+
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
+                          <span>Spent: <span style={{color:barColor,fontWeight:700}}>{fc(r.spent)}</span></span>
+                          <span style={{color:C.muted,fontSize:9}}>│ pace: {expectedPct.toFixed(0)}%</span>
+                          <span>Limit: <span style={{fontWeight:700}}>{fc(r.limit)}</span></span>
+                        </div>
+
+                        {r.status==="over"
+                          ? <div style={{marginTop:6,fontSize:10,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                              🚨 Over by {fc(r.spent-r.limit)} — consider reducing spending
+                            </div>
+                          : r.remaining > 0
+                          ? <div style={{marginTop:6,fontSize:10,color:C.muted}}>
+                              {fc(r.remaining)} remaining · {!onPace ? "⚡ Spending faster than pace" : "✅ On pace"}
+                            </div>
+                          : null
+                        }
+
+                        {/* Remove budget button */}
+                        <button onClick={()=>setBudgets(p=>{const n={...p};delete n[r.cat];return n;})}
+                          style={{marginTop:8,fontSize:9,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:0,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                          ✕ Remove limit
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>);
+            })()}
+          </div>
+
           {/* AI Advisor */}
           <div className="card">
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
