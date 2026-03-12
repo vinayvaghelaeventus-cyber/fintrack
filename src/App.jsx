@@ -278,7 +278,6 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [editMFId, setEditMFId] = useState(null);
 
   // ── Export Panel ──
-  const [showExportPanel, setShowExportPanel] = useState(false);
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
 
@@ -2824,6 +2823,101 @@ if (!user) {
 
         {/* ════════ CA ADVISOR ════════ */}
         {tab==="Finance"&&<>
+
+          {/* ── Credit Cards ── */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>💳 Credit Cards</div>
+                <div style={{fontSize:11,color:C.muted}}>Utilisation, dues & CC EMIs</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn-ghost btn-sm" onClick={()=>{setCcEmiForm({...EMPTY_CC_EMI});setShowCCEmiForm(true);}} style={{fontSize:11}}>+ CC EMI</button>
+                <button className="btn btn-p btn-sm" onClick={()=>{setCcForm({...EMPTY_CC});setEditCCId(null);setShowCCForm(true);}}>+ Add Card</button>
+              </div>
+            </div>
+
+            {creditCards.length===0 ? (
+              <div style={{textAlign:"center",padding:"20px 0",color:C.muted,fontSize:12}}>
+                <div style={{fontSize:28,marginBottom:8}}>💳</div>
+                No credit cards added yet. Add your first card above.
+              </div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {creditCards.map(cc=>{
+                  const out  = parseFloat(cc.outstanding)||0;
+                  const lim  = parseFloat(cc.limit)||1;
+                  const util = Math.min(100,(out/lim)*100);
+                  const utilColor = util>=75?C.expense:util>=40?C.warning:C.income;
+                  const daysLeft  = cc.dueDate ? daysUntil(cc.dueDate) : null;
+                  const myEmis    = ccEmis.filter(e=>String(e.cardId)===String(cc.id));
+                  return(
+                    <div key={cc.id} style={{background:C.surface,borderRadius:14,padding:"14px 16px",border:`1.5px solid ${util>=75?C.expense+"40":C.border}`}}>
+                      {/* Card header */}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                        <div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>{cc.name}</div>
+                          <div style={{fontSize:10,color:C.muted,marginTop:2}}>{cc.bank}{cc.statementDate?` · Statement: ${cc.statementDate}`:""}</div>
+                        </div>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          {util>=75&&<span className="tag" style={{background:`${C.expense}15`,color:C.expense,fontSize:9}}>High Util!</span>}
+                          <button className="btn-ghost btn-sm" style={{fontSize:10}} onClick={()=>openEditCC(cc)}>Edit</button>
+                          <button onClick={()=>deleteCC(cc.id)} style={{fontSize:10,padding:"3px 8px",borderRadius:99,border:`1px solid ${C.expense}30`,background:"transparent",color:C.expense,cursor:"pointer"}}>✕</button>
+                        </div>
+                      </div>
+                      {/* Utilisation bar */}
+                      <div style={{marginBottom:8}}>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginBottom:4}}>
+                          <span>Used: <span style={{color:utilColor,fontWeight:700}}>{fc(out)}</span></span>
+                          <span style={{color:utilColor,fontWeight:700}}>{util.toFixed(0)}%</span>
+                          <span>Limit: {fc(lim)}</span>
+                        </div>
+                        <div className="pbar"><div className="pfill" style={{width:`${util}%`,background:utilColor}}/></div>
+                      </div>
+                      {/* Key stats */}
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:myEmis.length>0?10:0}}>
+                        {[
+                          {label:"Available",  val:fc(Math.max(0,lim-out)), color:C.income},
+                          {label:"Min Due",     val:fc(parseFloat(cc.minDue||out*0.05)), color:C.warning},
+                          {label:"Due In",      val:daysLeft!==null?`${daysLeft}d`:"—", color:daysLeft!==null&&daysLeft<=5?C.expense:C.muted},
+                        ].map(item=>(
+                          <div key={item.label} style={{background:C.card,borderRadius:10,padding:"8px 10px",textAlign:"center"}}>
+                            <div className="lbl" style={{textAlign:"center",fontSize:9}}>{item.label}</div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:item.color}}>{item.val}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* CC EMIs on this card */}
+                      {myEmis.length>0&&(
+                        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8}}>
+                          <div style={{fontSize:10,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:6}}>CC EMIs</div>
+                          {myEmis.map(e=>(
+                            <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                              <div>
+                                <span style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{e.description||"EMI"}</span>
+                                <span style={{fontSize:10,color:C.muted,marginLeft:6}}>{e.monthsLeft}mo left</span>
+                              </div>
+                              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                <span style={{fontSize:11,fontWeight:700,color:C.credit}}>{fc(parseFloat(e.amount||0))}/mo</span>
+                                <button onClick={()=>{setCcEmiForm({...e});setShowCCEmiForm(true);}} style={{fontSize:9,padding:"2px 7px",borderRadius:99,border:`1px solid ${C.border}`,background:"transparent",color:C.accent,cursor:"pointer"}}>Edit</button>
+                                <button onClick={()=>setCcEmis(p=>p.filter(x=>x.id!==e.id))} style={{fontSize:9,padding:"2px 7px",borderRadius:99,border:`1px solid ${C.expense}30`,background:"transparent",color:C.expense,cursor:"pointer"}}>✕</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {/* Total CC summary */}
+                <div style={{display:"flex",justifyContent:"space-between",padding:"10px 14px",background:`${C.credit}08`,borderRadius:10,border:`1px solid ${C.credit}20`}}>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>Total CC Outstanding</span>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.credit}}>{fc(totalCCOut)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* 1. Monthly Scorecard */}
           <div className="card" style={{marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:6}}>
