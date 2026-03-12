@@ -399,16 +399,20 @@ useEffect(() => {
   const totalCCOut     = useMemo(() => creditCards.reduce((s,c)=>s+(parseFloat(c.outstanding)||0),0), [creditCards]);
   const totalCCEMI = useMemo(() => ccEmis.reduce((s,e)=>s+(parseFloat(e.amount)||0),0), [ccEmis]);
   const effectiveIncome = parseFloat(monthlyIncome) || totalIncome || 0;
-  const savingsTotal   = useMemo(() => savings.reduce((s,g)=>s+g.current,0), [savings]);
+  const savingsTotal   = useMemo(() => savings.reduce((s,g)=>s+(parseFloat(g.current)||0),0), [savings]);
+  const avgMonthlyExp   = useMemo(() => {
+    const months = last6Months.filter(m=>m.expense>0);
+    return months.length ? months.reduce((s,m)=>s+m.expense,0)/months.length : (effectiveIncome*0.7)||1;
+  }, [last6Months, effectiveIncome]);
   const emergencyMonths = useMemo(() => {
     const ef = parseFloat(emergencyFund)||savingsTotal;
-    return ef / Math.max(totalExpense||effectiveIncome*0.7, 1);
-  }, [emergencyFund, savingsTotal, totalExpense, effectiveIncome]);
-  const cashLeft = effectiveIncome - totalEMI - totalCCEMI - totalExpense;
+    return ef / Math.max(avgMonthlyExp, 1);
+  }, [emergencyFund, savingsTotal, avgMonthlyExp]);
+  const cashLeft = effectiveIncome - totalEMI - totalCCEMI - thisMonthExp;
 
   const recommended   = useMemo(() => recommendStrategy(activeDebts, cashLeft), [activeDebts, cashLeft]);
   const payoffPlan    = useMemo(() => calcPayoffPlan(activeDebts, parseFloat(extraFund)||0, strategy), [activeDebts, extraFund, strategy]);
-  const health        = useMemo(() => calcHealthScore({income:effectiveIncome, emi:totalEMI+totalCCEMI, expense:totalExpense, outstanding:totalOutstanding+totalCCOut, savings:savingsTotal, emergency:emergencyMonths}), [effectiveIncome,totalEMI,totalCCEMI,totalExpense,totalOutstanding,totalCCOut,savingsTotal,emergencyMonths]);
+  const health        = useMemo(() => calcHealthScore({income:effectiveIncome, emi:totalEMI+totalCCEMI, expense:thisMonthExp, outstanding:totalOutstanding+totalCCOut, savings:savingsTotal, emergency:emergencyMonths}), [effectiveIncome,totalEMI,totalCCEMI,thisMonthExp,totalOutstanding,totalCCOut,savingsTotal,emergencyMonths]);
 
 
 const filterByPeriod = useCallback((txList, period) => {
@@ -482,8 +486,18 @@ const filterByPeriod = useCallback((txList, period) => {
   const lastMonthInc = useMemo(()=>lastMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
   const catComparison = useMemo(()=>allCategories.expense.map(cat=>({cat,thisMonth:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),lastMonth:lastMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0)})).filter(c=>c.thisMonth>0||c.lastMonth>0),[thisMonthTx,lastMonthTx,allCategories]);
   const savingsRateTrend = useMemo(()=>last6Months.map(m=>({label:m.label,rate:m.income>0?Math.max(0,((m.income-m.expense)/m.income)*100):0})),[last6Months]);
-  const debtFreeMonths = useMemo(()=>{const owe=totalOutstanding+totalCCOut;const pmt=totalEMI+totalCCEMI+(parseFloat(extraFund)||0);if(owe===0)return 0;if(!pmt)return null;return Math.ceil(owe/pmt);},[totalOutstanding,totalCCOut,totalEMI,totalCCEMI,extraFund]);
-  const cashFlowForecast = useMemo(()=>{const now=new Date();const salDay=parseInt(salary.creditDay)||1;const salAmt=parseFloat(salary.amount)||effectiveIncome||0;const dailyExp=Math.max(thisMonthExp,totalExpense,1)/30;let running=Math.max(cashLeft,0);return Array.from({length:30},(_,i)=>{const d=new Date(now);d.setDate(d.getDate()+i+1);if(d.getDate()===salDay&&salAmt>0)running+=salAmt;[...activeDebts,...creditCards].forEach(item=>{if(item.dueDate&&new Date(item.dueDate).getDate()===d.getDate())running-=parseFloat(item.emi||item.minDue||0);});running-=dailyExp;return{day:i+1,label:d.getDate()+"/"+(d.getMonth()+1),balance:Math.round(running)};});},[cashLeft,salary,effectiveIncome,thisMonthExp,totalExpense,activeDebts,creditCards]);
+  const debtFreeMonths = useMemo(()=>{
+    if(totalOutstanding+totalCCOut===0)return 0;
+    const extra=parseFloat(extraFund)||0;
+    // Use proper amortisation per loan (calcMonths handles compounding)
+    const loanMonths=activeDebts.map(d=>calcMonths(parseFloat(d.outstanding)||0,parseFloat(d.emi)||0,parseFloat(d.interestRate)||0)).filter(Boolean);
+    // CC outstanding: treat as 36% p.a. if no specific rate, minDue as payment
+    const ccMonths=creditCards.map(c=>{const out=parseFloat(c.outstanding)||0;if(!out)return null;const pmt=parseFloat(c.minDue)||Math.max(250,out*0.05);return calcMonths(out,pmt,parseFloat(c.interestRate)||36);}).filter(Boolean);
+    const allMonths=[...loanMonths,...ccMonths];
+    if(!allMonths.length)return null;
+    return Math.max(...allMonths);
+  },[activeDebts,creditCards,totalOutstanding,totalCCOut,extraFund]);
+  const cashFlowForecast = useMemo(()=>{const now=new Date();const salDay=parseInt(salary.creditDay)||1;const salAmt=parseFloat(salary.amount)||effectiveIncome||0;const dailyExp=Math.max(thisMonthExp,avgMonthlyExp,1)/30;let running=Math.max(cashLeft,0);return Array.from({length:30},(_,i)=>{const d=new Date(now);d.setDate(d.getDate()+i+1);if(d.getDate()===salDay&&salAmt>0)running+=salAmt;[...activeDebts,...creditCards].forEach(item=>{if(item.dueDate&&new Date(item.dueDate).getDate()===d.getDate())running-=parseFloat(item.emi||item.minDue||0);});running-=dailyExp;return{day:i+1,label:d.getDate()+"/"+(d.getMonth()+1),balance:Math.round(running)};});},[cashLeft,salary,effectiveIncome,thisMonthExp,avgMonthlyExp,activeDebts,creditCards]);
   const spendAlerts = useMemo(()=>allCategories.expense.map(cat=>({cat,spent:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),limit:budgets[cat]||0})).filter(a=>a.limit>0&&(a.spent/a.limit)>=0.8).map(a=>({...a,pct:Math.round((a.spent/a.limit)*100),over:a.spent>a.limit})),[thisMonthTx,budgets,allCategories]);
 
   // ─── ACCOUNT BALANCE (must be before netWorth) ───────────────────────────
@@ -492,7 +506,13 @@ const filterByPeriod = useCallback((txList, period) => {
   [accounts]);
 
   // ─── NET WORTH (depends on totalAccountBalance) ──────────────────────────
-  const netWorth = useMemo(()=>totalAccountBalance+savingsTotal-totalOutstanding-totalCCOut,[totalAccountBalance,savingsTotal,totalOutstanding,totalCCOut]);
+  const totalMFCurrentValue = useMemo(()=>mutualFunds.reduce((s,f)=>{
+    const invested=parseFloat(f.amount||0);
+    const units=f.units?parseFloat(f.units):(f.buyPrice&&invested>0?invested/parseFloat(f.buyPrice):0);
+    const current=(f.currentNav&&units>0)?units*parseFloat(f.currentNav):invested;
+    return s+current;
+  },0),[mutualFunds]);
+  const netWorth = useMemo(()=>totalAccountBalance+savingsTotal+totalMFCurrentValue-totalOutstanding-totalCCOut,[totalAccountBalance,savingsTotal,totalMFCurrentValue,totalOutstanding,totalCCOut]);
 
   // ─── 15-DAY STRESS PANEL ─────────────────────────────────────────────────
   const next15Days = useMemo(() => {
@@ -623,7 +643,30 @@ const filterByPeriod = useCallback((txList, period) => {
 
     
   function openEditTx(t) { setTxForm({...t}); setEditTxId(t.id); setShowTxForm(true); }
-  function deleteTx(id) { setTransactions(p=>p.filter(t=>t.id!==id)); }
+  function deleteTx(id) {
+    const tx = transactions.find(t=>t.id===id);
+    if (!tx) return;
+    // Reverse account balance effect
+    if (tx._accountId) {
+      setAccounts(p=>p.map(a=>{
+        if (String(a.id)!==String(tx._accountId)) return a;
+        const bal = parseFloat(a.balance)||0;
+        // income added balance → subtract it back; expense reduced balance → add it back
+        if (tx.type==="income") return {...a, balance: Math.max(0, bal - tx.amount)};
+        if (tx.type==="expense" && tx.paymentMode!=="Credit Card") return {...a, balance: bal + tx.amount};
+        return a;
+      }));
+    }
+    // Reverse CC outstanding effect
+    if (tx.type==="expense" && tx.paymentMode==="Credit Card" && tx.bank) {
+      // Was a CC purchase — reduces outstanding back
+      setCreditCards(p=>p.map(c=>c.name===tx.bank ? {...c, outstanding:Math.max(0,(parseFloat(c.outstanding)||0)-tx.amount)} : c));
+    } else if (tx.type==="expense" && tx.category==="Credit Card Bill" && tx.bank) {
+      // Was a CC payment — increases outstanding back (payment is being undone)
+      setCreditCards(p=>p.map(c=>(c.bank===tx.bank||c.name===tx.bank) ? {...c, outstanding:(parseFloat(c.outstanding)||0)+tx.amount} : c));
+    }
+    setTransactions(p=>p.filter(t=>t.id!==id));
+  }
 
   function saveDebt() {
     if (!debtForm.name) return;
@@ -635,9 +678,10 @@ const filterByPeriod = useCallback((txList, period) => {
   function deleteDebt(id)  { setDebts(p=>p.filter(d=>d.id!==id)); }
   function toggleDebtClosed(id) { setDebts(p=>p.map(d=>d.id===id?{...d,closed:!d.closed}:d)); }
   function recordLoanPayment(id, amt, emiKey) {
-    setDebts(p=>p.map(d=>{ if(d.id!==id)return d; const n=Math.max(0,(parseFloat(d.outstanding)||0)-amt); return{...d,outstanding:n,closed:n===0}; }));
-    const d=debts.find(x=>x.id===id);
+    // Capture the debt object BEFORE calling setDebts to avoid stale closure
+    const d = debts.find(x=>x.id===id);
     const primaryAcc = accounts.find(a=>a.type==="savings")||accounts[0];
+    setDebts(p=>p.map(d=>{ if(d.id!==id)return d; const n=Math.max(0,(parseFloat(d.outstanding)||0)-amt); return{...d,outstanding:n,closed:n===0}; }));
     const tx = {id:Date.now(),type:"expense",amount:amt,category:"Loan EMI",paymentMode:"Net Banking",
       bank:d?.lender||"",note:`Payment: ${d?.name||""}`,date:today(),
       _accountId:primaryAcc?.id||"",
@@ -668,9 +712,10 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
   function openEditCC(c) { setCcForm({...c}); setEditCCId(c.id); setShowCCForm(true); }
   function deleteCC(id)  { setCreditCards(p=>p.filter(c=>c.id!==id)); }
   function recordCCPayment(id, amt) {
-    setCreditCards(p=>p.map(c=>{ if(c.id!==id)return c; return{...c,outstanding:Math.max(0,(parseFloat(c.outstanding)||0)-amt)}; }));
+    // Capture CC object BEFORE calling setCreditCards to avoid stale closure
     const cc=creditCards.find(c=>c.id===id);
     const primaryAcc = accounts.find(a=>a.type==="savings")||accounts[0];
+    setCreditCards(p=>p.map(c=>{ if(c.id!==id)return c; return{...c,outstanding:Math.max(0,(parseFloat(c.outstanding)||0)-amt)}; }));
     const tx = {id:Date.now(),type:"expense",amount:amt,category:"Credit Card Bill",
       paymentMode:"Net Banking",bank:cc?.bank||"",note:`CC: ${cc?.name||""}`,date:today(),
       _accountId:primaryAcc?.id||"",
@@ -799,7 +844,6 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
     setCcEmis(p => p.map(e => e.id===id ? {...e, autoEMI: e.autoEMI===false ? true : false} : e));
   }
 
-  function exportTransactions() { dlCSV(toCSV(transactions.map(t=>({Date:t.date,Type:t.type,Category:t.category,Amount:t.amount,Mode:t.paymentMode||"",Bank:t.bank||"",Note:t.note||""})),["Date","Type","Category","Amount","Mode","Bank","Note"]),"fintrack_export.csv"); }
 
   // ─── CSV IMPORT ──────────────────────────────────────────────────────────
   function guessCategory(n) {
@@ -864,7 +908,7 @@ FINANCIAL SNAPSHOT:
 - Monthly Income: ${fc(effectiveIncome)}
 - Total EMIs (loans): ${fc(totalEMI)} (${dti}% of income)
 - CC EMIs: ${fc(totalCCEMI)}
-- Monthly Expenses: ${fc(totalExpense)}
+- Monthly Expenses: ${fc(thisMonthExp)}
 - Cash Left: ${fc(cashLeft)}
 - Loan Outstanding: ${fc(totalOutstanding)}
 - CC Outstanding: ${fc(totalCCOut)}
@@ -888,6 +932,54 @@ Provide (use emoji headers, max 350 words):
     }catch{setAiAdvice("Connection error. Try again.");}
     setAiLoading(false);
   },[effectiveIncome,totalEMI,totalCCEMI,totalExpense,cashLeft,totalOutstanding,totalCCOut,health,activeDebts,creditCards,extraFund,recommended]);
+
+  // ─── AUTO EMI ENGINE ─────────────────────────────────────────────────────
+  // Runs once on login (and when debts/ccEmis change). Checks if any auto-EMI
+  // is due today and hasn't already been recorded this cycle.
+  useEffect(()=>{
+    if (!loaded || !user) return;
+    const now = new Date();
+    const todayDay = now.getDate();
+    const cycleKey = `${now.getFullYear()}_${now.getMonth()}`; // "2026_2" etc.
+
+    // Auto-deduct loan EMIs
+    activeDebts.forEach(d=>{
+      if (d.autoEMI===false) return;          // manual — skip
+      if (!d.dueDate || !d.emi) return;
+      const dueDay = new Date(d.dueDate).getDate();
+      if (dueDay !== todayDay) return;        // not due today
+      const emiKey = `emi_${d.id}_${cycleKey}`;
+      const alreadyDone = transactions.some(t=>t._emiKey===emiKey);
+      if (alreadyDone) return;               // already fired this month
+      const emiAmt = parseFloat(d.emi)||0;
+      if (!emiAmt) return;
+      recordLoanPayment(d.id, emiAmt, emiKey);
+    });
+
+    // Auto-deduct CC EMIs
+    ccEmis.forEach(e=>{
+      if (e.autoEMI===false) return;
+      const card = creditCards.find(c=>String(c.id)===String(e.cardId));
+      if (!card?.dueDate) return;
+      const dueDay = new Date(card.dueDate).getDate();
+      if (dueDay !== todayDay) return;
+      const emiKey = `ccemi_${e.id}_${cycleKey}`;
+      const alreadyDone = transactions.some(t=>t._emiKey===emiKey);
+      if (alreadyDone) return;
+      const emiAmt = parseFloat(e.amount)||0;
+      if (!emiAmt) return;
+      // Deduct from CC outstanding and account
+      setCcEmis(p=>p.map(x=>x.id===e.id?{...x,monthsLeft:Math.max(0,(parseInt(x.monthsLeft)||1)-1)}:x));
+      const primaryAcc = accounts.find(a=>a.type==="savings")||accounts[0];
+      const tx = {id:Date.now()+Math.random(),type:"expense",amount:emiAmt,
+        category:"Credit Card EMI",paymentMode:"Net Banking",
+        bank:card.bank||"",note:`Auto CC EMI: ${e.description||card.name}`,
+        date:today(),_emiKey:emiKey,_accountId:primaryAcc?.id||""};
+      setTransactions(p=>[tx,...p]);
+      if(primaryAcc) setAccounts(p=>p.map(a=>a.id===primaryAcc.id?{...a,balance:Math.max(0,(parseFloat(a.balance)||0)-emiAmt)}:a));
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[loaded, user]);  // Only re-run on login — not on every transaction change
 
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -3292,7 +3384,7 @@ if (!user) {
                   const isPos    = gain>=0;
                   const startDays= f.startDate?Math.floor((Date.now()-new Date(f.startDate))/86400000):0;
                   const yrs      = startDays/365;
-                  const xirr     = yrs>0.08&&invested>0?(Math.pow(current/invested,1/yrs)-1)*100:null;
+                  const cagr     = yrs>0.08&&invested>0?(Math.pow(current/invested,1/yrs)-1)*100:null; // CAGR (point-to-point); true XIRR needs cashflow timing
                   return(
                     <div key={f.id} style={{background:C.card,borderRadius:14,padding:"14px 16px",border:`1.5px solid ${isPos?C.income+"30":C.expense+"30"}`}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -3313,7 +3405,7 @@ if (!user) {
                         {[
                           {label:"Invested",   val:fc(invested), color:C.muted},
                           {label:"Current",    val:fc(current),  color:isPos?C.income:C.expense},
-                          {label:xirr!=null?"XIRR":"Return", val:xirr!=null?xirr.toFixed(1)+"%/yr":gainPct.toFixed(1)+"%", color:isPos?C.income:C.expense},
+                          {label:cagr!=null?"CAGR/yr":"Return", val:cagr!=null?cagr.toFixed(1)+"%":gainPct.toFixed(1)+"%", color:isPos?C.income:C.expense},
                         ].map(item=>(
                           <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"8px 10px",textAlign:"center"}}>
                             <div className="lbl" style={{textAlign:"center",fontSize:9}}>{item.label}</div>
