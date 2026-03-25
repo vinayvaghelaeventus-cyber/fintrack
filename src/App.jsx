@@ -163,6 +163,9 @@ export default function App() {
   const [user, setUser] = useState(null);
 const [ccEmis, setCcEmis] = useState([]);
     const [dashPeriod, setDashPeriod] = useState("month");
+  const [showPeriodPicker, setShowPeriodPicker] = useState(false);
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
 const [showCCEmiForm, setShowCCEmiForm] = useState(false);
 const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [fbStatus, setFbStatus] = useState("loading");
@@ -393,7 +396,6 @@ useEffect(() => {
 
 const filterByPeriod = useCallback((txList, period) => {
   const now = new Date(); now.setHours(23,59,59,999);
-  // Parse date strings as LOCAL dates, not UTC — avoids timezone-shift to wrong month
   return txList.filter(t=>{
     const d = parseLocal(t.date);
     if (!d) return false;
@@ -403,9 +405,18 @@ const filterByPeriod = useCallback((txList, period) => {
     if(period==="month"){ return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear(); }
     if(period==="lastmonth"){ const lm=new Date(n.getFullYear(),n.getMonth()-1,1);return d.getMonth()===lm.getMonth()&&d.getFullYear()===lm.getFullYear(); }
     if(period==="3months"){ const s=new Date();s.setMonth(s.getMonth()-3);s.setHours(0,0,0,0);return d>=s&&d<=now; }
+    if(period==="year"){ return d.getFullYear()===n.getFullYear(); }
+    if(period==="custom"){ 
+      const from=customDateFrom?parseLocal(customDateFrom):null;
+      const to=customDateTo?parseLocal(customDateTo):null;
+      if(to) to.setHours(23,59,59,999);
+      if(from&&to) return d>=from&&d<=to;
+      if(from) return d>=from;
+      if(to) return d<=to;
+    }
     return true;
   });
-},[]);
+},[customDateFrom, customDateTo]);
 
     
   const upcomingDues  = useMemo(() => [
@@ -1200,6 +1211,31 @@ Provide (use emoji headers, max 350 words):
       background:transparent;color:${C.muted};transition:all 0.18s;
     }
     .tx-seg-btn.on{background:${C.purple};color:#fff;box-shadow:0 2px 8px ${C.purple}40;}
+    /* ── Period Picker Dropdown ── */
+    .period-btn{
+      display:inline-flex;align-items:center;gap:6px;
+      background:rgba(255,255,255,0.18);border:none;border-radius:99px;
+      color:#fff;cursor:pointer;padding:5px 12px 5px 10px;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:11px;
+      transition:background 0.15s;
+    }
+    .period-btn:hover{background:rgba(255,255,255,0.28);}
+    .period-dropdown{
+      position:absolute;top:calc(100% + 8px);left:0;
+      background:${C.card};border:1px solid ${C.border};
+      border-radius:16px;padding:8px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.25);
+      z-index:200;min-width:200px;
+    }
+    .period-opt{
+      display:block;width:100%;padding:10px 14px;
+      background:transparent;border:none;border-radius:10px;
+      text-align:left;cursor:pointer;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:600;font-size:13px;
+      color:${C.text};transition:background 0.12s;
+    }
+    .period-opt:hover{background:${C.surface};}
+    .period-opt.active{background:${C.purpleDim};color:${C.purple};font-weight:700;}
   `;
 
   function DueBadge({days, dueDate}){
@@ -1468,331 +1504,403 @@ if (!user) {
       <div style={{maxWidth:1200,margin:"0 auto",padding:"16px 14px 16px",paddingBottom:100}}>
 
         {/* ════════ DASHBOARD ════════ */}
-        {tab==="Dashboard"&&<>
-            {/* Period Filter */}
-<div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2,alignItems:"center"}}>
-  {[
-    ["today","Today"],["week","This Week"],["month","This Month"],
-    ["lastmonth","Last Month"],["3months","3 Months"],["all","All Time"],
-  ].map(([v,l])=>(
-    <button key={v} className={`filter-btn ${dashPeriod===v?"on":""}`} onClick={()=>setDashPeriod(v)} style={{flexShrink:0}}>{l}</button>
-  ))}
-</div>
+        {tab==="Dashboard"&&(()=>{
+          // ── period label helper ──
+          const periodLabel = (()=>{
+            const n = new Date();
+            if(dashPeriod==="today") return new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+            if(dashPeriod==="week"){ const s=new Date();s.setDate(s.getDate()-7);return `${s.toLocaleDateString("en-IN",{day:"numeric",month:"short"})} – ${n.toLocaleDateString("en-IN",{day:"numeric",month:"short"})}`; }
+            if(dashPeriod==="month") return n.toLocaleDateString("en-IN",{month:"long",year:"numeric"});
+            if(dashPeriod==="lastmonth"){ const lm=new Date(n.getFullYear(),n.getMonth()-1,1);return lm.toLocaleDateString("en-IN",{month:"long",year:"numeric"}); }
+            if(dashPeriod==="3months"){ const s=new Date();s.setMonth(s.getMonth()-3);return `${s.toLocaleDateString("en-IN",{month:"short"})} – ${n.toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`; }
+            if(dashPeriod==="year") return `${n.getFullYear()}`;
+            if(dashPeriod==="custom"&&customDateFrom&&customDateTo) return `${fd(customDateFrom)} – ${fd(customDateTo)}`;
+            return "All Time";
+          })();
+          const periodOptions = [
+            {v:"today",   l:"Today"},
+            {v:"week",    l:"This Week"},
+            {v:"month",   l:"This Month"},
+            {v:"lastmonth",l:"Last Month"},
+            {v:"3months", l:"Last 3 Months"},
+            {v:"year",    l:"This Year"},
+            {v:"all",     l:"All Time"},
+            {v:"custom",  l:"Custom Range"},
+          ];
+          const pt = filterByPeriod(transactions, dashPeriod);
+          const pInc = pt.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
+          const pExp = pt.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+          const pEMI = pt.filter(t=>t._emiKey||t.category==="Loan EMI"||t.category==="Credit Card EMI").reduce((s,t)=>s+t.amount,0);
+          const netBal = pInc - pExp;
 
-          {/* ══ HERO BALANCE CARD — Fintastics style ══ */}
+          return <>
+
+          {/* ── 1. HERO CARD with period picker ── */}
           <div className="hero-card" style={{marginBottom:14}}>
-            {/* Month + arrow */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,position:"relative",zIndex:1}}>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <span style={{fontSize:11,color:"rgba(255,255,255,0.75)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
-                  📅 {new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}
-                </span>
+            {/* Header row: period picker + accounts link */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,position:"relative",zIndex:10}}>
+              {/* Period dropdown */}
+              <div style={{position:"relative"}}>
+                <button className="period-btn" onClick={()=>setShowPeriodPicker(p=>!p)}>
+                  📅 {periodLabel} <span style={{fontSize:9,opacity:0.7}}>▼</span>
+                </button>
+                {showPeriodPicker&&(
+                  <>
+                    <div style={{position:"fixed",inset:0,zIndex:199}} onClick={()=>setShowPeriodPicker(false)}/>
+                    <div className="period-dropdown">
+                      {periodOptions.map(o=>(
+                        <button key={o.v} className={`period-opt ${dashPeriod===o.v?"active":""}`}
+                          onClick={()=>{ if(o.v!=="custom"){setDashPeriod(o.v);setShowPeriodPicker(false);} else setDashPeriod("custom"); }}>
+                          {o.l}
+                        </button>
+                      ))}
+                      {dashPeriod==="custom"&&(
+                        <div style={{padding:"8px 14px",borderTop:`1px solid ${C.border}`,marginTop:4}}>
+                          <div style={{fontSize:10,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:6}}>DATE RANGE</div>
+                          <input type="date" className="inp" style={{marginBottom:6,fontSize:12}} value={customDateFrom} onChange={e=>setCustomDateFrom(e.target.value)} placeholder="From"/>
+                          <input type="date" className="inp" style={{marginBottom:8,fontSize:12}} value={customDateTo} onChange={e=>setCustomDateTo(e.target.value)} placeholder="To"/>
+                          <button className="btn btn-p btn-sm" style={{width:"100%"}} onClick={()=>setShowPeriodPicker(false)}>Apply</button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
-              <button className="btn-ghost btn-sm" onClick={()=>setTab("Smart")} style={{color:"rgba(255,255,255,0.85)",borderColor:"rgba(255,255,255,0.25)",fontSize:11,background:"rgba(255,255,255,0.1)"}}>Accounts →</button>
+              <button onClick={()=>setTab("Smart")} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:99,padding:"5px 12px",cursor:"pointer",fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>Accounts →</button>
             </div>
 
             {/* Balance numbers */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,position:"relative",zIndex:1}}>
               <div>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Current Balance</div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Cash Left</div>
                 <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:28,color:"#fff",letterSpacing:"-0.5px",lineHeight:1}}>{fc(cashLeft)}</div>
               </div>
               <div style={{textAlign:"right"}}>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Total Balance</div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:"rgba(255,255,255,0.9)",letterSpacing:"-0.3px",lineHeight:1}}>{fc(totalAccountBalance)}</div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Net Worth</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,color:"rgba(255,255,255,0.9)",letterSpacing:"-0.3px",lineHeight:1}}>{fc(netWorth)}</div>
               </div>
             </div>
 
             {/* Income / Expense sub-cards */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,position:"relative",zIndex:1}}>
-              <div style={{background:"rgba(255,255,255,0.14)",borderRadius:14,padding:"12px 14px",backdropFilter:"blur(8px)"}}>
+              <div style={{background:"rgba(255,255,255,0.14)",borderRadius:14,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                  <div style={{width:24,height:24,borderRadius:99,background:"rgba(0,229,160,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>↑</div>
+                  <div style={{width:22,height:22,borderRadius:99,background:"rgba(0,229,160,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#00e5a0"}}>↑</div>
                   <span style={{fontSize:10,color:"rgba(255,255,255,0.7)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>Income</span>
                 </div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:"#fff"}}>{fc(thisMonthInc)}</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:"#fff"}}>{fc(pInc)}</div>
               </div>
-              <div style={{background:"rgba(255,255,255,0.14)",borderRadius:14,padding:"12px 14px",backdropFilter:"blur(8px)"}}>
+              <div style={{background:"rgba(255,255,255,0.14)",borderRadius:14,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                  <div style={{width:24,height:24,borderRadius:99,background:"rgba(255,77,109,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>↓</div>
+                  <div style={{width:22,height:22,borderRadius:99,background:"rgba(255,77,109,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#ff4d6d"}}>↓</div>
                   <span style={{fontSize:10,color:"rgba(255,255,255,0.7)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>Expenses</span>
                 </div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:"#fff"}}>{fc(thisMonthExp)}</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:"#fff"}}>{fc(pExp)}</div>
               </div>
             </div>
-
-            {/* Accounts list if any */}
-            {accounts.length>0&&(
-              <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.15)",position:"relative",zIndex:1}}>
-                <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                  {accounts.slice(0,3).map(a=>{
-                    const bal=parseFloat(a.balance)||0;
-                    return(
-                      <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <span style={{fontSize:14}}>{a.icon||"🏦"}</span>
-                          <span style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{a.name}</span>
-                        </div>
-                        <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:bal>=0?"rgba(0,229,160,0.95)":"rgba(255,77,109,0.95)"}}>{fc(bal)}</span>
-                      </div>
-                    );
-                  })}
-                  {accounts.length>3&&<div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textAlign:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>+{accounts.length-3} more accounts</div>}
-                </div>
-              </div>
-            )}
-            {accounts.length===0&&(
-              <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.15)",position:"relative",zIndex:1,textAlign:"center"}}>
-                <span onClick={()=>setTab("Smart")} style={{fontSize:11,color:"rgba(255,255,255,0.6)",fontFamily:"'Cabinet Grotesk',sans-serif",cursor:"pointer"}}>+ Add bank accounts to track real balance</span>
-              </div>
-            )}
           </div>
 
-          {/* ══ CREDIT CARD UTILISATION ══ */}
-          {creditCards.length>0&&(
-            <div className="card" style={{marginBottom:12}}>
-              <div className="sec-hdr">
-                <div className="sec-hdr-title">💳 Credit Cards</div>
-                <button className="sec-hdr-more" onClick={()=>setTab("Cards")}>View All →</button>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                {creditCards.map(cc=>{
-                  const out = parseFloat(cc.outstanding)||0;
-                  const lim = parseFloat(cc.limit)||1;
-                  const util = Math.min(100,(out/lim)*100);
-                  const utilColor = util>=75?C.expense:util>=40?C.warning:C.income;
-                  return(
-                    <div key={cc.id} style={{padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${utilColor}25`}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                        <div>
-                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{cc.name}</span>
-                          <span style={{fontSize:10,color:C.muted,marginLeft:8}}>{cc.bank}</span>
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:utilColor}}>{util.toFixed(0)}% used</span>
-                          {util>=75&&<span className="tag" style={{background:`${C.expense}15`,color:C.expense,fontSize:9}}>High!</span>}
-                        </div>
-                      </div>
-                      <div className="pbar" style={{marginBottom:4}}><div className="pfill" style={{width:`${util}%`,background:utilColor}}/></div>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
-                        <span>Used: <span style={{color:utilColor,fontWeight:700}}>{fc(out)}</span></span>
-                        <span>Available: <span style={{color:C.income,fontWeight:700}}>{fc(Math.max(0,lim-out))}</span></span>
-                        <span>Limit: {fc(lim)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+          {/* ── 2. OVERALL SPENDING OVERVIEW ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div className="sec-hdr">
+              <div className="sec-hdr-title">📊 Spending Overview</div>
+              <button className="sec-hdr-more" onClick={()=>setTab("Insights")}>Details →</button>
             </div>
-          )}
-
-          {/* ══ EMI OVERVIEW ══ */}
-          {(activeDebts.length>0||ccEmis.length>0)&&(
-            <div className="card" style={{marginBottom:12}}>
-              <div className="sec-hdr">
-                <div className="sec-hdr-title">📅 EMIs This Month</div>
-                <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.loan}}>{fc(totalEMI+totalCCEMI)}</span>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {activeDebts.filter(d=>d.emi).map(d=>{
-                  const dueDay = d.dueDate ? new Date(d.dueDate).getDate() : null;
-                  const today = new Date().getDate();
-                  const isPaid = dueDay && today > dueDay;
-                  const isDueToday = dueDay && today === dueDay;
-                  const daysLeft = dueDay ? dueDay - today : null;
-                  return(
-                    <div key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:C.surface,borderRadius:10,border:`1px solid ${isDueToday?C.warning+"50":isPaid?C.income+"25":C.border}`}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <div style={{width:8,height:8,borderRadius:"50%",background:isDueToday?C.warning:isPaid?C.income:C.loan,flexShrink:0}}/>
-                        <div>
-                          <div style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{d.name}</div>
-                          <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{d.lender}</div>
-                          {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate}/>}
-                        </div>
-                      </div>
-                      <div style={{textAlign:"right"}}>
-                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.loan}}>{fc(parseFloat(d.emi)||0)}</div>
-                        <div style={{fontSize:9,color:isDueToday?C.warning:isPaid?C.income:C.muted}}>
-                          {isDueToday?"⚡ Due today":isPaid?"✅ Paid":daysLeft!==null?`in ${daysLeft}d`:""}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {ccEmis.map(e=>{
-                  const card = creditCards.find(c=>String(c.id)===String(e.cardId));
-                  const dueDay = card?.dueDate ? new Date(card.dueDate).getDate() : null;
-                  const today = new Date().getDate();
-                  const isPaid = dueDay && today > dueDay;
-                  return(
-                    <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:C.surface,borderRadius:10,border:`1px solid ${C.border}`}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <div style={{width:8,height:8,borderRadius:"50%",background:C.credit,flexShrink:0}}/>
-                        <div>
-                          <div style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{e.description||card?.name||"CC EMI"}</div>
-                          <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{e.monthsLeft}mo left</div>
-                          {card?.dueDate&&<DueBadge days={daysUntil(card.dueDate)} dueDate={card.dueDate}/>}
-                        </div>
-                      </div>
-                      <div style={{textAlign:"right"}}>
-                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.credit}}>{fc(parseFloat(e.amount)||0)}</div>
-                        <div style={{fontSize:9,color:isPaid?C.income:C.muted}}>{isPaid?"✅ Paid":""}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Period Summary Strip */}
-          <div className="g4" style={{marginBottom:12}}>
-  {(()=>{
-    const pt = filterByPeriod(transactions, dashPeriod);
-    const pInc = pt.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
-    const pExp = pt.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
-    // EMIs in this period only (auto-deducted EMI transactions)
-    const pEMI = pt.filter(t=>t._emiKey||t.category==="Loan EMI"||t.category==="Credit Card EMI").reduce((s,t)=>s+t.amount,0);
-    const periodLabel = (()=>{
-      const n = new Date();
-      if(dashPeriod==="today") return new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short"});
-      if(dashPeriod==="week"){ const s=new Date(); s.setDate(s.getDate()-7); return `${s.toLocaleDateString("en-IN",{day:"numeric",month:"short"})} – ${n.toLocaleDateString("en-IN",{day:"numeric",month:"short"})}`; }
-      if(dashPeriod==="month"){ const m=n.toLocaleDateString("en-IN",{month:"long",year:"numeric"}); const last=new Date(n.getFullYear(),n.getMonth()+1,0).getDate(); return `1–${last} ${n.toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`; }
-      if(dashPeriod==="lastmonth"){ const lm=new Date(n.getFullYear(),n.getMonth()-1,1); const last=new Date(n.getFullYear(),n.getMonth(),0).getDate(); return `1–${last} ${lm.toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`; }
-      if(dashPeriod==="3months"){ const s=new Date(); s.setMonth(s.getMonth()-3); return `${s.toLocaleDateString("en-IN",{month:"short"})} – ${n.toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`; }
-      return "All Time";
-    })();
-    // Net balance = income minus ALL expenses for period (not lifetime)
-    const netBal = pInc - pExp;
-    return[
-      {label:"Income",      val:fc(pInc),   color:C.income,  sub:periodLabel},
-      {label:"Expenses",    val:fc(pExp),   color:C.expense, sub:periodLabel},
-      {label:"EMIs Paid",   val:fc(pEMI),   color:C.loan,    sub:periodLabel},
-      {label:"Net Balance", val:fc(netBal), color:netBal>=0?C.income:C.expense, sub:periodLabel},
-    ].map(item=>(
-      <div key={item.label} className="scard">
-        <div className="lbl">{item.label}</div>
-        <div style={{fontSize:17,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div>
-        {item.sub&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>{item.sub}</div>}
-      </div>
-    ));
-  })()}
-</div>
-
-          {/* ── 15-Day Stress Mini Banner ── */}
-          {next15Days.dues.length>0&&(
-            <div onClick={()=>setTab("Smart")} style={{
-              marginBottom:10,padding:"12px 16px",borderRadius:14,cursor:"pointer",
-              background: next15Days.status==="safe"?`${C.income}08`:next15Days.status==="tight"?`${C.warning}08`:`${C.expense}10`,
-              border:`1px solid ${next15Days.status==="safe"?C.income:next15Days.status==="tight"?C.warning:C.expense}35`,
-              display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,
-            }}>
-              <div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,
-                  color:next15Days.status==="safe"?C.income:next15Days.status==="tight"?C.warning:C.expense}}>
-                  {next15Days.status==="safe"?"✅":next15Days.status==="tight"?"⚠️":"🚨"} {next15Days.dues.length} due in 15 days
+            {/* 4 stat boxes */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              {[
+                {label:"Income",      val:fc(pInc),              color:C.income},
+                {label:"Expenses",    val:fc(pExp),              color:C.expense},
+                {label:"EMIs",        val:fc(pEMI),              color:C.loan},
+                {label:"Net Balance", val:fc(netBal),            color:netBal>=0?C.income:C.expense},
+              ].map(item=>(
+                <div key={item.label} style={{background:C.surface,borderRadius:14,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                  <div className="lbl">{item.label}</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:16,color:item.color}}>{item.val}</div>
                 </div>
-                <div style={{fontSize:11,color:C.muted}}>{fc(next15Days.totalDue)} total · Balance {fc(next15Days.balance)}</div>
-              </div>
-              <span style={{fontSize:11,color:C.muted}}>View →</span>
+              ))}
             </div>
-          )}
-
-          {spendAlerts.length>0&&(
-            <div className="card" style={{marginBottom:10,borderColor:`${C.expense}35`,background:`${C.expense}06`}}>
-              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.expense,marginBottom:8}}>🚨 Budget Alerts</div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {spendAlerts.map(a=>(
-                  <div key={a.cat} style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:4}}>
-                    <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{a.cat}</span>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{fontSize:11,color:C.muted}}>{fc(a.spent)} / {fc(a.limit)}</span>
-                      <span className="tag" style={{background:a.over?`${C.expense}20`:`${C.warning}20`,color:a.over?C.expense:C.warning}}>{a.over?"Over!":a.pct+"%"}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {health.score<50&&activeDebts.length>0&&(
-            <div style={{marginBottom:10,padding:"11px 14px",background:`linear-gradient(135deg,${C.expense}10,${C.loan}08)`,border:`1px solid ${C.expense}25`,borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            {/* Top categories mini */}
+            {expenseByCat.length>0&&(
               <div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.expense}}>⚡ High debt load</div>
-                <div style={{fontSize:11,color:C.muted}}>EMIs are {effectiveIncome>0?((totalEMI/effectiveIncome)*100).toFixed(0):0}% of income</div>
-              </div>
-              <button className="btn btn-ai btn-sm" onClick={()=>setTab("Plan")}>🎯 My Plan →</button>
-            </div>
-          )}
-
-
-
-
-          <div className="g2" style={{marginBottom:10}}>
-            <div className="card">
-              <div className="stitle">By Payment Mode</div>
-              {expenseByMode.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",paddingTop:50}}>No data</div>:(
-                <>
-                  <ResponsiveContainer width="100%" height={90}>
-                    <PieChart><Pie data={expenseByMode} dataKey="value" cx="50%" cy="50%" innerRadius={25} outerRadius={42} paddingAngle={3}>
-                      {expenseByMode.map((_,i)=><Cell key={i} fill={CAT_COLORS[i%CAT_COLORS.length]}/>)}
-                    </Pie></PieChart>
-                  </ResponsiveContainer>
-                  {expenseByMode.slice(0,4).map((d,i)=>(
-                    <div key={d.name} style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                      <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:7,height:7,borderRadius:"50%",background:CAT_COLORS[i]}}/><span style={{fontSize:10,color:C.muted}}>{d.name}</span></div>
-                      <span style={{fontSize:10}}>{fc(d.value)}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-            <div className="card">
-              <div className="stitle">Top Categories</div>
-              {expenseByCat.length===0?<div style={{color:C.muted,textAlign:"center",paddingTop:40,fontSize:12}}>No data</div>:(
-                <div style={{overflowY:"auto",maxHeight:160}}>
-                  {[...expenseByCat].sort((a,b)=>b.value-a.value).slice(0,5).map((d,i)=>{
+                <div className="lbl" style={{marginBottom:8}}>Top Spending Categories</div>
+                <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                  {[...expenseByCat].sort((a,b)=>b.value-a.value).slice(0,4).map((d,i)=>{
                     const max=expenseByCat.reduce((m,x)=>Math.max(m,x.value),0);
                     return(
-                      <div key={d.name} style={{marginBottom:7}}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
-                          <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:7,height:7,borderRadius:"50%",background:d.color}}/><span style={{fontSize:10,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{d.name}</span></div>
-                          <span style={{fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{fc(d.value)}</span>
+                      <div key={d.name}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <div style={{width:8,height:8,borderRadius:"50%",background:d.color,flexShrink:0}}/>
+                            <span style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,color:C.text}}>{d.name}</span>
+                          </div>
+                          <span style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,color:C.text}}>{fc(d.value)}</span>
                         </div>
                         <div className="pbar"><div className="pfill" style={{width:`${(d.value/max)*100}%`,background:d.color}}/></div>
                       </div>
                     );
                   })}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+            {expenseByCat.length===0&&(
+              <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:12}}>
+                💡 No spending data for this period
+              </div>
+            )}
+            {/* Budget alerts inline */}
+            {spendAlerts.length>0&&(
+              <div style={{marginTop:12,padding:"10px 12px",background:`${C.expense}08`,borderRadius:12,border:`1px solid ${C.expense}25`}}>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,color:C.expense,marginBottom:6}}>🚨 Budget Alerts</div>
+                {spendAlerts.slice(0,3).map(a=>(
+                  <div key={a.cat} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <span style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{a.cat}</span>
+                    <span className="tag" style={{background:a.over?`${C.expense}20`:`${C.warning}20`,color:a.over?C.expense:C.warning}}>{a.over?"Over!":a.pct+"%"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="card">
+          {/* ── 3. RECENT TRANSACTIONS ── */}
+          <div className="card" style={{marginBottom:14}}>
             <div className="sec-hdr">
               <div className="sec-hdr-title">🧾 Recent Transactions</div>
               <button className="sec-hdr-more" onClick={()=>setTab("Transactions")}>View All →</button>
             </div>
-            {transactions.slice(0,6).map(t=>(
-              <div key={t.id} className="row">
-                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-                  <div style={{width:36,height:36,borderRadius:10,background:(t.type==="income"?C.income:C.expense)+"14",border:`1px solid ${(t.type==="income"?C.income:C.expense)}25`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:15,fontWeight:700,color:t.type==="income"?C.income:C.expense}}>{t.type==="income"?"↑":"↓"}</div>
-                  <div style={{minWidth:0}}>
-                    <div style={{fontSize:12,display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
-                      <span style={{fontWeight:500}}>{t.category}</span>
-                      {t.paymentMode&&<span className="tag" style={{background:C.surface,color:C.muted,fontSize:9}}>{t.paymentMode}</span>}
-                    </div>
-                    <div style={{fontSize:10,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-  {t.note?`${t.note} · `:""}{fd(t.date)}{t.time?` · ${t.time}`:""}
-</div>
-                  </div>
+            {transactions.length===0
+              ? <div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:12}}>
+                  <div style={{fontSize:32,marginBottom:8}}>📝</div>
+                  No transactions yet.<br/>
+                  <span style={{color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+ Add your first entry</span>
                 </div>
-                <span style={{color:t.type==="income"?C.income:C.expense,fontWeight:700,fontSize:13,flexShrink:0,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{t.type==="income"?"+":"−"}{fc(t.amount)}</span>
-              </div>
-            ))}
-            {transactions.length===0&&<div style={{color:C.muted,textAlign:"center",padding:30,fontSize:12}}>No transactions yet. Tap + to add one!</div>}
+              : transactions.slice(0,6).map(t=>(
+                <div key={t.id} className="row">
+                  <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                    <div style={{width:38,height:38,borderRadius:12,background:(t.type==="income"?C.income:C.expense)+"16",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:15,fontWeight:700,color:t.type==="income"?C.income:C.expense}}>{t.type==="income"?"↑":"↓"}</div>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:13,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:2}}>{t.category}</div>
+                      <div style={{fontSize:10,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",gap:6,alignItems:"center"}}>
+                        {t.paymentMode&&<span style={{background:C.surface,borderRadius:6,padding:"1px 6px",border:`1px solid ${C.border}`,fontSize:9}}>{t.paymentMode}</span>}
+                        <span>{fd(t.date)}</span>
+                        {t.note&&<span>· {t.note}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{color:t.type==="income"?C.income:C.expense,fontWeight:800,fontSize:13,flexShrink:0,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{t.type==="income"?"+":"−"}{fc(t.amount)}</span>
+                </div>
+              ))
+            }
           </div>
-        </>}
+
+          {/* ── 4. BUDGET OVERVIEW ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div className="sec-hdr">
+              <div className="sec-hdr-title">🎯 Budget Overview</div>
+              <button className="sec-hdr-more" onClick={()=>setTab("Budget")}>Manage →</button>
+            </div>
+            {Object.keys(budgets).length===0
+              ? <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:12}}>
+                  <div style={{fontSize:28,marginBottom:6}}>📊</div>
+                  No budgets set.<br/>
+                  <span style={{color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Budget")}>Set monthly limits →</span>
+                </div>
+              : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {allCategories.expense
+                    .filter(cat=>budgets[cat])
+                    .slice(0,5)
+                    .map((cat,i)=>{
+                      const limit=budgets[cat]||0;
+                      const spent=thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0);
+                      const pct=limit>0?Math.min(100,(spent/limit)*100):0;
+                      const over=spent>limit&&limit>0;
+                      const barColor=over?C.expense:pct>80?C.warning:CAT_COLORS[i%CAT_COLORS.length];
+                      return(
+                        <div key={cat}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                            <div style={{display:"flex",alignItems:"center",gap:7}}>
+                              <div style={{width:8,height:8,borderRadius:"50%",background:barColor}}/>
+                              <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,fontSize:12,color:C.text}}>{cat}</span>
+                              {over&&<span className="tag" style={{background:`${C.expense}15`,color:C.expense,fontSize:9}}>Over!</span>}
+                            </div>
+                            <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                              <span style={{color:barColor,fontWeight:700}}>{fc(spent)}</span> / {fc(limit)}
+                            </div>
+                          </div>
+                          <div className="pbar"><div className="pfill" style={{width:`${pct}%`,background:barColor}}/></div>
+                        </div>
+                      );
+                    })
+                  }
+                  {Object.keys(budgets).length>5&&(
+                    <div style={{textAlign:"center",fontSize:11,color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Budget")}>
+                      +{Object.keys(budgets).length-5} more budgets →
+                    </div>
+                  )}
+                </div>
+            }
+          </div>
+
+          {/* ── 5. ALL ACCOUNTS BALANCE ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div className="sec-hdr">
+              <div className="sec-hdr-title">🏦 All Accounts</div>
+              <button className="sec-hdr-more" onClick={()=>setTab("Smart")}>Manage →</button>
+            </div>
+            {accounts.length===0
+              ? <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:12}}>
+                  <div style={{fontSize:28,marginBottom:6}}>🏦</div>
+                  No accounts added yet.<br/>
+                  <span style={{color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Smart")}>+ Add account →</span>
+                </div>
+              : <>
+                  <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
+                    {accounts.map(a=>{
+                      const bal=parseFloat(a.balance)||0;
+                      return(
+                        <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            <div style={{width:38,height:38,borderRadius:11,background:`${a.color||C.purple}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{a.icon||"🏦"}</div>
+                            <div>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{a.name}</div>
+                              <div style={{fontSize:10,color:C.muted,textTransform:"capitalize"}}>{a.type}{a.bank?` · ${a.bank}`:""}</div>
+                            </div>
+                          </div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:bal>=0?C.income:C.expense}}>{fc(bal)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Total bar */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:`${C.purple}12`,borderRadius:12,border:`1px solid ${C.purple}25`}}>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.purple}}>Total Balance</span>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18,color:C.purple}}>{fc(totalAccountBalance)}</span>
+                  </div>
+                </>
+            }
+            {/* Credit cards quick view */}
+            {creditCards.length>0&&(
+              <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                <div className="lbl" style={{marginBottom:8}}>Credit Cards</div>
+                {creditCards.map(cc=>{
+                  const out=parseFloat(cc.outstanding)||0;
+                  const lim=parseFloat(cc.limit)||1;
+                  const util=Math.min(100,(out/lim)*100);
+                  const uc=util>=75?C.expense:util>=40?C.warning:C.income;
+                  return(
+                    <div key={cc.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:C.surface,borderRadius:10,border:`1px solid ${uc}25`,marginBottom:6}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:16}}>💳</span>
+                        <div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{cc.name}</div>
+                          <div style={{fontSize:10,color:C.muted}}>{util.toFixed(0)}% used</div>
+                        </div>
+                      </div>
+                      <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:uc}}>{fc(out)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ── 6. DUES & REMINDERS ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div className="sec-hdr">
+              <div className="sec-hdr-title">🔔 Dues & Reminders</div>
+              <button className="sec-hdr-more" onClick={()=>setTab("Cards")}>View All →</button>
+            </div>
+            {/* 15-day stress banner */}
+            {next15Days.dues.length>0&&(
+              <div style={{
+                marginBottom:12,padding:"10px 14px",borderRadius:12,
+                background:next15Days.status==="safe"?`${C.income}10`:next15Days.status==="tight"?`${C.warning}10`:`${C.expense}10`,
+                border:`1px solid ${next15Days.status==="safe"?C.income:next15Days.status==="tight"?C.warning:C.expense}30`,
+                display:"flex",justifyContent:"space-between",alignItems:"center",
+              }}>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,color:next15Days.status==="safe"?C.income:next15Days.status==="tight"?C.warning:C.expense}}>
+                    {next15Days.status==="safe"?"✅ All clear":next15Days.status==="tight"?"⚠️ Tight ahead":"🚨 High risk"} · Next 15 days
+                  </div>
+                  <div style={{fontSize:10,color:C.muted}}>{fc(next15Days.totalDue)} due · Balance {fc(next15Days.balance)}</div>
+                </div>
+                <span style={{fontSize:10,color:C.muted}}>View →</span>
+              </div>
+            )}
+            {upcomingDues.length===0
+              ? <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:12}}>
+                  <div style={{fontSize:28,marginBottom:6}}>🎉</div>
+                  No dues right now!<br/>Add loans or credit cards to track.
+                </div>
+              : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {upcomingDues.slice(0,5).map((d,i)=>{
+                    const isOverdue=(d.days??0)<0;
+                    const isUrgent=(d.days??99)<=3&&(d.days??99)>=0;
+                    const dueColor=isOverdue?C.expense:isUrgent?C.warning:C.muted;
+                    return(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${dueColor}25`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{width:36,height:36,borderRadius:10,background:`${dueColor}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>
+                            {d.kind==="loan"?"🏦":"💳"}
+                          </div>
+                          <div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{d.name}</div>
+                            <DueBadge days={d.days} dueDate={d.dueDate}/>
+                          </div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:d.kind==="loan"?C.loan:C.credit}}>
+                            {fc(parseFloat(d.emi||d.minDue||0))}
+                          </div>
+                          <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>{d.kind==="loan"?"EMI":"Min Due"}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {upcomingDues.length>5&&(
+                    <div style={{textAlign:"center",fontSize:11,color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Cards")}>
+                      +{upcomingDues.length-5} more dues →
+                    </div>
+                  )}
+                </div>
+            }
+          </div>
+
+          {/* ── 7. HEALTH SCORE + HIGH DEBT WARNING ── */}
+          {health.score>0&&(
+            <div className="card" style={{marginBottom:14}}>
+              <div className="sec-hdr">
+                <div className="sec-hdr-title">❤️ Financial Health</div>
+                <button className="sec-hdr-more" onClick={()=>setTab("Plan")}>Plan →</button>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+                <ScoreRing score={health.score} color={health.color} size={100}/>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:health.color,marginBottom:4}}>Grade {health.grade}</div>
+                  {health.items.map(item=>(
+                    <div key={item.label} style={{marginBottom:6}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginBottom:2}}>
+                        <span>{item.label}</span><span>{item.score}/{item.max}</span>
+                      </div>
+                      <div className="pbar"><div className="pfill" style={{width:`${(item.score/item.max)*100}%`,background:health.color}}/></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {health.score<50&&activeDebts.length>0&&(
+                <div style={{marginTop:12,padding:"10px 14px",background:`${C.expense}10`,borderRadius:12,border:`1px solid ${C.expense}25`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,color:C.expense}}>⚡ High debt load</div>
+                    <div style={{fontSize:11,color:C.muted}}>EMIs are {effectiveIncome>0?((totalEMI/effectiveIncome)*100).toFixed(0):0}% of income</div>
+                  </div>
+                  <button className="btn btn-ai btn-sm" onClick={()=>setTab("Plan")}>My Plan →</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          </>;
+        })()}
 
         {/* ════════ PLAN ════════ */}
         {tab==="Plan"&&<>
