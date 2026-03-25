@@ -10,18 +10,20 @@ import { loadData, saveData } from "./firebase";
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
 const DARK  = {
-  income:"#00e5a0", expense:"#ff4d6d", savings:"#7c6af7", 
-  bg:"#070810", card:"#0e1019", border:"#1a1d2e", text:"#eef0f8",
-  muted:"#4a5068", accent:"#5b8def", warning:"#ffb547", loan:"#b48af7",
-  credit:"#ff7a45", surface:"#131622", inputBg:"#0a0c14",
-  glass:"rgba(14,16,25,0.85)", glow:"rgba(91,141,239,0.15)"
+  income:"#00e5a0", expense:"#ff4d6d", savings:"#7c6af7",
+  bg:"#0d0d14", card:"#13131f", border:"#1e1e30", text:"#eef0f8",
+  muted:"#5a5f7a", accent:"#7b4fd4", warning:"#ffb547", loan:"#a78bfa",
+  credit:"#ff7a45", surface:"#18182a", inputBg:"#0e0e1c",
+  glass:"rgba(13,13,20,0.88)", glow:"rgba(123,79,212,0.18)",
+  purple:"#7b4fd4", purpleLight:"#9b6af7", purpleDim:"rgba(123,79,212,0.12)"
 };
 const LIGHT = {
   income:"#00a870", expense:"#e8294a", savings:"#5b4fd4",
-  bg:"#f5f7ff", card:"#ffffff", border:"#e8eaf5", text:"#0d0f1e",
-  muted:"#8890b0", accent:"#3d6fe8", warning:"#e89a00", loan:"#7c5fd4",
-  credit:"#e85a20", surface:"#f0f2fc", inputBg:"#eceffe",
-  glass:"rgba(255,255,255,0.9)", glow:"rgba(61,111,232,0.1)"
+  bg:"#f2f2f8", card:"#ffffff", border:"#e4e4f0", text:"#0d0f1e",
+  muted:"#8890b0", accent:"#7b4fd4", warning:"#e89a00", loan:"#7c5fd4",
+  credit:"#e85a20", surface:"#f8f8ff", inputBg:"#f0f0fa",
+  glass:"rgba(255,255,255,0.92)", glow:"rgba(123,79,212,0.08)",
+  purple:"#7b4fd4", purpleLight:"#9b6af7", purpleDim:"rgba(123,79,212,0.10)"
 };
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -858,6 +860,7 @@ Provide (use emoji headers, max 350 words):
       --bg: ${C.bg}; --card: ${C.card}; --border: ${C.border}; --text: ${C.text};
       --muted: ${C.muted}; --accent: ${C.accent}; --surface: ${C.surface};
       --income: ${C.income}; --expense: ${C.expense}; --glow: ${C.glow};
+      --purple: ${C.purple}; --purple-light: ${C.purpleLight};
     }
 
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -869,62 +872,63 @@ Provide (use emoji headers, max 350 words):
 
     input,select,textarea{
       outline:none;-webkit-appearance:none;
-      font-family:'JetBrains Mono',monospace;
+      font-family:'Cabinet Grotesk',sans-serif;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
 
-    /* ── Core Cards — more breathing room ── */
+    /* ── Core Cards ── */
     .card {
       background:${C.card};
-      border:1.5px solid ${C.border};
-      border-radius:20px;
-      padding:22px 20px;
-      margin-bottom:16px;
+      border:1px solid ${C.border};
+      border-radius:18px;
+      padding:18px 16px;
+      margin-bottom:14px;
       position:relative;overflow:hidden;
+      box-shadow: 0 2px 12px rgba(0,0,0,${darkMode?"0.18":"0.06"});
     }
 
-    /* ── ALL BUTTONS — clearly visible, never invisible ── */
+    /* ── ALL BUTTONS ── */
     .btn{
-      cursor:pointer;border:none;border-radius:12px;
+      cursor:pointer;border:none;border-radius:99px;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:13px;
-      padding:12px 22px;letter-spacing:0.1px;
+      padding:12px 24px;letter-spacing:0.1px;
       transition: all 0.18s cubic-bezier(.4,0,.2,1);
       display:inline-flex;align-items:center;gap:6px;justify-content:center;
       position:relative;overflow:hidden;
     }
     .btn:active{transform:scale(0.96);}
-    /* Primary — accent fill */
-    .btn-p{background:${C.accent};color:#fff;box-shadow:0 4px 16px ${C.accent}45;}
-    .btn-p:hover{box-shadow:0 6px 24px ${C.accent}60;filter:brightness(1.08);}
+    /* Primary — purple fill */
+    .btn-p{background:${C.purple};color:#fff;box-shadow:0 4px 16px ${C.purple}45;}
+    .btn-p:hover{box-shadow:0 6px 24px ${C.purple}60;filter:brightness(1.08);}
     /* Green */
-    .btn-g{background:${C.income};color:${darkMode?"#070810":"#fff"};box-shadow:0 4px 14px ${C.income}35;}
+    .btn-g{background:${C.income};color:${darkMode?"#0d0d14":"#fff"};box-shadow:0 4px 14px ${C.income}35;}
     .btn-g:hover{filter:brightness(1.08);}
-    /* Purple */
-    .btn-v{background:${C.loan};color:#fff;box-shadow:0 4px 14px ${C.loan}35;}
+    /* Purple light */
+    .btn-v{background:${C.purpleLight};color:#fff;box-shadow:0 4px 14px ${C.purpleLight}35;}
     /* AI gradient */
-    .btn-ai{background:linear-gradient(135deg,#5b4fd4,#9b6af7,#5b8def);color:#fff;box-shadow:0 4px 20px rgba(155,106,247,0.45);}
+    .btn-ai{background:linear-gradient(135deg,#5b4fd4,#9b6af7,#7b4fd4);color:#fff;box-shadow:0 4px 20px rgba(123,79,212,0.45);}
     .btn-ai:hover{filter:brightness(1.1);}
     /* Small modifier */
-    .btn-sm{padding:8px 16px;font-size:11.5px;border-radius:10px;}
-    /* Danger — visible red outline */
+    .btn-sm{padding:7px 16px;font-size:11.5px;border-radius:99px;}
+    /* Danger */
     .btn-danger{
       background:${C.expense}12;color:${C.expense};
       border:1.5px solid ${C.expense}50;
-      font-size:11px;padding:7px 13px;cursor:pointer;border-radius:10px;
+      font-size:11px;padding:7px 13px;cursor:pointer;border-radius:99px;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:700;transition:all 0.15s;
     }
     .btn-danger:hover{background:${C.expense}22;border-color:${C.expense}80;}
-    /* Ghost — always has a visible border */
+    /* Ghost */
     .btn-ghost{
       background:transparent;color:${C.text};
       border:1.5px solid ${C.border};
-      padding:8px 16px;border-radius:10px;cursor:pointer;
+      padding:7px 16px;border-radius:99px;cursor:pointer;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:600;font-size:11.5px;
       transition:all 0.15s;
     }
     .btn-ghost:hover{background:${C.surface};border-color:${C.muted}70;}
 
-    /* ── Inputs — generous padding ── */
+    /* ── Inputs ── */
     .inp{
       background:${C.inputBg};
       border:1.5px solid ${C.border};
@@ -935,26 +939,45 @@ Provide (use emoji headers, max 350 words):
       width:100%;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .inp:focus{border-color:${C.accent};box-shadow: 0 0 0 3px ${C.accent}18;}
+    .inp:focus{border-color:${C.purple};box-shadow: 0 0 0 3px ${C.purple}18;}
     .inp::placeholder{color:${C.muted};}
+
+    /* ── Underline Input (for forms like Add Transaction) ── */
+    .inp-line{
+      background:transparent;border:none;
+      border-bottom:1.5px solid ${C.border};
+      border-radius:0;color:${C.text};
+      padding:10px 4px;font-size:15px;width:100%;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:600;
+      transition:border-color 0.2s;
+    }
+    .inp-line:focus{border-bottom-color:${C.purple};outline:none;}
+    .inp-line::placeholder{color:${C.muted};font-weight:400;}
 
     /* ── Modal ── */
     .modal{
       position:fixed;inset:0;
-      background:rgba(0,0,0,0.78);
+      background:rgba(0,0,0,0.72);
       backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
       z-index:200;display:flex;align-items:flex-end;justify-content:center;
     }
     .sheet{
       width:100%;max-width:560px;
       background:${C.card};
-      border:1.5px solid ${C.border};
-      border-radius:24px 24px 0 0;
-      padding:32px 24px 36px;
+      border:1px solid ${C.border};
+      border-radius:28px 28px 0 0;
+      padding:28px 20px 36px;
       max-height:94vh;overflow-y:auto;
-      box-shadow:0 -20px 60px rgba(0,0,0,0.45);
+      box-shadow:0 -20px 60px rgba(0,0,0,0.4);
     }
-    @media(min-width:640px){.modal{align-items:center;padding:20px;}.sheet{border-radius:24px;}}
+    /* Sheet drag handle */
+    .sheet::before{
+      content:'';display:block;
+      width:36px;height:4px;border-radius:2px;
+      background:${C.border};
+      margin:0 auto 20px;
+    }
+    @media(min-width:640px){.modal{align-items:center;padding:20px;}.sheet{border-radius:24px;}.sheet::before{display:none;}}
 
     /* ── Tags ── */
     .tag{
@@ -972,50 +995,67 @@ Provide (use emoji headers, max 350 words):
     .lbl{
       font-size:9.5px;color:${C.muted};
       font-family:'Cabinet Grotesk',sans-serif;
-      font-weight:700;letter-spacing:1.6px;
+      font-weight:700;letter-spacing:1.4px;
       text-transform:uppercase;margin-bottom:6px;
       display:block;
     }
 
-    /* ── Section titles ── */
+    /* ── Section headers — Fintastics style ── */
     .stitle{
       font-family:'Cabinet Grotesk',sans-serif;
-      font-weight:800;font-size:15px;margin-bottom:16px;
-      letter-spacing:-0.2px;
+      font-weight:800;font-size:15px;margin-bottom:14px;
+      letter-spacing:-0.2px;color:${C.text};
+    }
+    /* Section header row with View All */
+    .sec-hdr{
+      display:flex;justify-content:space-between;align-items:center;
+      margin-bottom:12px;
+    }
+    .sec-hdr-title{
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:800;font-size:15px;
+      display:flex;align-items:center;gap:7px;color:${C.text};
+    }
+    .sec-hdr-more{
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:12px;
+      color:${C.purple};cursor:pointer;background:none;border:none;
     }
 
     /* ── Rows ── */
     .row{
       display:flex;justify-content:space-between;align-items:center;
-      padding:13px 0;
-      border-bottom:1px solid ${C.border}60;
+      padding:12px 0;
+      border-bottom:1px solid ${C.border}50;
       transition:background 0.15s;
     }
 
     /* ── Grids ── */
-    .g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-    .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+    .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
     @media(max-width:640px){.g4{grid-template-columns:repeat(2,1fr);}.g2{grid-template-columns:1fr;}}
 
     /* ── Stat cards ── */
     .scard{
-      background:${C.card};border:1.5px solid ${C.border};
-      border-radius:16px;padding:18px 16px;
+      background:${C.card};border:1px solid ${C.border};
+      border-radius:16px;padding:16px 14px;
       position:relative;overflow:hidden;
+      box-shadow:0 2px 8px rgba(0,0,0,${darkMode?"0.15":"0.05"});
       transition: border-color 0.2s, transform 0.2s;
     }
-    .scard:hover{transform:translateY(-1px);border-color:${C.muted}50;}
+    .scard:hover{transform:translateY(-1px);border-color:${C.purple}40;}
 
-    /* ── Filter buttons ── */
+    /* ── Filter chips — Fintastics style ── */
     .filter-btn{
-      cursor:pointer;padding:7px 14px;border-radius:99px;
+      cursor:pointer;padding:7px 16px;border-radius:99px;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:600;font-size:11px;
       border:1.5px solid ${C.border};
       background:transparent;color:${C.muted};
       transition:all 0.15s;white-space:nowrap;
     }
     .filter-btn:hover{border-color:${C.muted}80;color:${C.text};}
-    .filter-btn.on{border-color:${C.accent};color:${C.accent};background:${C.accent}14;}
+    .filter-btn.on{
+      border-color:${C.purple};color:#fff;
+      background:${C.purple};
+    }
 
     /* ── AI text ── */
     .ai-txt{white-space:pre-wrap;font-size:12.5px;line-height:1.95;font-family:'JetBrains Mono',monospace;}
@@ -1029,39 +1069,43 @@ Provide (use emoji headers, max 350 words):
     .pulse{animation:pulse 2s infinite;}
     @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
 
-    /* ── Bottom nav — clean minimal ── */
+    /* ── Bottom Nav — Fintastics style ── */
     .bnav{
       position:fixed;bottom:0;left:0;right:0;
-      background:${C.glass};
-      backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
-      border-top:1.5px solid ${C.border};
-      display:flex;z-index:100;
+      background:${C.purple};
+      display:flex;z-index:100;align-items:center;
       padding-bottom:env(safe-area-inset-bottom,0px);
+      box-shadow: 0 -4px 24px rgba(123,79,212,0.35);
     }
     .bn{
       display:flex;flex-direction:column;align-items:center;justify-content:center;
       padding:12px 4px 10px;
-      font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:9.5px;
-      color:${C.muted};cursor:pointer;border:none;background:transparent;gap:4px;flex:1;
-      transition:color 0.15s;letter-spacing:0.4px;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:9px;
+      color:rgba(255,255,255,0.6);cursor:pointer;border:none;
+      background:transparent;gap:3px;flex:1;
+      transition:color 0.15s;letter-spacing:0.3px;
     }
-    .bn.act{color:${C.accent};}
-    .bn.act span:first-child{filter: drop-shadow(0 0 6px ${C.accent}60);}
-
-    /* ── Due badge ── */
-    .due-badge{
-      display:inline-flex;align-items:center;gap:3px;
-      padding:3px 8px;border-radius:99px;
-      font-size:9.5px;font-family:'Cabinet Grotesk',sans-serif;font-weight:700;
-    }
-
-    /* ── FAB ── */
-    .fab{
-      position:fixed;bottom:76px;right:18px;
-      width:56px;height:56px;border-radius:16px;
-      background:${C.accent};border:none;cursor:pointer;font-size:22px;
+    .bn.act{color:#fff;}
+    .bn.act span:first-child{filter: drop-shadow(0 0 8px rgba(255,255,255,0.6));}
+    /* Centre FAB in nav */
+    .bn-fab{
+      width:52px;height:52px;border-radius:50%;
+      background:#fff;border:none;cursor:pointer;
+      font-size:24px;color:${C.purple};font-weight:900;
       display:flex;align-items:center;justify-content:center;
-      box-shadow:0 8px 28px ${C.accent}55;
+      box-shadow:0 4px 18px rgba(0,0,0,0.25);
+      flex-shrink:0;margin:0 4px;margin-top:-10px;
+      transition:transform 0.18s;
+    }
+    .bn-fab:active{transform:scale(0.92);}
+
+    /* ── FAB (desktop / fallback) ── */
+    .fab{
+      position:fixed;bottom:80px;right:18px;
+      width:56px;height:56px;border-radius:50%;
+      background:${C.purple};border:none;cursor:pointer;font-size:24px;
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 8px 28px ${C.purple}55;
       z-index:99;color:#fff;font-weight:800;
       transition:transform 0.18s, box-shadow 0.18s;
     }
@@ -1080,7 +1124,7 @@ Provide (use emoji headers, max 350 words):
     /* ── Hamburger menu ── */
     .hmenu{
       position:fixed;top:0;left:0;width:80%;max-width:300px;height:100vh;
-      background:${C.card};border-right:1.5px solid ${C.border};
+      background:${C.card};border-right:1px solid ${C.border};
       z-index:300;padding:0;display:flex;flex-direction:column;
       transform:translateX(-100%);
       transition:transform 0.28s cubic-bezier(.4,0,.2,1);
@@ -1089,37 +1133,73 @@ Provide (use emoji headers, max 350 words):
     .hmenu.open{transform:translateX(0);}
     .hmenu-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:299;backdrop-filter:blur(4px);}
     .hmenu-item{
-      display:flex;align-items:center;gap:12px;padding:16px 20px;
+      display:flex;align-items:center;gap:12px;padding:15px 20px;
       cursor:pointer;border:none;background:transparent;
       color:${C.text};font-family:'Cabinet Grotesk',sans-serif;
       font-weight:600;font-size:13px;width:100%;text-align:left;
       transition:background 0.15s;
     }
     .hmenu-item:hover{background:${C.surface};}
-    .hmenu-item.active{color:${C.accent};background:${C.accent}10;}
+    .hmenu-item.active{color:${C.purple};background:${C.purpleDim};}
 
     /* ── Pull to refresh ── */
     .ptr{display:flex;align-items:center;justify-content:center;overflow:hidden;transition:height 0.2s;background:${C.bg};}
-    .ptr-spinner{width:20px;height:20px;border:2px solid ${C.border};border-top-color:${C.accent};border-radius:50%;animation:spin 0.7s linear infinite;}
+    .ptr-spinner{width:20px;height:20px;border:2px solid ${C.border};border-top-color:${C.purple};border-radius:50%;animation:spin 0.7s linear infinite;}
     @keyframes spin{to{transform:rotate(360deg)}}
 
     /* ── Desktop tabs ── */
     .dtab-btn{
-      cursor:pointer;padding:8px 16px;border-radius:99px;
+      cursor:pointer;padding:7px 15px;border-radius:99px;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:12px;
       border:none;background:transparent;color:${C.muted};
       transition:all 0.15s;white-space:nowrap;
     }
     .dtab-btn:hover{color:${C.text};}
-    .dtab-btn.act{background:${C.accent}18;color:${C.accent};}
+    .dtab-btn.act{background:${C.purpleDim};color:${C.purple};}
 
     /* ── Misc ── */
     .num{font-family:'Cabinet Grotesk',sans-serif;font-weight:800;font-variant-numeric:tabular-nums;}
     .div{height:1px;background:${C.border}60;margin:16px 0;}
-    .gstat{background:${C.surface};border:1.5px solid ${C.border};border-radius:14px;padding:16px;transition:all 0.2s;}
-    .gstat:hover{border-color:${C.muted}40;transform:translateY(-1px);}
+    .gstat{background:${C.surface};border:1px solid ${C.border};border-radius:14px;padding:16px;transition:all 0.2s;}
+    .gstat:hover{border-color:${C.purple}30;transform:translateY(-1px);}
     .sheet::-webkit-scrollbar{width:3px;}
     .sheet::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
+
+    /* ── Due badge ── */
+    .due-badge{
+      display:inline-flex;align-items:center;gap:3px;
+      padding:3px 8px;border-radius:99px;
+      font-size:9.5px;font-family:'Cabinet Grotesk',sans-serif;font-weight:700;
+    }
+
+    /* ── Hero card (purple gradient) ── */
+    .hero-card{
+      background:linear-gradient(135deg,${C.purple} 0%,${C.purpleLight} 100%);
+      border-radius:20px;padding:20px 18px 18px;
+      margin-bottom:14px;position:relative;overflow:hidden;
+      box-shadow:0 8px 32px ${C.purple}45;
+    }
+    .hero-card::before{
+      content:'';position:absolute;top:-30px;right:-30px;
+      width:140px;height:140px;border-radius:50%;
+      background:rgba(255,255,255,0.07);
+    }
+    .hero-card::after{
+      content:'';position:absolute;bottom:-40px;left:-20px;
+      width:120px;height:120px;border-radius:50%;
+      background:rgba(255,255,255,0.05);
+    }
+    /* Tx type segmented tabs */
+    .tx-seg{
+      display:flex;gap:0;background:${C.surface};
+      border-radius:12px;padding:3px;margin-bottom:16px;overflow:hidden;
+    }
+    .tx-seg-btn{
+      flex:1;padding:9px 4px;border:none;border-radius:10px;cursor:pointer;
+      font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:12px;
+      background:transparent;color:${C.muted};transition:all 0.18s;
+    }
+    .tx-seg-btn.on{background:${C.purple};color:#fff;box-shadow:0 2px 8px ${C.purple}40;}
   `;
 
   function DueBadge({days, dueDate}){
@@ -1264,7 +1344,7 @@ if (!user) {
       }}>
         <div style={{
           width:64, height:64, borderRadius:20,
-          background:`linear-gradient(135deg, ${C.accent}, ${C.loan})`,
+          background:`linear-gradient(135deg, ${C.purple}, ${C.purpleLight})`,
           display:"flex", alignItems:"center", justifyContent:"center",
           margin:"0 auto 20px",
           fontSize:28,
@@ -1323,7 +1403,7 @@ if (!user) {
         zIndex:50,gap:8,height:56,
       }}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:34,height:34,background:`linear-gradient(135deg, ${C.accent}, ${C.loan})`,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:16,boxShadow:`0 4px 12px ${C.accent}35`}}>₹</div>
+          <div style={{width:34,height:34,background:`linear-gradient(135deg, ${C.purple}, ${C.purpleLight})`,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:16,boxShadow:`0 4px 12px ${C.purple}35`}}>₹</div>
           <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:17,letterSpacing:"-0.3px"}}>FinTrack</span>
           {health.score>0&&<span className="tag" style={{background:health.color+"20",color:health.color,fontSize:10}}>{health.grade} · {health.score}/100</span>}
           {overdueCount>0&&<span className="pulse tag" style={{background:`${C.expense}15`,color:C.expense,cursor:"pointer"}} onClick={()=>setTab("Cards")}>⚠ {overdueCount} overdue</span>}
@@ -1346,24 +1426,31 @@ if (!user) {
         </div>
       </div>
 
-      {/* ── Mobile Header ── */}
+      {/* ── Mobile Header — Fintastics style ── */}
       <div style={{
-        borderBottom:`1px solid ${C.border}`,padding:"12px 16px",
+        padding:"10px 16px 10px",
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,
-        background:C.glass,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",
+        background:C.purple,
         zIndex:50,gap:8,
+        boxShadow:`0 2px 16px ${C.purple}60`,
       }}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:32,height:32,background:`linear-gradient(135deg,${C.accent},${C.loan})`,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:15,boxShadow:`0 3px 10px ${C.accent}35`}}>₹</div>
-          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,letterSpacing:"-0.3px"}}>FinTrack</span>
-          <span className="sync-dot"/>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {/* Logo */}
+          <div style={{width:34,height:34,background:"rgba(255,255,255,0.18)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:16}}>₹</div>
+          <div>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:"#fff",letterSpacing:"-0.3px",lineHeight:1.1}}>FinTrack</div>
+            <div style={{fontSize:9,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>
+              {new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})} &nbsp;
+              <span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:saving?"#ffb547":fbStatus==="ok"?"#00e5a0":"#ff4d6d",verticalAlign:"middle"}}/>
+            </div>
+          </div>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          {health.score>0&&<span className="tag" style={{background:health.color+"20",color:health.color,fontSize:10}}>{health.score}</span>}
-          {overdueCount>0&&<span className="pulse tag" style={{background:`${C.expense}15`,color:C.expense,fontSize:10}}>⚠{overdueCount}</span>}
-          <button className="btn-ghost btn-sm" onClick={()=>setDarkMode(p=>!p)} style={{padding:"5px 9px",fontSize:13}}>{darkMode?"☀":"🌙"}</button>
-          <button className="btn-ghost btn-sm" onClick={()=>setShowMenu(true)} style={{padding:"5px 11px",fontSize:15,lineHeight:1}}>☰</button>
+          {health.score>0&&<span style={{background:"rgba(255,255,255,0.18)",color:"#fff",padding:"3px 10px",borderRadius:99,fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{health.grade} {health.score}</span>}
+          {overdueCount>0&&<span className="pulse" style={{background:"rgba(255,77,109,0.35)",color:"#fff",padding:"3px 8px",borderRadius:99,fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>⚠ {overdueCount}</span>}
+          <button onClick={()=>setDarkMode(p=>!p)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:99,width:30,height:30,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center"}}>{darkMode?"☀":"🌙"}</button>
+          <button onClick={()=>setShowMenu(true)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:99,width:30,height:30,cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>☰</button>
         </div>
       </div>
       {fbNotConfigured&&(
@@ -1383,61 +1470,91 @@ if (!user) {
         {/* ════════ DASHBOARD ════════ */}
         {tab==="Dashboard"&&<>
             {/* Period Filter */}
-<div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-  <span style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginRight:2}}>Period:</span>
+<div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2,alignItems:"center"}}>
   {[
     ["today","Today"],["week","This Week"],["month","This Month"],
-    ["lastmonth","Last Month"],["3months","Last 3 Months"],["all","All Time"],
+    ["lastmonth","Last Month"],["3months","3 Months"],["all","All Time"],
   ].map(([v,l])=>(
-    <button key={v} className={`filter-btn ${dashPeriod===v?"on":""}`} onClick={()=>setDashPeriod(v)}>{l}</button>
+    <button key={v} className={`filter-btn ${dashPeriod===v?"on":""}`} onClick={()=>setDashPeriod(v)} style={{flexShrink:0}}>{l}</button>
   ))}
 </div>
 
-          {/* ══ MONEY OVERVIEW ══ */}
-          <div className="card" style={{marginBottom:12,borderColor:`${C.accent}25`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div className="stitle" style={{marginBottom:0}}>💰 My Money</div>
-              <button className="btn-ghost btn-sm" onClick={()=>setTab("Smart")} style={{fontSize:11}}>Manage Accounts →</button>
+          {/* ══ HERO BALANCE CARD — Fintastics style ══ */}
+          <div className="hero-card" style={{marginBottom:14}}>
+            {/* Month + arrow */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,position:"relative",zIndex:1}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:11,color:"rgba(255,255,255,0.75)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                  📅 {new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}
+                </span>
+              </div>
+              <button className="btn-ghost btn-sm" onClick={()=>setTab("Smart")} style={{color:"rgba(255,255,255,0.85)",borderColor:"rgba(255,255,255,0.25)",fontSize:11,background:"rgba(255,255,255,0.1)"}}>Accounts →</button>
             </div>
 
-            {accounts.length===0
-              ? <div style={{textAlign:"center",padding:"12px 0",color:C.muted,fontSize:12}}>
-                  No accounts added yet.{" "}
-                  <span onClick={()=>setTab("Smart")} style={{color:C.accent,cursor:"pointer",fontWeight:700}}>Add accounts →</span>
+            {/* Balance numbers */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,position:"relative",zIndex:1}}>
+              <div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Current Balance</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:28,color:"#fff",letterSpacing:"-0.5px",lineHeight:1}}>{fc(cashLeft)}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Total Balance</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:"rgba(255,255,255,0.9)",letterSpacing:"-0.3px",lineHeight:1}}>{fc(totalAccountBalance)}</div>
+              </div>
+            </div>
+
+            {/* Income / Expense sub-cards */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,position:"relative",zIndex:1}}>
+              <div style={{background:"rgba(255,255,255,0.14)",borderRadius:14,padding:"12px 14px",backdropFilter:"blur(8px)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                  <div style={{width:24,height:24,borderRadius:99,background:"rgba(0,229,160,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>↑</div>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,0.7)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>Income</span>
                 </div>
-              : <>
-                  {/* Bank + Cash accounts */}
-                  <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-                    {accounts.map(a=>{
-                      const bal = parseFloat(a.balance)||0;
-                      const isCash = a.type==="cash";
-                      return(
-                        <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`}}>
-                          <div style={{display:"flex",alignItems:"center",gap:10}}>
-                            <div style={{width:36,height:36,borderRadius:10,background:`${a.color||C.accent}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{a.icon||"🏦"}</div>
-                            <div>
-                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{a.name}</div>
-                              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>{isCash?"Cash in hand":a.type}{a.bank?` · ${a.bank}`:""}</div>
-                            </div>
-                          </div>
-                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:bal>=0?C.income:C.expense}}>{fc(bal)}</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:"#fff"}}>{fc(thisMonthInc)}</div>
+              </div>
+              <div style={{background:"rgba(255,255,255,0.14)",borderRadius:14,padding:"12px 14px",backdropFilter:"blur(8px)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                  <div style={{width:24,height:24,borderRadius:99,background:"rgba(255,77,109,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>↓</div>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,0.7)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>Expenses</span>
+                </div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:"#fff"}}>{fc(thisMonthExp)}</div>
+              </div>
+            </div>
+
+            {/* Accounts list if any */}
+            {accounts.length>0&&(
+              <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.15)",position:"relative",zIndex:1}}>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {accounts.slice(0,3).map(a=>{
+                    const bal=parseFloat(a.balance)||0;
+                    return(
+                      <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontSize:14}}>{a.icon||"🏦"}</span>
+                          <span style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{a.name}</span>
                         </div>
-                      );
-                    })}
-                  </div>
-                  {/* Total */}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:`${C.income}10`,borderRadius:12,border:`1px solid ${C.income}25`,marginBottom:2}}>
-                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income}}>Total Available</span>
-                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18,color:C.income}}>{fc(totalAccountBalance)}</span>
-                  </div>
-                </>
-            }
+                        <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:bal>=0?"rgba(0,229,160,0.95)":"rgba(255,77,109,0.95)"}}>{fc(bal)}</span>
+                      </div>
+                    );
+                  })}
+                  {accounts.length>3&&<div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textAlign:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>+{accounts.length-3} more accounts</div>}
+                </div>
+              </div>
+            )}
+            {accounts.length===0&&(
+              <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.15)",position:"relative",zIndex:1,textAlign:"center"}}>
+                <span onClick={()=>setTab("Smart")} style={{fontSize:11,color:"rgba(255,255,255,0.6)",fontFamily:"'Cabinet Grotesk',sans-serif",cursor:"pointer"}}>+ Add bank accounts to track real balance</span>
+              </div>
+            )}
           </div>
 
           {/* ══ CREDIT CARD UTILISATION ══ */}
           {creditCards.length>0&&(
             <div className="card" style={{marginBottom:12}}>
-              <div className="stitle" style={{marginBottom:10}}>💳 Credit Cards</div>
+              <div className="sec-hdr">
+                <div className="sec-hdr-title">💳 Credit Cards</div>
+                <button className="sec-hdr-more" onClick={()=>setTab("Cards")}>View All →</button>
+              </div>
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {creditCards.map(cc=>{
                   const out = parseFloat(cc.outstanding)||0;
@@ -1472,8 +1589,8 @@ if (!user) {
           {/* ══ EMI OVERVIEW ══ */}
           {(activeDebts.length>0||ccEmis.length>0)&&(
             <div className="card" style={{marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div className="stitle" style={{marginBottom:0}}>📅 EMIs This Month</div>
+              <div className="sec-hdr">
+                <div className="sec-hdr-title">📅 EMIs This Month</div>
                 <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.loan}}>{fc(totalEMI+totalCCEMI)}</span>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -1652,9 +1769,9 @@ if (!user) {
           </div>
 
           <div className="card">
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              <div className="stitle" style={{marginBottom:0}}>Recent Transactions</div>
-              <button className="btn-ghost btn-sm" onClick={()=>setTab("Transactions")} style={{border:"none",color:C.accent,background:"transparent",cursor:"pointer"}}>All →</button>
+            <div className="sec-hdr">
+              <div className="sec-hdr-title">🧾 Recent Transactions</div>
+              <button className="sec-hdr-more" onClick={()=>setTab("Transactions")}>View All →</button>
             </div>
             {transactions.slice(0,6).map(t=>(
               <div key={t.id} className="row">
@@ -2688,22 +2805,28 @@ if (!user) {
         </>}
       </div>
 
-      {/* ── Mobile Bottom Nav ── */}
+      {/* ── Mobile Bottom Nav — Fintastics style ── */}
       <nav className="bnav">
-        {MOBILE_TABS.map(t=>(
+        {MOBILE_TABS.slice(0,2).map(t=>(
+          <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}>
+            <span style={{fontSize:18}}>{t.icon}</span>{t.label}
+          </button>
+        ))}
+        {/* Centre FAB */}
+        <button className="bn-fab" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+</button>
+        {MOBILE_TABS.slice(2).map(t=>(
           <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}>
             <span style={{fontSize:18}}>{t.icon}</span>{t.label}
           </button>
         ))}
       </nav>
-      <button className="fab" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+</button>
 
       {/* ── Hamburger Menu (mobile only) ── */}
       {showMenu&&<div className="hmenu-overlay" onClick={()=>setShowMenu(false)}/>}
       <div className={`hmenu ${showMenu?"open":""}`}>
         <div style={{padding:"20px 20px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:28,height:28,background:"linear-gradient(135deg,#38bdf8,#6366f1)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13}}>₹</div>
+            <div style={{width:28,height:28,background:`linear-gradient(135deg,${C.purple},${C.purpleLight})`,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13}}>₹</div>
             <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15}}>FinTrack</span>
           </div>
           <button onClick={()=>setShowMenu(false)} style={{background:"transparent",border:"none",color:C.muted,fontSize:20,cursor:"pointer",padding:"2px 6px"}}>×</button>
@@ -2745,56 +2868,102 @@ if (!user) {
       {showTxForm&&(
         <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowTxForm(false),setEditTxId(null))}>
           <div className="sheet">
-            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editTxId?"Edit":"Add"} Transaction</div>
-            <div style={{display:"flex",gap:6,marginBottom:14,background:C.surface,padding:4,borderRadius:12}}>
+            {/* Purple header */}
+            <div style={{background:`linear-gradient(135deg,${C.purple},${C.purpleLight})`,borderRadius:16,padding:"14px 16px",marginBottom:20,textAlign:"center"}}>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:17,color:"#fff",marginBottom:2}}>{editTxId?"Edit Transaction":"Add Transaction"}</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.7)",fontFamily:"'Cabinet Grotesk',sans-serif"}}>{new Date().toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short",year:"numeric"})}</div>
+            </div>
+
+            {/* Expense / Income / Transfer segmented tabs */}
+            <div className="tx-seg" style={{marginBottom:18}}>
               {["expense","income"].map(type=>(
-                <button key={type} className="btn" onClick={()=>setTxForm(p=>({...p,type,category:allCategories[type][0]}))} style={{flex:1,background:txForm.type===type?(type==="income"?C.income:C.expense):"transparent",color:txForm.type===type?"#fff":C.muted}}>
+                <button key={type} className={`tx-seg-btn ${txForm.type===type?"on":""}`}
+                  onClick={()=>setTxForm(p=>({...p,type,category:allCategories[type][0]}))}>
                   {type==="income"?"↑ Income":"↓ Expense"}
                 </button>
               ))}
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div><div className="lbl">Amount ₹</div><input className="inp" type="number" placeholder="0" value={txForm.amount} onChange={e=>setTxForm(p=>({...p,amount:e.target.value}))}/></div>
-              <div className="g2">
-                <div><div className="lbl">Category</div><select className="inp" value={txForm.category} onChange={e=>setTxForm(p=>({...p,category:e.target.value}))}>{allCategories[txForm.type].map(c=><option key={c}>{c}</option>)}</select></div>
-                <div><div className="lbl">Payment Mode</div><select className="inp" value={txForm.paymentMode} onChange={e=>setTxForm(p=>({...p,paymentMode:e.target.value,bank:""}))}>{PAYMENT_MODES.map(m=><option key={m}>{m}</option>)}</select></div>
+
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              {/* Amount — large underline field */}
+              <div>
+                <div className="lbl">Enter your Amount *</div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:18,color:txForm.type==="income"?C.income:C.expense}}>
+                    {txForm.type==="income"?"↑":"↓"}
+                  </span>
+                  <input className="inp-line" type="number" placeholder="0.00"
+                    value={txForm.amount} onChange={e=>setTxForm(p=>({...p,amount:e.target.value}))}
+                    style={{fontSize:22,fontWeight:800,color:txForm.type==="income"?C.income:C.expense,flex:1}}/>
+                  <span style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",whiteSpace:"nowrap"}}>
+                    {new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}
+                  </span>
+                </div>
               </div>
-              {/* Account selector — smart based on payment mode */}
+
+              {/* Category */}
+              <div>
+                <div className="lbl">Name your category *</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,borderBottom:`1.5px solid ${C.border}`,paddingBottom:10}}>
+                  <span style={{fontSize:16}}>🏷</span>
+                  <select style={{background:"transparent",border:"none",color:C.text,flex:1,fontSize:14,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,outline:"none",cursor:"pointer"}}
+                    value={txForm.category} onChange={e=>setTxForm(p=>({...p,category:e.target.value}))}>
+                    {allCategories[txForm.type].map(c=><option key={c}>{c}</option>)}
+                  </select>
+                  <span style={{color:C.purple,fontSize:18,fontWeight:300}}>+</span>
+                </div>
+              </div>
+
+              {/* Payment Mode */}
+              <div>
+                <div className="lbl">Payment Mode *</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,borderBottom:`1.5px solid ${C.border}`,paddingBottom:10}}>
+                  <span style={{fontSize:16}}>🏦</span>
+                  <select style={{background:"transparent",border:"none",color:C.text,flex:1,fontSize:14,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,outline:"none",cursor:"pointer"}}
+                    value={txForm.paymentMode} onChange={e=>setTxForm(p=>({...p,paymentMode:e.target.value,bank:""}))}>
+                    {PAYMENT_MODES.map(m=><option key={m}>{m}</option>)}
+                  </select>
+                  <span style={{color:C.purple,fontSize:18,fontWeight:300}}>+</span>
+                </div>
+              </div>
+
+              {/* Account / Card selector */}
               <div className="g2">
                 <div>
-                  <div className="lbl">
-                    {txForm.paymentMode==="Credit Card"?"Credit Card Used":txForm.type==="income"?"Deposit To Account":"Paid From Account"}
-                  </div>
+                  <div className="lbl">{txForm.paymentMode==="Credit Card"?"Credit Card Used":txForm.type==="income"?"Deposit To":"Paid From"}</div>
                   {txForm.paymentMode==="Credit Card"
                     ? <select className="inp" value={txForm.bank} onChange={e=>setTxForm(p=>({...p,bank:e.target.value,_accountId:""}))}>
                         <option value="">Select card</option>
                         {creditCards.map(c=><option key={c.id} value={c.name}>{c.name} · {c.bank}</option>)}
                       </select>
                     : <select className="inp" value={txForm._accountId} onChange={e=>setTxForm(p=>({...p,_accountId:e.target.value}))}>
-                        <option value="">No account (manual)</option>
-                        {accounts.map(a=><option key={a.id} value={a.id}>{a.icon||"🏦"} {a.name} — {fc(parseFloat(a.balance)||0)}</option>)}
+                        <option value="">No account</option>
+                        {accounts.map(a=><option key={a.id} value={a.id}>{a.icon||"🏦"} {a.name}</option>)}
                       </select>
                   }
                 </div>
                 <div><div className="lbl">Date</div><input className="inp" type="date" value={txForm.date} onChange={e=>setTxForm(p=>({...p,date:e.target.value}))}/></div>
-</div>
+              </div>
 
-<div className="g2">
-  <div>
-    <div className="lbl">Time</div>
-    <input className="inp" type="time" value={txForm.time||""} onChange={e=>setTxForm(p=>({...p,time:e.target.value}))}/>
-  </div>
-  <div style={{display:"flex",alignItems:"flex-end"}}>
-    <button className="btn-ghost btn-sm" style={{width:"100%",padding:"10px"}}
-      onClick={()=>setTxForm(p=>({...p,time:new Date().toTimeString().slice(0,5)}))}>
-      🕐 Set Now
-    </button>
-  </div>
-</div>
+              <div className="g2">
+                <div>
+                  <div className="lbl">Time</div>
+                  <input className="inp" type="time" value={txForm.time||""} onChange={e=>setTxForm(p=>({...p,time:e.target.value}))}/>
+                </div>
+                <div style={{display:"flex",alignItems:"flex-end"}}>
+                  <button className="btn-ghost btn-sm" style={{width:"100%",padding:"10px"}}
+                    onClick={()=>setTxForm(p=>({...p,time:new Date().toTimeString().slice(0,5)}))}>
+                    🕐 Now
+                  </button>
+                </div>
+              </div>
+
               <div><div className="lbl">Note</div><input className="inp" placeholder="What was this for?" value={txForm.note} onChange={e=>setTxForm(p=>({...p,note:e.target.value}))}/></div>
-              <div style={{display:"flex",gap:9,marginTop:4}}>
-                <button className="btn" onClick={()=>{setShowTxForm(false);setEditTxId(null);}} style={{flex:1,background:C.border,color:C.muted}}>Cancel</button>
-                <button className="btn btn-p" onClick={saveTx} style={{flex:2}}>{editTxId?"Save Changes":"Add Transaction"}</button>
+
+              {/* Buttons */}
+              <div style={{display:"flex",gap:10,marginTop:4}}>
+                <button className="btn btn-ghost" onClick={()=>{setShowTxForm(false);setEditTxId(null);}} style={{flex:1,borderRadius:99}}>Cancel</button>
+                <button className="btn btn-p" onClick={saveTx} style={{flex:2}}>{editTxId?"Save Changes":"Save"}</button>
               </div>
             </div>
           </div>
