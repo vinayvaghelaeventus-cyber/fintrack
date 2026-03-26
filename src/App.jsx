@@ -34,13 +34,12 @@ const CATEGORIES = {
 };
 const CAT_COLORS = ["#38bdf8","#10b981","#f59e0b","#6366f1","#f43f5e","#a78bfa","#34d399","#fb923c","#e879f9","#22d3ee","#84cc16","#f472b6","#60a5fa","#fbbf24","#6ee7b7","#c084fc"];
 const MOBILE_TABS = [
-  {id:"Dashboard", icon:"🏠", label:"Home"},
-  {id:"Transactions", icon:"📋", label:"Txns"},
-  {id:"Finance",   icon:"📊", label:"Finance"},
-  {id:"Plan",      icon:"🎯", label:"Plan"},
-  {id:"Smart",     icon:"⚡", label:"Tools"},
+  {id:"Dashboard",    icon:"🏠", label:"Home"},
+  {id:"Budget",       icon:"🎯", label:"Budget"},
+  {id:"Cards",        icon:"💳", label:"Cards"},
+  {id:"Plan",         icon:"📊", label:"Plan"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Finance","Plan","Cards","Budget","Insights","Smart"];
+const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
@@ -1448,7 +1447,7 @@ if (!user) {
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
             <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>setTab(t)}>
-              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Finance"?"📊 Finance":t==="Smart"?"⚡ Smart":t}
+              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Insights"?"🔍 Insights":t==="Smart"?"⚡ Smart":t==="Budget"?"🎯 Budget":t}
             </button>
           ))}
         </div>
@@ -1572,12 +1571,14 @@ if (!user) {
             {/* Balance numbers */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,position:"relative",zIndex:1}}>
               <div>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Cash Left</div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:28,color:"#fff",letterSpacing:"-0.5px",lineHeight:1}}>{fc(cashLeft)}</div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Net Balance</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:28,color:netBal>=0?"#fff":"#ff8fa3",letterSpacing:"-0.5px",lineHeight:1}}>{fc(netBal)}</div>
+                <div style={{fontSize:9,color:"rgba(255,255,255,0.55)",fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:3}}>Income − Expenses · {periodLabel}</div>
               </div>
               <div style={{textAlign:"right"}}>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Net Worth</div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,color:"rgba(255,255,255,0.9)",letterSpacing:"-0.3px",lineHeight:1}}>{fc(netWorth)}</div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Account Balance</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,color:"rgba(255,255,255,0.9)",letterSpacing:"-0.3px",lineHeight:1}}>{fc(totalAccountBalance)}</div>
+                <div style={{fontSize:9,color:"rgba(255,255,255,0.55)",fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:3}}>Net Worth: {fc(netWorth)}</div>
               </div>
             </div>
 
@@ -1598,6 +1599,33 @@ if (!user) {
                 <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:"#fff"}}>{fc(pExp)}</div>
               </div>
             </div>
+          </div>
+
+          {/* ── QUICK ACCESS GRID ── */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
+            {[
+              {icon:"📋",label:"Txns",      tab:"Transactions"},
+              {icon:"🎯",label:"Budget",    tab:"Budget"},
+              {icon:"💳",label:"Cards",     tab:"Cards"},
+              {icon:"📊",label:"Plan",      tab:"Plan"},
+              {icon:"🔍",label:"Insights",  tab:"Insights"},
+              {icon:"⚡",label:"Smart",     tab:"Smart"},
+              {icon:"⬆",label:"Import",    action:()=>setShowImport(true)},
+              {icon:"⬇",label:"Export",    action:exportTransactions},
+            ].map(item=>(
+              <button key={item.label}
+                onClick={()=>item.action?item.action():setTab(item.tab)}
+                style={{
+                  display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                  gap:4,padding:"10px 4px",borderRadius:14,
+                  background:item.tab&&tab===item.tab?C.purpleDim:C.card,
+                  border:`1px solid ${item.tab&&tab===item.tab?C.purple+"60":C.border}`,
+                  cursor:"pointer",transition:"all 0.15s",
+                }}>
+                <span style={{fontSize:20}}>{item.icon}</span>
+                <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:9,color:item.tab&&tab===item.tab?C.purple:C.muted,letterSpacing:0.3}}>{item.label}</span>
+              </button>
+            ))}
           </div>
 
           {/* ── 2. OVERALL SPENDING OVERVIEW ── */}
@@ -1866,39 +1894,6 @@ if (!user) {
             }
           </div>
 
-          {/* ── 7. HEALTH SCORE + HIGH DEBT WARNING ── */}
-          {health.score>0&&(
-            <div className="card" style={{marginBottom:14}}>
-              <div className="sec-hdr">
-                <div className="sec-hdr-title">❤️ Financial Health</div>
-                <button className="sec-hdr-more" onClick={()=>setTab("Plan")}>Plan →</button>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
-                <ScoreRing score={health.score} color={health.color} size={100}/>
-                <div style={{flex:1}}>
-                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:health.color,marginBottom:4}}>Grade {health.grade}</div>
-                  {health.items.map(item=>(
-                    <div key={item.label} style={{marginBottom:6}}>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginBottom:2}}>
-                        <span>{item.label}</span><span>{item.score}/{item.max}</span>
-                      </div>
-                      <div className="pbar"><div className="pfill" style={{width:`${(item.score/item.max)*100}%`,background:health.color}}/></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {health.score<50&&activeDebts.length>0&&(
-                <div style={{marginTop:12,padding:"10px 14px",background:`${C.expense}10`,borderRadius:12,border:`1px solid ${C.expense}25`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div>
-                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,color:C.expense}}>⚡ High debt load</div>
-                    <div style={{fontSize:11,color:C.muted}}>EMIs are {effectiveIncome>0?((totalEMI/effectiveIncome)*100).toFixed(0):0}% of income</div>
-                  </div>
-                  <button className="btn btn-ai btn-sm" onClick={()=>setTab("Plan")}>My Plan →</button>
-                </div>
-              )}
-            </div>
-          )}
-
           </>;
         })()}
 
@@ -2122,20 +2117,6 @@ if (!user) {
   }
 </div>
             
-          {/* CC usage advice */}
-          <div className="card" style={{marginBottom:12,borderColor:`${C.warning}30`}}>
-            <div className="stitle">💡 Should You Use Credit Cards?</div>
-            {effectiveIncome>0?(()=>{
-              const dti=(totalEMI+totalCCEMI)/effectiveIncome;
-              if(dti>0.5||totalCCOut>0){
-                return<div style={{fontSize:12,lineHeight:1.8}}><div style={{color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:4}}>🚫 STOP using credit cards for new purchases</div><div style={{color:C.muted}}>EMIs are {(dti*100).toFixed(0)}% of income and you have ₹{totalCCOut.toLocaleString("en-IN")} outstanding. Switch to UPI/Debit only until debt clears.</div></div>;
-              }else if(dti>0.3){
-                return<div style={{fontSize:12,lineHeight:1.8}}><div style={{color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:4}}>⚠️ Use with caution</div><div style={{color:C.muted}}>Only for planned expenses you can pay in FULL before due date. Never carry a balance — 36% interest destroys finances.</div></div>;
-              }
-              return<div style={{fontSize:12,lineHeight:1.8}}><div style={{color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:4}}>✅ Okay if used wisely</div><div style={{color:C.muted}}>Pay full statement amount monthly. Use for rewards/cashback only on already-budgeted spending.</div></div>;
-            })():<div style={{fontSize:12,color:C.muted}}>Add monthly income in Plan tab for personalised advice.</div>}
-          </div>
-
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>Your Cards</div>
             <button className="btn btn-p btn-sm" onClick={()=>{setCcForm({...EMPTY_CC});setEditCCId(null);setShowCCForm(true);}}>+ Add Card</button>
@@ -2273,14 +2254,15 @@ if (!user) {
           </div>
         </>}
 
-        {/* ════════ GOALS ════════ */}
+        {/* ════════ INSIGHTS ════════ */}
         {tab==="Insights"&&<>
+          {/* Key metrics */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:12}}>
             {[
               {label:"Savings Rate",  val:`${effectiveIncome>0?((effectiveIncome-totalExpense)/effectiveIncome*100).toFixed(1):0}%`, color:C.income},
               {label:"Avg Mo. Expense",val:fc(last6Months.reduce((s,m)=>s+m.expense,0)/6),                                         color:C.expense},
               {label:"Debt-to-Income", val:`${effectiveIncome>0?((totalEMI+totalCCEMI)/effectiveIncome*100).toFixed(0):0}%`,        color:(totalEMI+totalCCEMI)/Math.max(effectiveIncome,1)>0.4?C.expense:C.income},
-              {label:"Top Mode",       val:expenseByMode.sort((a,b)=>b.value-a.value)[0]?.name||"—",                              color:C.accent},
+              {label:"Top Mode",       val:expenseByMode.sort((a,b)=>b.value-a.value)[0]?.name||"—",                              color:C.purple},
             ].map(item=>(
               <div key={item.label} className="scard" style={{textAlign:"center"}}>
                 <div className="lbl" style={{textAlign:"center"}}>{item.label}</div>
@@ -2288,6 +2270,69 @@ if (!user) {
               </div>
             ))}
           </div>
+
+          {/* Monthly Scorecard */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:6}}>
+              <div className="stitle" style={{marginBottom:0}}>📋 Monthly Scorecard</div>
+              <span style={{fontSize:11,color:C.muted}}>{new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</span>
+            </div>
+            {(()=>{
+              const savRate=thisMonthInc>0?((thisMonthInc-thisMonthExp)/thisMonthInc*100):0;
+              const dtiOk=effectiveIncome>0&&(totalEMI+totalCCEMI)/effectiveIncome<0.4;
+              const budgetOk=spendAlerts.filter(a=>a.over).length===0;
+              const savOk=savRate>=10;
+              const score=[dtiOk,budgetOk,savOk].filter(Boolean).length;
+              const vColor=score===3?C.income:score>=2?C.warning:C.expense;
+              return(<>
+                <div style={{textAlign:"center",padding:"10px 0 12px",borderBottom:`1px solid ${C.border}`,marginBottom:12}}>
+                  <div style={{fontSize:18,fontWeight:800,color:vColor,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                    {score===3?"✅ On Track":score>=2?"⚠️ Needs Attention":"🚨 Action Required"}
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10}}>
+                  {[
+                    {label:"Income This Month",  val:fc(thisMonthInc),  color:C.income,  ok:thisMonthInc>0},
+                    {label:"Spent This Month",   val:fc(thisMonthExp),  color:C.expense, ok:thisMonthExp<(effectiveIncome||Infinity)},
+                    {label:"Saved This Month",   val:fc(Math.max(0,thisMonthInc-thisMonthExp)), color:C.savings, ok:savOk},
+                    {label:"Savings Rate",       val:savRate.toFixed(1)+"%", color:savOk?C.income:C.expense, ok:savOk},
+                    {label:"EMI Burden",         val:effectiveIncome>0?((totalEMI+totalCCEMI)/effectiveIncome*100).toFixed(0)+"%":"—", color:dtiOk?C.income:C.expense, ok:dtiOk},
+                    {label:"Budget Status",      val:spendAlerts.filter(a=>a.over).length===0?"Clear":spendAlerts.filter(a=>a.over).length+" over", color:budgetOk?C.income:C.expense, ok:budgetOk},
+                  ].map(item=>(
+                    <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${item.ok?item.color+"30":C.border}`}}>
+                      <div className="lbl">{item.label}</div>
+                      <div style={{fontSize:14,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div>
+                      <div style={{fontSize:10,marginTop:2,color:item.ok?C.income:C.expense}}>{item.ok?"✓ Good":"✗ Review"}</div>
+                    </div>
+                  ))}
+                </div>
+              </>);
+            })()}
+          </div>
+
+          {/* Net Worth */}
+          <div className="card" style={{marginBottom:12}}>
+            <div className="stitle">💎 Net Worth</div>
+            <div style={{textAlign:"center",padding:"8px 0 12px"}}>
+              <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Assets − Liabilities</div>
+              <div style={{fontSize:32,fontWeight:800,color:netWorth>=0?C.income:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(netWorth)}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:4}}>{netWorth>=0?"Assets exceed liabilities 👍":"More liabilities — keep paying down debt"}</div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div style={{background:`${C.income}08`,borderRadius:12,padding:"12px",border:`1px solid ${C.income}25`}}>
+                <div className="lbl" style={{color:C.income}}>+ Total Assets</div>
+                <div style={{fontSize:16,fontWeight:800,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalAccountBalance+savingsTotal)}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Accounts {fc(totalAccountBalance)} + Savings {fc(savingsTotal)}</div>
+              </div>
+              <div style={{background:`${C.expense}08`,borderRadius:12,padding:"12px",border:`1px solid ${C.expense}25`}}>
+                <div className="lbl" style={{color:C.expense}}>− Total Liabilities</div>
+                <div style={{fontSize:16,fontWeight:800,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalOutstanding+totalCCOut)}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Loans {fc(totalOutstanding)} + CC {fc(totalCCOut)}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Income vs Expense chart */}
           <div className="g2" style={{marginBottom:12}}>
             <div className="card">
               <div className="stitle">Income vs Expense</div>
@@ -2320,6 +2365,130 @@ if (!user) {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* This Month vs Last Month */}
+          <div className="card" style={{marginBottom:12}}>
+            <div className="stitle">📊 This Month vs Last Month</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+              {[
+                {label:"Income",  thisVal:thisMonthInc,lastVal:lastMonthInc,color:C.income},
+                {label:"Expenses",thisVal:thisMonthExp,lastVal:lastMonthExp,color:C.expense},
+              ].map(item=>{
+                const diff=item.thisVal-item.lastVal;
+                const pct=item.lastVal>0?Math.abs(diff/item.lastVal*100):0;
+                const better=item.label==="Income"?diff>=0:diff<=0;
+                return(
+                  <div key={item.label} style={{background:C.surface,borderRadius:12,padding:"12px",border:`1px solid ${C.border}`}}>
+                    <div className="lbl">{item.label}</div>
+                    <div style={{fontSize:15,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(item.thisVal)}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>Last: {fc(item.lastVal)}</div>
+                    {item.lastVal>0&&<div style={{fontSize:11,fontWeight:700,color:better?C.income:C.expense,marginTop:4}}>{diff>=0?"↑":"↓"} {pct.toFixed(1)}% {better?"better":"worse"}</div>}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:8}}>BY CATEGORY</div>
+            {catComparison.length===0?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:10}}>No data yet.</div>
+              :catComparison.sort((a,b)=>(b.thisMonth+b.lastMonth)-(a.thisMonth+a.lastMonth)).slice(0,8).map(c=>{
+                const diff=c.thisMonth-c.lastMonth;const maxVal=Math.max(c.thisMonth,c.lastMonth,1);
+                return(
+                  <div key={c.cat} style={{marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:4}}>
+                      <span style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{c.cat}</span>
+                      <div style={{display:"flex",gap:8,fontSize:10}}>
+                        <span style={{color:C.purple}}>This: {fc(c.thisMonth)}</span>
+                        <span style={{color:C.muted}}>Last: {fc(c.lastMonth)}</span>
+                        {diff!==0&&<span style={{color:diff>0?C.expense:C.income,fontWeight:700}}>{diff>0?"↑":"↓"}{fc(Math.abs(diff))}</span>}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:3,height:6}}>
+                      <div style={{flex:c.lastMonth/maxVal,background:C.muted+"50",borderRadius:3,minWidth:c.lastMonth>0?2:0}}/>
+                      <div style={{flex:c.thisMonth/maxVal,background:diff>0?C.expense:C.income,borderRadius:3,minWidth:c.thisMonth>0?2:0}}/>
+                    </div>
+                  </div>
+                );
+              })
+            }
+          </div>
+
+          {/* Savings Rate Trend */}
+          <div className="card" style={{marginBottom:12}}>
+            <div className="stitle">📈 Savings Rate Trend</div>
+            <ResponsiveContainer width="100%" height={140}>
+              <LineChart data={savingsRateTrend}>
+                <XAxis dataKey="label" tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>v.toFixed(0)+"%"} width={32}/>
+                <Tooltip contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontSize:11}} formatter={v=>[v.toFixed(1)+"%","Savings Rate"]}/>
+                <Line type="monotone" dataKey="rate" stroke={C.income} strokeWidth={2.5} dot={{fill:C.income,r:4}}/>
+              </LineChart>
+            </ResponsiveContainer>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+              {savingsRateTrend.map(m=>(
+                <div key={m.label} style={{background:C.surface,borderRadius:8,padding:"6px 10px",border:`1px solid ${m.rate>=20?C.income:m.rate>=10?C.warning:C.expense}30`,flex:1,minWidth:50,textAlign:"center"}}>
+                  <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{m.label}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:m.rate>=20?C.income:m.rate>=10?C.warning:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{m.rate.toFixed(0)}%</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Debt-Free Countdown */}
+          <div className="card" style={{marginBottom:12,borderColor:`${C.loan}30`}}>
+            <div className="stitle">🏁 Debt-Free Countdown</div>
+            {debtFreeMonths===0
+              ?<div style={{textAlign:"center",padding:20,fontSize:16,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800}}>🎉 You're Debt Free!</div>
+              :debtFreeMonths===null
+              ?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>Add EMI amounts to your loans to see countdown.</div>
+              :(()=>{
+                const yrs=Math.floor(debtFreeMonths/12),mos=debtFreeMonths%12;
+                const dfDate=new Date();dfDate.setMonth(dfDate.getMonth()+debtFreeMonths);
+                const extra=parseFloat(extraFund)||0;
+                const withExtra=extra>0?Math.max(1,Math.ceil((totalOutstanding+totalCCOut)/(totalEMI+totalCCEMI+extra))):null;
+                return(
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:36,fontWeight:800,color:C.loan,fontFamily:"'Cabinet Grotesk',sans-serif",marginBottom:4}}>{yrs>0?`${yrs}y `:""}{mos>0?`${mos}m`:"< 1m"}</div>
+                    <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Debt-free by <span style={{color:C.text,fontWeight:700}}>{dfDate.toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</span></div>
+                    <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+                      <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
+                        <div className="lbl">Total Owed</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalOutstanding+totalCCOut)}</div>
+                      </div>
+                      <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
+                        <div className="lbl">Monthly Payment</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.loan,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalEMI+totalCCEMI)}</div>
+                      </div>
+                      {withExtra&&withExtra<debtFreeMonths&&<div style={{background:`${C.income}10`,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.income}30`}}>
+                        <div className="lbl">With Extra {fc(extra)}</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{debtFreeMonths-withExtra}m faster</div>
+                      </div>}
+                    </div>
+                  </div>
+                );
+              })()
+            }
+          </div>
+
+          {/* EMI Due Calendar */}
+          <div className="card" style={{marginBottom:12}}>
+            <div className="stitle">📅 EMI Due Calendar</div>
+            {(()=>{
+              const now=new Date(),daysInMonth=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),firstDow=new Date(now.getFullYear(),now.getMonth(),1).getDay();
+              const dueDays={};
+              [...activeDebts,...creditCards].forEach(item=>{if(item.dueDate){const d=new Date(item.dueDate).getDate();if(!dueDays[d])dueDays[d]=[];dueDays[d].push({name:item.name,amt:parseFloat(item.emi||item.minDue||0)});}});
+              ccEmis.forEach(emi=>{const card=creditCards.find(c=>String(c.id)===String(emi.cardId));if(card?.dueDate){const d=new Date(card.dueDate).getDate();if(!dueDays[d])dueDays[d]=[];dueDays[d].push({name:emi.description||card.name,amt:parseFloat(emi.amount||0)});}});
+              const todayNum=now.getDate();
+              return(<><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:10}}>{["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=><div key={d} style={{textAlign:"center",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,paddingBottom:4}}>{d}</div>)}{Array.from({length:firstDow},(_,i)=><div key={"e"+i}/>)}{Array.from({length:daysInMonth},(_,i)=>{const day=i+1,dues=dueDays[day]||[],isToday=day===todayNum,isPast=day<todayNum;return(<div key={day} style={{textAlign:"center",padding:"5px 2px",borderRadius:7,fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:dues.length?700:400,background:dues.length?`${C.warning}20`:isToday?`${C.purple}20`:"transparent",border:isToday?`1px solid ${C.purple}`:dues.length?`1px solid ${C.warning}40`:`1px solid transparent`,color:dues.length?C.warning:isPast?C.muted:C.text,position:"relative"}}>{day}{dues.length>0&&<div style={{position:"absolute",top:1,right:2,width:4,height:4,borderRadius:"50%",background:C.expense}}/>}</div>);})}</div>{Object.keys(dueDays).length===0?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:10}}>No due dates set.</div>:<div style={{borderTop:`1px solid ${C.border}`,paddingTop:10}}>{Object.entries(dueDays).sort((a,b)=>+a[0]-+b[0]).map(([day,items])=>(<div key={day} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}><div style={{width:28,height:28,borderRadius:8,background:`${C.warning}15`,color:C.warning,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:11,flexShrink:0}}>{day}</div><div style={{flex:1}}>{items.map((item,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span>{item.name}</span><span style={{color:C.warning,fontWeight:700}}>{fc(item.amt)}</span></div>)}</div></div>))}<div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700}}><span style={{fontFamily:"'Cabinet Grotesk',sans-serif"}}>Total Due</span><span style={{color:C.warning}}>{fc(Object.values(dueDays).flat().reduce((s,d)=>s+d.amt,0))}</span></div></div>}</>);
+            })()}
+          </div>
+
+          {/* 30-Day Cash Flow Forecast */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div className="stitle" style={{marginBottom:0}}>💰 30-Day Cash Flow</div>
+              <span style={{fontSize:11,color:C.muted}}>projected balance</span>
+            </div>
+            {effectiveIncome===0?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>Set monthly income in Plan tab.</div>:(()=>{const minBal=Math.min(...cashFlowForecast.map(d=>d.balance));const endBal=cashFlowForecast[cashFlowForecast.length-1]?.balance||0;const dangerDays=cashFlowForecast.filter(d=>d.balance<0);return(<>{dangerDays.length>0&&<div style={{padding:"8px 12px",background:`${C.expense}10`,border:`1px solid ${C.expense}25`,borderRadius:10,fontSize:11,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:10}}>🚨 Balance may go negative starting day {dangerDays[0].day}</div>}<ResponsiveContainer width="100%" height={140}><LineChart data={cashFlowForecast.filter((_,i)=>i%2===0)}><XAxis dataKey="label" tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>`₹${Math.abs(v)>=1000?(v/1000).toFixed(0)+"k":v}`} width={42}/><Tooltip contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontSize:11}} formatter={v=>[fc(v),"Balance"]}/><Line type="monotone" dataKey="balance" stroke={minBal<0?C.expense:C.income} strokeWidth={2} dot={false}/></LineChart></ResponsiveContainer><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:10}}>{[{label:"Now",val:cashLeft,color:cashLeft>=0?C.income:C.expense},{label:"Min (30d)",val:minBal,color:minBal>=0?C.income:C.expense},{label:"Day 30",val:endBal,color:endBal>=0?C.income:C.expense}].map(item=>(<div key={item.label} style={{background:C.surface,borderRadius:10,padding:"9px",textAlign:"center",border:`1px solid ${C.border}`}}><div className="lbl">{item.label}</div><div style={{fontSize:12,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(item.val)}</div></div>))}</div></>);})()}
           </div>
         </>}
 
@@ -2421,142 +2590,6 @@ if (!user) {
           </div>
 
 
-          {/* ── Debt Acceleration Simulator ── */}
-          <div className="card" style={{marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
-              <div>
-                <div className="stitle" style={{marginBottom:2}}>🚀 Debt Acceleration Simulator</div>
-                <div style={{fontSize:11,color:C.muted}}>Extra payment synced with Plan tab → one number, used everywhere</div>
-              </div>
-              {extraFund&&<span className="tag" style={{background:`${C.income}15`,color:C.income,fontSize:11}}>+{fc(parseFloat(extraFund)||0)}/mo</span>}
-            </div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`}}>
-              <div style={{flex:1}}>
-                <div className="lbl">Extra monthly payment ₹</div>
-                <input className="inp" type="number" placeholder="e.g. 2000" value={extraFund}
-                  onChange={e=>setExtraFund(e.target.value)}
-                  style={{background:"transparent",border:"none",padding:"4px 0",fontSize:16,fontWeight:700,fontFamily:"'Cabinet Grotesk',sans-serif"}}/>
-              </div>
-              <button className="btn-ghost btn-sm" onClick={()=>setTab("Plan")} style={{fontSize:11,whiteSpace:"nowrap"}}>Edit in Plan →</button>
-            </div>
-            {debtSimulator.length===0
-              ? <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>Add loans in the Plan tab first.</div>
-              : <>
-                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {debtSimulator.map(d=>(
-                      <div key={d.id} style={{background:C.surface,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,flexWrap:"wrap",gap:6}}>
-                          <div>
-                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14}}>{d.name}</div>
-                            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{d.lender} · {d.interestRate}% p.a. · Outstanding {fc(d.bal)}</div>
-                            {d.dueDate&&<DueBadge days={daysUntil(d.dueDate)} dueDate={d.dueDate}/>}
-                          </div>
-                          {d.monthsSaved>0&&(
-                            <div style={{background:`${C.income}15`,borderRadius:10,padding:"6px 12px",border:`1px solid ${C.income}30`}}>
-                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:13,color:C.income}}>🎉 {d.monthsSaved}mo faster</div>
-                              <div style={{fontSize:10,color:C.muted}}>saves {fc(d.interestSaved)}</div>
-                            </div>
-                          )}
-                        </div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                          <div style={{background:C.card,borderRadius:10,padding:"9px 12px",border:`1px solid ${C.border}`}}>
-                            <div className="lbl">Normal</div>
-                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14,color:C.muted}}>{d.normal?d.normal+"mo":"—"}</div>
-                            <div style={{fontSize:10,color:C.muted}}>EMI {fc(d.emi)}</div>
-                          </div>
-                          <div style={{background:`${C.accent}10`,borderRadius:10,padding:"9px 12px",border:`1px solid ${C.accent}30`}}>
-                            <div className="lbl">With +{fc(parseFloat(extraFund)||0)}</div>
-                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14,color:C.accent}}>{d.boosted?d.boosted+"mo":"—"}</div>
-                            <div style={{fontSize:10,color:C.muted}}>EMI {fc((parseFloat(d.emi)||0)+(parseFloat(extraFund)||0))}</div>
-                          </div>
-                          <div style={{background:`${C.income}10`,borderRadius:10,padding:"9px 12px",border:`1px solid ${C.income}30`}}>
-                            <div className="lbl">Interest Saved</div>
-                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14,color:C.income}}>{fc(d.interestSaved)}</div>
-                            <div style={{fontSize:10,color:C.muted}}>{d.monthsSaved>0?`${d.monthsSaved}mo earlier`:"no change"}</div>
-                          </div>
-                        </div>
-                        {parseFloat(extraFund)>0&&d.monthsSaved>0&&(
-                          <div style={{marginTop:10,padding:"8px 12px",background:`${C.income}08`,borderRadius:10,fontSize:11,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
-                            💡 Pay ₹{(parseFloat(extraFund)||0).toLocaleString("en-IN")} extra monthly → free {d.monthsSaved} months earlier → save {fc(d.interestSaved)} in interest
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {debtSimulator.some(d=>d.monthsSaved>0)&&(
-                    <div style={{marginTop:12,padding:"12px 16px",background:`linear-gradient(135deg,${C.income}12,${C.accent}08)`,borderRadius:14,border:`1px solid ${C.income}25`}}>
-                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:14,color:C.income,marginBottom:4}}>
-                        Total Savings with ₹{(parseFloat(extraFund)||0).toLocaleString("en-IN")}/mo extra
-                      </div>
-                      <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
-                        <div><div className="lbl">Months Saved</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:C.income}}>{debtSimulator.reduce((s,d)=>s+d.monthsSaved,0)}</div></div>
-                        <div><div className="lbl">Interest Saved</div><div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:C.income}}>{fc(debtSimulator.reduce((s,d)=>s+d.interestSaved,0))}</div></div>
-                      </div>
-                    </div>
-                  )}
-                </>
-            }
-          </div>
-
-          {/* ── Income Allocation System ── */}
-          {effectiveIncome>0&&(
-            <div className="card" style={{marginBottom:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                <div>
-                  <div className="stitle" style={{marginBottom:2}}>📊 Income Allocation</div>
-                  <div style={{fontSize:11,color:C.muted}}>How your ₹{effectiveIncome.toLocaleString("en-IN")} should be split</div>
-                </div>
-              </div>
-              {incomeAllocation&&(
-                <>
-                  <div style={{display:"flex",height:12,borderRadius:99,overflow:"hidden",marginBottom:16,gap:2}}>
-                    {incomeAllocation.buckets.map(b=>(
-                      <div key={b.label} style={{flex:b.pct,background:b.color,transition:"flex 0.5s",minWidth:b.pct>0?4:0}}/>
-                    ))}
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:10,marginBottom:14}}>
-                    {incomeAllocation.buckets.map(b=>(
-                      <div key={b.label} style={{background:C.surface,borderRadius:12,padding:"12px 14px",border:`1px solid ${b.color}25`}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                          <span style={{fontSize:18}}>{b.icon}</span>
-                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,color:b.color}}>{b.pct}%</span>
-                        </div>
-                        <div className="lbl">{b.label}</div>
-                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:b.color,marginBottom:4}}>{fc(b.amt)}</div>
-                        <div style={{fontSize:10,color:C.muted}}>Actual: {fc(b.actual)}</div>
-                        <div className="pbar" style={{marginTop:6}}>
-                          <div className="pfill" style={{width:`${Math.min(100,(b.actual/Math.max(b.amt,1))*100)}%`,background:b.color}}/>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>ADJUST ALLOCATION %</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    {[
-                      {key:"emi",label:"EMIs %"},
-                      {key:"living",label:"Living %"},
-                      {key:"savings",label:"Savings %"},
-                      {key:"buffer",label:"Buffer %"},
-                    ].map(item=>(
-                      <div key={item.key}>
-                        <div className="lbl">{item.label}</div>
-                        <input className="inp" type="number" min="0" max="100"
-                          value={allocationPct[item.key]}
-                          onChange={e=>setAllocationPct(p=>({...p,[item.key]:Math.min(100,parseInt(e.target.value)||0)}))}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  {Object.values(allocationPct).reduce((s,v)=>s+v,0)!==100&&(
-                    <div style={{marginTop:8,fontSize:11,color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
-                      ⚠️ Percentages add up to {Object.values(allocationPct).reduce((s,v)=>s+v,0)}% — should be 100%
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
           {/* ── Custom Categories ── */}
           <div className="card" style={{marginBottom:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -2638,279 +2671,6 @@ if (!user) {
           </div>
 
         </>}
-
-        {/* ════════ CA ADVISOR ════════ */}
-        {tab==="Finance"&&<>
-          {/* 1. Monthly Scorecard */}
-          <div className="card" style={{marginBottom:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:6}}>
-              <div className="stitle" style={{marginBottom:0}}>📋 Monthly Scorecard</div>
-              <span style={{fontSize:11,color:C.muted}}>{new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</span>
-            </div>
-            {(()=>{
-              const savRate=thisMonthInc>0?((thisMonthInc-thisMonthExp)/thisMonthInc*100):0;
-              const dtiOk=effectiveIncome>0&&(totalEMI+totalCCEMI)/effectiveIncome<0.4;
-              const budgetOk=spendAlerts.filter(a=>a.over).length===0;
-              const savOk=savRate>=10;
-              const score=[dtiOk,budgetOk,savOk].filter(Boolean).length;
-              const vColor=score===3?C.income:score>=2?C.warning:C.expense;
-              return(<>
-                <div style={{textAlign:"center",padding:"10px 0 12px",borderBottom:`1px solid ${C.border}`,marginBottom:12}}>
-                  <div style={{fontSize:20,fontWeight:800,color:vColor,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
-                    {score===3?"✅ On Track":score>=2?"⚠️ Needs Attention":"🚨 Action Required"}
-                  </div>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10}}>
-                  {[
-                    {label:"Income This Month",  val:fc(thisMonthInc),  color:C.income,  ok:thisMonthInc>0},
-                    {label:"Spent This Month",   val:fc(thisMonthExp),  color:C.expense, ok:thisMonthExp<(effectiveIncome||Infinity)},
-                    {label:"Saved This Month",   val:fc(Math.max(0,thisMonthInc-thisMonthExp)), color:C.savings, ok:savOk},
-                    {label:"Savings Rate",       val:savRate.toFixed(1)+"%", color:savOk?C.income:C.expense, ok:savOk},
-                    {label:"EMI Burden",         val:effectiveIncome>0?((totalEMI+totalCCEMI)/effectiveIncome*100).toFixed(0)+"%":"—", color:dtiOk?C.income:C.expense, ok:dtiOk},
-                    {label:"Budget Status",      val:spendAlerts.filter(a=>a.over).length===0?"Clear":spendAlerts.filter(a=>a.over).length+" over", color:budgetOk?C.income:C.expense, ok:budgetOk},
-                  ].map(item=>(
-                    <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${item.ok?item.color+"30":C.border}`}}>
-                      <div className="lbl">{item.label}</div>
-                      <div style={{fontSize:14,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div>
-                      <div style={{fontSize:10,marginTop:2,color:item.ok?C.income:C.expense}}>{item.ok?"✓ Good":"✗ Review"}</div>
-                    </div>
-                  ))}
-                </div>
-              </>);
-            })()}
-          </div>
-
-          {/* 2. Net Worth */}
-          <div className="card" style={{marginBottom:12}}>
-            <div className="stitle">💎 Net Worth</div>
-            <div style={{textAlign:"center",padding:"8px 0 12px"}}>
-              <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Assets − Liabilities</div>
-              <div style={{fontSize:32,fontWeight:800,color:netWorth>=0?C.income:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(netWorth)}</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:4}}>{netWorth>=0?"Assets exceed liabilities 👍":"More liabilities — keep paying down debt"}</div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div style={{background:`${C.income}08`,borderRadius:12,padding:"12px",border:`1px solid ${C.income}25`}}>
-                <div className="lbl" style={{color:C.income}}>+ Total Assets</div>
-                <div style={{fontSize:16,fontWeight:800,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalAccountBalance+savingsTotal)}</div>
-                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Accounts {fc(totalAccountBalance)} + Savings {fc(savingsTotal)}</div>
-              </div>
-              <div style={{background:`${C.expense}08`,borderRadius:12,padding:"12px",border:`1px solid ${C.expense}25`}}>
-                <div className="lbl" style={{color:C.expense}}>− Total Liabilities</div>
-                <div style={{fontSize:16,fontWeight:800,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalOutstanding+totalCCOut)}</div>
-                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Loans {fc(totalOutstanding)} + CC {fc(totalCCOut)}</div>
-              </div>
-            </div>
-            <div style={{fontSize:10,color:C.muted,textAlign:"center",padding:"6px 0 2px",borderTop:`1px solid ${C.border}60`}}>
-              Net Worth = Bank Balances + Savings − Loan Outstanding − CC Outstanding
-            </div>
-          </div>
-
-          {/* 3. Debt-Free Countdown */}
-          <div className="card" style={{marginBottom:12,borderColor:`${C.loan}30`}}>
-            <div className="stitle">🏁 Debt-Free Countdown</div>
-            {debtFreeMonths===0
-              ?<div style={{textAlign:"center",padding:20,fontSize:16,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800}}>🎉 You're Debt Free!</div>
-              :debtFreeMonths===null
-              ?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>Add EMI amounts to your loans to see countdown.</div>
-              :(()=>{
-                const yrs=Math.floor(debtFreeMonths/12),mos=debtFreeMonths%12;
-                const dfDate=new Date();dfDate.setMonth(dfDate.getMonth()+debtFreeMonths);
-                const extra=parseFloat(extraFund)||0;
-                const withExtra=extra>0?Math.max(1,Math.ceil((totalOutstanding+totalCCOut)/(totalEMI+totalCCEMI+extra))):null;
-                return(
-                  <div style={{textAlign:"center"}}>
-                    <div style={{fontSize:36,fontWeight:800,color:C.loan,fontFamily:"'Cabinet Grotesk',sans-serif",marginBottom:4}}>{yrs>0?`${yrs}y `:""}{mos>0?`${mos}m`:"< 1m"}</div>
-                    <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Debt-free by <span style={{color:C.text,fontWeight:700}}>{dfDate.toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</span></div>
-                    <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
-                      <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
-                        <div className="lbl">Total Owed</div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalOutstanding+totalCCOut)}</div>
-                      </div>
-                      <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}}>
-                        <div className="lbl">Monthly Payment</div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.loan,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(totalEMI+totalCCEMI)}</div>
-                      </div>
-                      {withExtra&&withExtra<debtFreeMonths&&<div style={{background:`${C.income}10`,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.income}30`}}>
-                        <div className="lbl">With Extra {fc(extra)}</div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{debtFreeMonths-withExtra}m faster</div>
-                      </div>}
-                    </div>
-                  </div>
-                );
-              })()
-            }
-          </div>
-
-          {/* 4. Spend Alerts */}
-          <div className="card" style={{marginBottom:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div className="stitle" style={{marginBottom:0}}>🔔 Spend Alerts</div>
-              <span style={{fontSize:11,color:C.muted}}>this month vs limits</span>
-            </div>
-            {Object.keys(budgets).length===0
-              ?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:20}}>No budgets set. Go to <button onClick={()=>setTab("Budget")} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontWeight:700,fontSize:12}}>Budget tab</button>.</div>
-              :spendAlerts.length===0
-              ?<div style={{fontSize:12,color:C.income,textAlign:"center",padding:20,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>✅ All categories within budget!</div>
-              :spendAlerts.map(a=>(
-                <div key={a.cat} style={{marginBottom:12}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,flexWrap:"wrap",gap:4}}>
-                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{a.cat}</span>
-                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                      <span style={{fontSize:11,color:C.muted}}>{fc(a.spent)} / {fc(a.limit)}</span>
-                      <span className="tag" style={{background:a.over?`${C.expense}20`:`${C.warning}20`,color:a.over?C.expense:C.warning}}>{a.over?"🚨 Over!":"⚠️ "+a.pct+"%"}</span>
-                    </div>
-                  </div>
-                  <div className="pbar"><div className="pfill" style={{width:`${Math.min(a.pct,100)}%`,background:a.over?C.expense:C.warning}}/></div>
-                  {a.over&&<div style={{fontSize:10,color:C.expense,marginTop:3}}>Over by {fc(a.spent-a.limit)}</div>}
-                </div>
-              ))
-            }
-          </div>
-
-          {/* 5. This Month vs Last Month */}
-          <div className="card" style={{marginBottom:12}}>
-            <div className="stitle">📊 This Month vs Last Month</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
-              {[
-                {label:"Income",  thisVal:thisMonthInc,lastVal:lastMonthInc,color:C.income},
-                {label:"Expenses",thisVal:thisMonthExp,lastVal:lastMonthExp,color:C.expense},
-              ].map(item=>{
-                const diff=item.thisVal-item.lastVal;
-                const pct=item.lastVal>0?Math.abs(diff/item.lastVal*100):0;
-                const better=item.label==="Income"?diff>=0:diff<=0;
-                return(
-                  <div key={item.label} style={{background:C.surface,borderRadius:12,padding:"12px",border:`1px solid ${C.border}`}}>
-                    <div className="lbl">{item.label}</div>
-                    <div style={{fontSize:15,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(item.thisVal)}</div>
-                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>Last: {fc(item.lastVal)}</div>
-                    {item.lastVal>0&&<div style={{fontSize:11,fontWeight:700,color:better?C.income:C.expense,marginTop:4}}>{diff>=0?"↑":"↓"} {pct.toFixed(1)}% {better?"better":"worse"}</div>}
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:8}}>BY CATEGORY</div>
-            {catComparison.length===0?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:10}}>No data yet.</div>
-              :catComparison.sort((a,b)=>(b.thisMonth+b.lastMonth)-(a.thisMonth+a.lastMonth)).slice(0,8).map(c=>{
-                const diff=c.thisMonth-c.lastMonth;const maxVal=Math.max(c.thisMonth,c.lastMonth,1);
-                return(
-                  <div key={c.cat} style={{marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:4}}>
-                      <span style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{c.cat}</span>
-                      <div style={{display:"flex",gap:8,fontSize:10}}>
-                        <span style={{color:C.accent}}>This: {fc(c.thisMonth)}</span>
-                        <span style={{color:C.muted}}>Last: {fc(c.lastMonth)}</span>
-                        {diff!==0&&<span style={{color:diff>0?C.expense:C.income,fontWeight:700}}>{diff>0?"↑":"↓"}{fc(Math.abs(diff))}</span>}
-                      </div>
-                    </div>
-                    <div style={{display:"flex",gap:3,height:6}}>
-                      <div style={{flex:c.lastMonth/maxVal,background:C.muted+"50",borderRadius:3,minWidth:c.lastMonth>0?2:0}}/>
-                      <div style={{flex:c.thisMonth/maxVal,background:diff>0?C.expense:C.income,borderRadius:3,minWidth:c.thisMonth>0?2:0}}/>
-                    </div>
-                  </div>
-                );
-              })
-            }
-          </div>
-
-          {/* 6. Savings Rate Trend */}
-          <div className="card" style={{marginBottom:12}}>
-            <div className="stitle">📈 Savings Rate Trend</div>
-            <ResponsiveContainer width="100%" height={140}>
-              <LineChart data={savingsRateTrend}>
-                <XAxis dataKey="label" tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false}/>
-                <YAxis tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>v.toFixed(0)+"%"} width={32}/>
-                <Tooltip contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontSize:11}} formatter={v=>[v.toFixed(1)+"%","Savings Rate"]}/>
-                <Line type="monotone" dataKey="rate" stroke={C.income} strokeWidth={2.5} dot={{fill:C.income,r:4}}/>
-              </LineChart>
-            </ResponsiveContainer>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
-              {savingsRateTrend.map(m=>(
-                <div key={m.label} style={{background:C.surface,borderRadius:8,padding:"6px 10px",border:`1px solid ${m.rate>=20?C.income:m.rate>=10?C.warning:C.expense}30`,flex:1,minWidth:50,textAlign:"center"}}>
-                  <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{m.label}</div>
-                  <div style={{fontSize:12,fontWeight:700,color:m.rate>=20?C.income:m.rate>=10?C.warning:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{m.rate.toFixed(0)}%</div>
-                </div>
-              ))}
-            </div>
-            <div style={{marginTop:8,fontSize:11,color:C.muted}}><span style={{color:C.income,fontWeight:700}}>20%+</span> healthy · <span style={{color:C.warning,fontWeight:700}}>10–20%</span> okay · <span style={{color:C.expense,fontWeight:700}}>&lt;10%</span> low</div>
-          </div>
-
-          {/* 7. EMI Calendar */}
-          <div className="card" style={{marginBottom:12}}>
-            <div className="stitle">📅 EMI Due Calendar — {new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</div>
-            {(()=>{
-              const now=new Date(),daysInMonth=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),firstDow=new Date(now.getFullYear(),now.getMonth(),1).getDay();
-              const dueDays={};
-              [...activeDebts,...creditCards].forEach(item=>{if(item.dueDate){const d=new Date(item.dueDate).getDate();if(!dueDays[d])dueDays[d]=[];dueDays[d].push({name:item.name,amt:parseFloat(item.emi||item.minDue||0)});}});
-              ccEmis.forEach(emi=>{const card=creditCards.find(c=>String(c.id)===String(emi.cardId));if(card?.dueDate){const d=new Date(card.dueDate).getDate();if(!dueDays[d])dueDays[d]=[];dueDays[d].push({name:emi.description||card.name,amt:parseFloat(emi.amount||0)});}});
-              const todayNum=now.getDate();
-              return(<>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:10}}>
-                  {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=><div key={d} style={{textAlign:"center",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,paddingBottom:4}}>{d}</div>)}
-                  {Array.from({length:firstDow},(_,i)=><div key={"e"+i}/>)}
-                  {Array.from({length:daysInMonth},(_,i)=>{
-                    const day=i+1,dues=dueDays[day]||[],isToday=day===todayNum,isPast=day<todayNum;
-                    return(<div key={day} style={{textAlign:"center",padding:"5px 2px",borderRadius:7,fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:dues.length?700:400,
-                      background:dues.length?`${C.warning}20`:isToday?`${C.accent}20`:"transparent",
-                      border:isToday?`1px solid ${C.accent}`:dues.length?`1px solid ${C.warning}40`:`1px solid transparent`,
-                      color:dues.length?C.warning:isPast?C.muted:C.text,position:"relative"}}>
-                      {day}{dues.length>0&&<div style={{position:"absolute",top:1,right:2,width:4,height:4,borderRadius:"50%",background:C.expense}}/>}
-                    </div>);
-                  })}
-                </div>
-                {Object.keys(dueDays).length===0?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:10}}>No due dates set on loans or cards.</div>
-                  :<div style={{borderTop:`1px solid ${C.border}`,paddingTop:10}}>
-                    <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:8}}>DUE THIS MONTH</div>
-                    {Object.entries(dueDays).sort((a,b)=>+a[0]-+b[0]).map(([day,items])=>(
-                      <div key={day} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
-                        <div style={{width:28,height:28,borderRadius:8,background:`${C.warning}15`,color:C.warning,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:11,flexShrink:0}}>{day}</div>
-                        <div style={{flex:1}}>{items.map((item,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span>{item.name}</span><span style={{color:C.warning,fontWeight:700}}>{fc(item.amt)}</span></div>)}</div>
-                      </div>
-                    ))}
-                    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700}}>
-                      <span style={{fontFamily:"'Cabinet Grotesk',sans-serif"}}>Total Due</span>
-                      <span style={{color:C.warning}}>{fc(Object.values(dueDays).flat().reduce((s,d)=>s+d.amt,0))}</span>
-                    </div>
-                  </div>
-                }
-              </>);
-            })()}
-          </div>
-
-          {/* 8. Cash Flow Forecast */}
-          <div className="card" style={{marginBottom:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div className="stitle" style={{marginBottom:0}}>💰 30-Day Cash Flow</div>
-              <span style={{fontSize:11,color:C.muted}}>projected balance</span>
-            </div>
-            {effectiveIncome===0
-              ?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>Set monthly income in <button onClick={()=>setTab("Plan")} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontWeight:700,fontSize:12}}>Plan tab</button>.</div>
-              :(()=>{
-                const minBal=Math.min(...cashFlowForecast.map(d=>d.balance));
-                const endBal=cashFlowForecast[cashFlowForecast.length-1]?.balance||0;
-                const dangerDays=cashFlowForecast.filter(d=>d.balance<0);
-                return(<>
-                  {dangerDays.length>0&&<div style={{padding:"8px 12px",background:`${C.expense}10`,border:`1px solid ${C.expense}25`,borderRadius:10,fontSize:11,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:10}}>🚨 Balance may go negative starting day {dangerDays[0].day}</div>}
-                  <ResponsiveContainer width="100%" height={140}>
-                    <LineChart data={cashFlowForecast.filter((_,i)=>i%2===0)}>
-                      <XAxis dataKey="label" tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false}/>
-                      <YAxis tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>`₹${Math.abs(v)>=1000?(v/1000).toFixed(0)+"k":v}`} width={42}/>
-                      <Tooltip contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontSize:11}} formatter={v=>[fc(v),"Balance"]}/>
-                      <Line type="monotone" dataKey="balance" stroke={minBal<0?C.expense:C.income} strokeWidth={2} dot={false}/>
-                    </LineChart>
-                  </ResponsiveContainer>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:10}}>
-                    {[{label:"Now",val:cashLeft,color:cashLeft>=0?C.income:C.expense},{label:"Min (30d)",val:minBal,color:minBal>=0?C.income:C.expense},{label:"Day 30",val:endBal,color:endBal>=0?C.income:C.expense}].map(item=>(
-                      <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"9px",textAlign:"center",border:`1px solid ${C.border}`}}>
-                        <div className="lbl">{item.label}</div>
-                        <div style={{fontSize:12,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(item.val)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </>);
-              })()
-            }
-          </div>
-        </>}
       </div>
 
       {/* ── Mobile Bottom Nav — Fintastics style ── */}
@@ -2942,7 +2702,7 @@ if (!user) {
         <div style={{padding:"8px 0",flex:1,overflowY:"auto"}}>
           <div style={{padding:"6px 20px 4px",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Navigation</div>
           {ALL_TABS.map(t=>{
-            const icons={"Dashboard":"🏠","Plan":"🎯","Cards":"💳","Transactions":"📋","Budget":"📊","Insights":"🔍","Finance":"💹"};
+            const icons={"Dashboard":"🏠","Plan":"🎯","Cards":"💳","Transactions":"📋","Budget":"🎯","Insights":"🔍","Smart":"⚡"};
             return(
               <button key={t} className={`hmenu-item ${tab===t?"active":""}`} onClick={()=>{setTab(t);setShowMenu(false);}}>
                 <span style={{fontSize:16}}>{icons[t]||"•"}</span>{t}
