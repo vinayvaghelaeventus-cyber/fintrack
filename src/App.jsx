@@ -189,8 +189,6 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [extraFund, setExtraFund]         = useState("");
   const [strategy, setStrategy]           = useState("avalanche");
   const [emergencyFund, setEmergencyFund] = useState("");
-  const [aiAdvice, setAiAdvice]           = useState("");
-  const [aiLoading, setAiLoading]         = useState(false);
 
   // ── Forms ──
   const [showTxForm, setShowTxForm]     = useState(false);
@@ -330,7 +328,6 @@ useEffect(() => {
           if (data.extraFund)     setExtraFund(data.extraFund);
           if (data.strategy)      setStrategy(data.strategy);
           if (data.emergencyFund) setEmergencyFund(data.emergencyFund);
-          if (data.aiAdvice)      setAiAdvice(data.aiAdvice);
           if (data.darkMode!==undefined) setDarkMode(data.darkMode);
           if (data.accounts)      setAccounts(data.accounts);
           if (data.allocationPct) setAllocationPct(data.allocationPct);
@@ -357,7 +354,7 @@ useEffect(() => {
       setSaving(true);
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks,
-        monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
+        monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
         accounts, allocationPct, customCats,
         lastUpdated: new Date().toISOString(),
       });
@@ -366,7 +363,7 @@ useEffect(() => {
       else setFbStatus("error");
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
-      monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
+      monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
       accounts, allocationPct, customCats, loaded]);
 
 
@@ -828,41 +825,6 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
     reader.readAsText(file);
   }
 
-  // ─── AI ADVISOR ──────────────────────────────────────────────────────────
-  const getAdvice = useCallback(async()=>{
-    setAiLoading(true); setAiAdvice("");
-    const dti = effectiveIncome>0?(totalEMI/effectiveIncome*100).toFixed(0):0;
-    const prompt=`You are a warm expert personal finance advisor for India. Be specific and actionable.
-
-FINANCIAL SNAPSHOT:
-- Monthly Income: ${fc(effectiveIncome)}
-- Total EMIs (loans): ${fc(totalEMI)} (${dti}% of income)
-- CC EMIs: ${fc(totalCCEMI)}
-- Monthly Expenses: ${fc(totalExpense)}
-- Cash Left: ${fc(cashLeft)}
-- Loan Outstanding: ${fc(totalOutstanding)}
-- CC Outstanding: ${fc(totalCCOut)}
-- Health Score: ${health.score}/100 (Grade ${health.grade})
-- Recommended Strategy: ${recommended.strategy} — ${recommended.reason}
-
-LOANS: ${activeDebts.map(d=>`${d.name} ₹${d.outstanding} @ ${d.interestRate}% EMI:${fc(d.emi)}`).join("; ")||"None"}
-CREDIT CARDS: ${creditCards.map(c=>`${c.name}/${c.bank} out:₹${c.outstanding} limit:₹${c.limit} rate:${c.interestRate}%`).join("; ")||"None"}
-
-Provide (use emoji headers, max 350 words):
-## 🚨 Top 3 Actions (this week, with ₹ amounts)
-## 💳 Credit Card Strategy (use or avoid? pay which first?)
-## 🏁 Debt-Free Timeline (with vs without extra ₹${fc(extraFund)})
-## 🛡️ Post-Debt Plan (health insurance, term life, investments — India-specific)
-## ❤️ One line of encouragement`;
-    try {
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1200,messages:[{role:"user",content:prompt}]})});
-      const data=await res.json();
-      if(data.content?.[0])setAiAdvice(data.content[0].text);
-      else setAiAdvice("Could not generate. Try again.");
-    }catch{setAiAdvice("Connection error. Try again.");}
-    setAiLoading(false);
-  },[effectiveIncome,totalEMI,totalCCEMI,totalExpense,cashLeft,totalOutstanding,totalCCOut,health,activeDebts,creditCards,extraFund,recommended]);
-
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -1260,10 +1222,8 @@ Provide (use emoji headers, max 350 words):
   }
 
   // ─── NOTIFICATION ENGINE ─────────────────────────────────────────────────
-  // Register service worker on first load
+  // Check permission on load
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
     if ("Notification" in window) {
       setNotifPermission(Notification.permission);
     }
@@ -1275,42 +1235,51 @@ Provide (use emoji headers, max 350 words):
     const result = await Notification.requestPermission();
     setNotifPermission(result);
     if (result === "granted") {
-      showNotif("✅ FinTrack Notifications On", "You will get EMI reminders, budget alerts and daily expense nudges.", "welcome");
+      sendNotif("✅ FinTrack Notifications On", "You'll get EMI reminders, budget alerts and daily nudges.");
     }
   }
 
-  // Core notification sender
-  function showNotif(title, body, tag = "fintrack", actions = []) {
-    if (notifPermission !== "granted") return;
-    if (!("serviceWorker" in navigator)) return;
-    navigator.serviceWorker.ready.then(reg => {
-      reg.showNotification(title, {
+  // Core notification sender — uses direct Notification API, no SW needed
+  function sendNotif(title, body, tag = "fintrack") {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    try {
+      new Notification(title, {
         body,
         icon: "/icon-192.png",
-        badge: "/icon-72.png",
         tag,
         renotify: true,
-        vibrate: [200, 100, 200],
-        actions,
       });
-    });
+    } catch(e) {
+      // Some browsers block Notification in certain contexts — silently ignore
+    }
   }
 
-  // Smart notification scheduler — runs once after data loads
+  // Smart notification scheduler — fires every time app loads with data
+  // Uses localStorage to avoid spamming same notification multiple times per day
   useEffect(() => {
-    if (!loaded || notifPermission !== "granted" || notifScheduled.current) return;
-    notifScheduled.current = true;
-    const now = new Date();
-    const todayDate = now.getDate();
+    if (!loaded || notifPermission !== "granted") return;
+
+    const todayKey = new Date().toISOString().slice(0, 10); // "2026-03-27"
+    const storageKey = `fintrack_notif_${todayKey}`;
+    if (localStorage.getItem(storageKey)) return; // already ran today
+    localStorage.setItem(storageKey, "1");
+
+    // Clean up old keys (keep only last 7 days)
+    Object.keys(localStorage)
+      .filter(k => k.startsWith("fintrack_notif_") && k !== storageKey)
+      .forEach(k => localStorage.removeItem(k));
 
     // 1. EMI Due Reminders
     activeDebts.forEach(d => {
       if (!d.dueDate || !d.emi) return;
       const days = daysUntil(d.dueDate);
-      if (days === 3) showNotif("EMI Due in 3 Days", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " due on " + parseLocal(d.dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"}), "emi-3d-" + d.id);
-      else if (days === 1) showNotif("EMI Due Tomorrow!", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " — make sure funds are ready.", "emi-1d-" + d.id);
-      else if (days === 0) showNotif("EMI Due Today!", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " is being debited today.", "emi-today-" + d.id);
-      else if (days !== null && days < 0) showNotif("EMI Overdue!", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " was due " + Math.abs(days) + " days ago!", "emi-over-" + d.id);
+      const emiAmt = "₹" + parseFloat(d.emi).toLocaleString("en-IN");
+      if (days === 3)        sendNotif("📅 EMI Due in 3 Days",  `${d.name} — ${emiAmt} due on ${parseLocal(d.dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}`, "emi-3d-"+d.id);
+      else if (days === 1)   sendNotif("⚠️ EMI Due Tomorrow!",  `${d.name} — ${emiAmt}. Make sure funds are ready.`, "emi-1d-"+d.id);
+      else if (days === 0)   sendNotif("🔴 EMI Due Today!",      `${d.name} — ${emiAmt} is being debited today.`, "emi-0d-"+d.id);
+      else if (days !== null && days < 0)
+                             sendNotif("🚨 EMI Overdue!",        `${d.name} — ${emiAmt} was due ${Math.abs(days)} days ago!`, "emi-over-"+d.id);
     });
 
     // 2. Credit Card Due Reminders
@@ -1319,38 +1288,30 @@ Provide (use emoji headers, max 350 words):
       const days = daysUntil(cc.dueDate);
       const out = parseFloat(cc.outstanding) || 0;
       if (out === 0) return;
-      if (days === 3) showNotif("CC Bill Due in 3 Days", cc.name + " — Rs." + out.toLocaleString("en-IN") + " outstanding. Pay before " + parseLocal(cc.dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"}) + ".", "cc-3d-" + cc.id);
-      else if (days === 1) showNotif("CC Bill Due Tomorrow!", cc.name + " — Rs." + out.toLocaleString("en-IN") + " due. Avoid late fees!", "cc-1d-" + cc.id);
-      else if (days === 0) showNotif("CC Bill Due Today!", cc.name + " — Pay Rs." + out.toLocaleString("en-IN") + " today to avoid interest.", "cc-today-" + cc.id);
-      else if (days !== null && days < 0) showNotif("CC Bill Overdue!", cc.name + " — Rs." + out.toLocaleString("en-IN") + " is overdue! Pay now to stop interest.", "cc-over-" + cc.id);
+      const outAmt = "₹" + out.toLocaleString("en-IN");
+      if (days === 3)        sendNotif("📅 CC Bill Due in 3 Days", `${cc.name} — ${outAmt} outstanding.`, "cc-3d-"+cc.id);
+      else if (days === 1)   sendNotif("⚠️ CC Bill Due Tomorrow!", `${cc.name} — ${outAmt} due. Avoid late fees!`, "cc-1d-"+cc.id);
+      else if (days === 0)   sendNotif("🔴 CC Bill Due Today!",    `${cc.name} — Pay ${outAmt} today to avoid interest.`, "cc-0d-"+cc.id);
+      else if (days !== null && days < 0)
+                             sendNotif("🚨 CC Bill Overdue!",      `${cc.name} — ${outAmt} overdue! Pay now.`, "cc-over-"+cc.id);
     });
 
     // 3. Budget Overspend Alerts
     spendAlerts.forEach(a => {
-      if (a.over) showNotif("Budget Exceeded — " + a.cat, "You have spent Rs." + a.spent.toLocaleString("en-IN") + " vs Rs." + a.limit.toLocaleString("en-IN") + " budget (" + a.pct + "%).", "budget-over-" + a.cat);
-      else if (a.pct >= 90) showNotif("Budget Almost Full — " + a.cat, a.pct + "% used — only Rs." + (a.limit - a.spent).toLocaleString("en-IN") + " left this month.", "budget-90-" + a.cat);
+      if (a.over)          sendNotif("🚨 Budget Exceeded — " + a.cat, `Spent ₹${a.spent.toLocaleString("en-IN")} vs ₹${a.limit.toLocaleString("en-IN")} limit (${a.pct}%).`, "budget-over-"+a.cat);
+      else if (a.pct >= 90) sendNotif("⚠️ Budget Almost Full — " + a.cat, `${a.pct}% used — only ₹${(a.limit-a.spent).toLocaleString("en-IN")} left.`, "budget-90-"+a.cat);
     });
 
-    // 4. Daily Expense Reminder at 9 PM
-    const target = new Date();
-    target.setHours(21, 0, 0, 0);
-    if (target <= now) target.setDate(target.getDate() + 1);
-    const delay = target - now;
-    setTimeout(() => {
-      navigator.serviceWorker.ready.then(reg => {
-        reg.showNotification("Log Today Expenses", "Do not forget to add today spending to FinTrack!", {
-          icon: "/icon-192.png", badge: "/icon-72.png",
-          tag: "daily-nudge", vibrate: [200, 100, 200],
-        });
-      });
-    }, delay);
-
-    // 5. Low Balance Warning
+    // 4. Low Balance Warning
     if (cashLeft < totalEMI && totalEMI > 0) {
-      showNotif("Low Balance Warning", "Cash left Rs." + Math.max(0,cashLeft).toLocaleString("en-IN") + " may not cover upcoming EMIs Rs." + totalEMI.toLocaleString("en-IN") + ".", "low-balance");
+      sendNotif("⚠️ Low Balance Warning", `Cash left ₹${Math.max(0,cashLeft).toLocaleString("en-IN")} may not cover EMIs ₹${totalEMI.toLocaleString("en-IN")}.`, "low-balance");
     }
 
-    // Salary day notification removed — salary is added manually
+    // 5. Daily log reminder — fires on first app open each day
+    const hour = new Date().getHours();
+    if (hour >= 20) { // after 8 PM
+      sendNotif("📝 Log Today's Expenses", "Don't forget to add today's spending to FinTrack!", "daily-nudge");
+    }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, notifPermission]);
@@ -2028,15 +1989,47 @@ if (!user) {
             <button className="btn btn-v btn-sm" style={{marginTop:12}} onClick={()=>{setDebtForm({...EMPTY_DEBT});setEditDebtId(null);setShowDebtForm(true);}}>+ Add Loan</button>
           </div>
 
-          {/* AI Advisor */}
+          {/* Smart Plan Summary */}
           <div className="card">
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-              <div><div className="stitle" style={{marginBottom:2}}>🤖 AI Financial Advisor</div><div style={{fontSize:11,color:C.muted}}>Personalised advice + insurance & investment plan</div></div>
-              <button className="btn btn-ai btn-sm" onClick={getAdvice} disabled={aiLoading}>{aiLoading?"⏳ Analysing...":"✨ Get Advice"}</button>
+            <div className="stitle">💡 Your Financial Summary</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${health.color}30`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>Health Score</span>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:health.color}}>{health.score}/100 — Grade {health.grade}</span>
+                </div>
+                {health.items.map(item=>(
+                  <div key={item.label} style={{marginBottom:6}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginBottom:2}}>
+                      <span>{item.label}</span><span style={{color:item.score===item.max?C.income:item.score>0?C.warning:C.expense}}>{item.tip}</span>
+                    </div>
+                    <div className="pbar"><div className="pfill" style={{width:`${(item.score/item.max)*100}%`,background:health.color}}/></div>
+                  </div>
+                ))}
+              </div>
+              {debtFreeMonths!==null&&debtFreeMonths>0&&(
+                <div style={{padding:"12px 14px",background:`${C.loan}10`,borderRadius:12,border:`1px solid ${C.loan}30`}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.loan,marginBottom:3}}>🏁 Debt-Free Timeline</div>
+                  <div style={{fontSize:12,color:C.muted}}>
+                    At current pace: <span style={{color:C.text,fontWeight:700}}>{Math.floor(debtFreeMonths/12)>0?`${Math.floor(debtFreeMonths/12)}y `:""}{debtFreeMonths%12>0?`${debtFreeMonths%12}m`:""}</span>
+                    {parseFloat(extraFund)>0&&(()=>{
+                      const withExtra=Math.max(1,Math.ceil((totalOutstanding+totalCCOut)/(totalEMI+totalCCEMI+(parseFloat(extraFund)||0))));
+                      const saved=debtFreeMonths-withExtra;
+                      return saved>0?<span style={{color:C.income,fontWeight:700}}> → {saved}m faster with extra {fc(parseFloat(extraFund))}/mo 🎉</span>:null;
+                    })()}
+                  </div>
+                </div>
+              )}
+              {recommended.reason&&(
+                <div style={{padding:"12px 14px",background:`${C.income}08`,borderRadius:12,border:`1px solid ${C.income}25`}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income,marginBottom:3}}>🤖 Recommended: {recommended.strategy==="avalanche"?"Avalanche ⬆":"Snowball ❄"}</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{recommended.reason}</div>
+                </div>
+              )}
+              <div style={{padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,lineHeight:1.7}}>
+                💡 <span style={{fontWeight:700,color:C.text}}>Next steps:</span> For personalised investment advice, consult a SEBI-registered financial advisor. For tax planning, speak to a CA.
+              </div>
             </div>
-            {aiLoading&&<div>{[90,75,85,60,70].map((w,i)=><div key={i} className="shimmer" style={{height:14,marginBottom:10,width:w+"%"}}/>)}</div>}
-            {!aiLoading&&aiAdvice&&<div style={{borderLeft:`3px solid ${C.loan}`,paddingLeft:14}}><div className="ai-txt">{aiAdvice}</div><div style={{fontSize:10,color:C.muted,marginTop:10}}>⚠️ For planning only. Consult a SEBI-registered advisor for investments.</div><button className="btn-ghost btn-sm" style={{marginTop:8}} onClick={getAdvice}>↻ Refresh</button></div>}
-            {!aiLoading&&!aiAdvice&&<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:20}}>Fill in your numbers above, then tap "Get Advice".</div>}
           </div>
         </>}
 
@@ -3102,7 +3095,6 @@ function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableN
       <div className="sheet">
         <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:18}}>⚙️ Settings</div>
 
-        {/* Notifications */}
         <div style={{marginBottom:20,padding:"14px 16px",borderRadius:14,border:`1.5px solid ${notifPermission==="granted"?C.income:C.border}`,background:notifPermission==="granted"?`${C.income}08`:"transparent"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:notifPermission==="granted"?C.income:C.text}}>🔔 Notifications</div>
@@ -3114,24 +3106,23 @@ function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableN
             }
           </div>
           {notifPermission==="granted" && (
-            <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
+            <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
               You will get alerts for:<br/>
               • EMI due in 3 days, 1 day, today &amp; overdue<br/>
               • Credit card bill due reminders<br/>
               • Budget overspend warnings<br/>
-              • Daily expense reminder at 9 PM<br/>
               • Low balance warning before EMI dates<br/>
-              • Salary credit day reminder
+              • Daily expense reminder (after 8 PM)
             </div>
           )}
           {notifPermission==="denied" && (
             <div style={{fontSize:11,color:C.muted,marginTop:4}}>
-              Go to browser Settings → Site Settings → Notifications → allow for this site.
+              Go to browser Settings → Site Settings → Notifications → allow for this site. Then refresh the app.
             </div>
           )}
           {notifPermission==="default" && (
             <div style={{fontSize:11,color:C.muted,marginTop:4}}>
-              Get EMI reminders, budget alerts and daily expense nudges.
+              Tap Enable to get EMI reminders, budget alerts and daily nudges directly in your browser.
             </div>
           )}
         </div>
