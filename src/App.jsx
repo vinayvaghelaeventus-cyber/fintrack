@@ -39,7 +39,9 @@ const MOBILE_TABS = [
   {id:"Cards",        icon:"💳", label:"Cards"},
   {id:"Plan",         icon:"📊", label:"Plan"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart"];
+const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart","Circles"];
+const EMPTY_CIRCLE = {id:null, person:"", amount:"", purpose:"", borrowedDate:todayStr(), returnDate:"", type:"borrowed", status:"pending", notes:""};
+const CIRCLE_PURPOSES = ["Bill Payment","Rent","Medical","Groceries","EMI","Utility Bill","Travel","Emergency","Other"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
@@ -258,7 +260,11 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [accountForm, setAccountForm] = useState({...EMPTY_ACCOUNT});
   const [editAccountId, setEditAccountId] = useState(null);
 
-  // ── Custom Categories ──
+  // ── Money Circles ──
+  const [moneyCircles, setMoneyCircles] = useState([]);
+  const [showCircleForm, setShowCircleForm] = useState(false);
+  const [circleForm, setCircleForm] = useState({...EMPTY_CIRCLE});
+  const [editCircleId, setEditCircleId] = useState(null);
   const [customCats, setCustomCats] = useState({income:[], expense:[]});
   const [showCatManager, setShowCatManager] = useState(false);
   const [newCatName, setNewCatName] = useState("");
@@ -333,6 +339,7 @@ useEffect(() => {
           if (data.allocationPct) setAllocationPct(data.allocationPct);
           if (data.customCats)    setCustomCats(data.customCats);
           if (data.recurringBills) setRecurringBills(data.recurringBills);
+          if (data.moneyCircles)   setMoneyCircles(data.moneyCircles);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -355,7 +362,7 @@ useEffect(() => {
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
-        accounts, allocationPct, customCats,
+        accounts, allocationPct, customCats, moneyCircles,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -364,7 +371,7 @@ useEffect(() => {
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
-      accounts, allocationPct, customCats, loaded]);
+      accounts, allocationPct, customCats, moneyCircles, loaded]);
 
 
 
@@ -555,6 +562,35 @@ const filterByPeriod = useCallback((txList, period) => {
       total: emiAmt + livingAmt + savingsAmt + bufferAmt,
     };
   }, [effectiveIncome, allocationPct, totalEMI, totalCCEMI, totalExpense, savingsTotal, cashLeft, C]);
+
+  // ─── MONEY CIRCLES COMPUTED ──────────────────────────────────────────────
+  const circleStats = useMemo(() => {
+    const pending = moneyCircles.filter(c=>c.status==="pending");
+    const returned = moneyCircles.filter(c=>c.status==="returned");
+    const borrowed = pending.filter(c=>c.type==="borrowed");
+    const lent     = pending.filter(c=>c.type==="lent");
+    const totalOwed    = borrowed.reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const totalToGet   = lent.reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const overdue = pending.filter(c=>c.returnDate&&daysUntil(c.returnDate)<0);
+    const dueThisWeek = pending.filter(c=>c.returnDate&&daysUntil(c.returnDate)>=0&&daysUntil(c.returnDate)<=7);
+    return { totalOwed, totalToGet, borrowed, lent, overdue, dueThisWeek, returned, pending };
+  }, [moneyCircles]);
+
+  // Cash Gap Detection — uses salary day + upcoming bills
+  const cashGap = useMemo(() => {
+    const salDay = parseInt(salary?.creditDay)||5;
+    const today  = new Date().getDate();
+    const daysToSal = salDay >= today ? salDay - today : (30 - today + salDay);
+    const billsDue = [...activeDebts, ...creditCards].filter(item=>{
+      if (!item.dueDate) return false;
+      const d = new Date(item.dueDate).getDate();
+      return d >= today && d < (today + daysToSal);
+    });
+    const totalBillsDue = billsDue.reduce((s,item)=>s+(parseFloat(item.emi||item.minDue)||0),0);
+    const currentCash = Math.max(totalAccountBalance, 0);
+    const gap = totalBillsDue - currentCash;
+    return { daysToSal, totalBillsDue, currentCash, gap, billsDue, hasCashGap: gap > 0 };
+  }, [salary, activeDebts, creditCards, totalAccountBalance]);
 
   // ─── ACTIONS ─────────────────────────────────────────────────────────────
   function saveTx() {
@@ -762,6 +798,29 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
   function deleteAccount(id) { setAccounts(p => p.filter(a => a.id!==id)); }
   function updateAccountBalance(id, delta) {
     setAccounts(p => p.map(a => a.id===id ? {...a, balance: Math.max(0,(parseFloat(a.balance)||0)+delta)} : a));
+  }
+
+  // ─── MONEY CIRCLES ACTIONS ───────────────────────────────────────────────
+  function saveCircle() {
+    if (!circleForm.person.trim() || !circleForm.amount || isNaN(circleForm.amount)) return;
+    const entry = {...circleForm, amount: parseFloat(circleForm.amount)};
+    if (editCircleId) {
+      setMoneyCircles(p => p.map(c => c.id===editCircleId ? {...entry, id:editCircleId} : c));
+    } else {
+      setMoneyCircles(p => [{...entry, id:Date.now()}, ...p]);
+    }
+    setCircleForm({...EMPTY_CIRCLE});
+    setShowCircleForm(false);
+    setEditCircleId(null);
+  }
+  function markCircleReturned(id) {
+    setMoneyCircles(p => p.map(c => c.id===id ? {...c, status:"returned", returnedDate:todayStr()} : c));
+  }
+  function deleteCircle(id) { setMoneyCircles(p => p.filter(c => c.id!==id)); }
+  function openEditCircle(c) {
+    setCircleForm({...c, amount:String(c.amount)});
+    setEditCircleId(c.id);
+    setShowCircleForm(true);
   }
   function toggleDebtAutoEMI(id) {
     setDebts(p => p.map(d => d.id===id ? {...d, autoEMI: d.autoEMI===false ? true : false} : d));
@@ -1307,7 +1366,21 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
       sendNotif("⚠️ Low Balance Warning", `Cash left ₹${Math.max(0,cashLeft).toLocaleString("en-IN")} may not cover EMIs ₹${totalEMI.toLocaleString("en-IN")}.`, "low-balance");
     }
 
-    // 5. Daily log reminder — fires on first app open each day
+    // 5. Money Circles — return reminders
+    moneyCircles.filter(c=>c.status==="pending"&&c.returnDate).forEach(c=>{
+      const days = daysUntil(c.returnDate);
+      const amt = "₹"+parseFloat(c.amount).toLocaleString("en-IN");
+      if (c.type==="borrowed") {
+        if (days===1)            sendNotif("💸 Return Money Tomorrow", `Pay back ${amt} to ${c.person} tomorrow.`, "cr-1d-"+c.id);
+        else if (days===0)       sendNotif("💸 Return Money Today!", `Pay back ${amt} to ${c.person} today.`, "cr-0d-"+c.id);
+        else if (days!==null&&days<0) sendNotif("🚨 Overdue Return!", `You owe ${amt} to ${c.person} — ${Math.abs(days)} days overdue.`, "cr-ov-"+c.id);
+      } else {
+        if (days===0)            sendNotif("💰 Collect Money Today", `${c.person} should return ${amt} today.`, "cg-0d-"+c.id);
+        else if (days!==null&&days<0) sendNotif("💰 Money Not Received", `${c.person} hasn't returned ${amt} — ${Math.abs(days)} days overdue.`, "cg-ov-"+c.id);
+      }
+    });
+
+    // 6. Daily log reminder — fires on first app open each day
     const hour = new Date().getHours();
     if (hour >= 20) { // after 8 PM
       sendNotif("📝 Log Today's Expenses", "Don't forget to add today's spending to FinTrack!", "daily-nudge");
@@ -1408,7 +1481,7 @@ if (!user) {
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
             <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>setTab(t)}>
-              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Insights"?"🔍 Insights":t==="Smart"?"⚡ Smart":t==="Budget"?"🎯 Budget":t}
+              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Insights"?"🔍 Insights":t==="Smart"?"⚡ Smart":t==="Budget"?"🎯 Budget":t==="Circles"?"💸 Circles":t}
             </button>
           ))}
         </div>
@@ -1571,6 +1644,7 @@ if (!user) {
               {icon:"📊",label:"Plan",      tab:"Plan"},
               {icon:"🔍",label:"Insights",  tab:"Insights"},
               {icon:"⚡",label:"Smart",     tab:"Smart"},
+              {icon:"💸",label:"Circles",   tab:"Circles"},
               {icon:"⬆",label:"Import",    action:()=>setShowImport(true)},
               {icon:"⬇",label:"Export",    action:exportTransactions},
             ].map(item=>(
@@ -1799,6 +1873,47 @@ if (!user) {
               <div className="sec-hdr-title">🔔 Dues & Reminders</div>
               <button className="sec-hdr-more" onClick={()=>setTab("Cards")}>View All →</button>
             </div>
+            {/* Cash Gap Alert */}
+            {cashGap.hasCashGap&&(
+              <div onClick={()=>setTab("Circles")} style={{
+                marginBottom:12,padding:"12px 14px",borderRadius:12,cursor:"pointer",
+                background:`${C.warning}12`,border:`1px solid ${C.warning}40`,
+              }}>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.warning,marginBottom:3}}>
+                  ⚠️ Cash Gap Detected!
+                </div>
+                <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
+                  Bills of <span style={{color:C.expense,fontWeight:700}}>{fc(cashGap.totalBillsDue)}</span> due before salary in <span style={{color:C.text,fontWeight:700}}>{cashGap.daysToSal} days</span>. You may need <span style={{color:C.warning,fontWeight:700}}>{fc(cashGap.gap)}</span> more. Tap to manage →
+                </div>
+              </div>
+            )}
+            {/* Money Circles summary if any pending */}
+            {circleStats.totalOwed>0&&(
+              <div onClick={()=>setTab("Circles")} style={{
+                marginBottom:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",
+                background:`${C.expense}08`,border:`1px solid ${C.expense}25`,
+                display:"flex",justifyContent:"space-between",alignItems:"center",
+              }}>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.expense}}>💸 You owe money</div>
+                  <div style={{fontSize:11,color:C.muted}}>{circleStats.borrowed.length} person{circleStats.borrowed.length>1?"s":""} · {fc(circleStats.totalOwed)} total</div>
+                </div>
+                <span style={{fontSize:11,color:C.muted}}>View →</span>
+              </div>
+            )}
+            {circleStats.totalToGet>0&&(
+              <div onClick={()=>setTab("Circles")} style={{
+                marginBottom:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",
+                background:`${C.income}08`,border:`1px solid ${C.income}25`,
+                display:"flex",justifyContent:"space-between",alignItems:"center",
+              }}>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.income}}>💰 You'll receive money</div>
+                  <div style={{fontSize:11,color:C.muted}}>{circleStats.lent.length} person{circleStats.lent.length>1?"s":""} · {fc(circleStats.totalToGet)} total</div>
+                </div>
+                <span style={{fontSize:11,color:C.muted}}>View →</span>
+              </div>
+            )}
             {/* 15-day stress banner */}
             {next15Days.dues.length>0&&(
               <div style={{
@@ -2663,10 +2778,261 @@ if (!user) {
             </div>
           </div>
 
-        </>}
-      </div>
+        {/* ════════ MONEY CIRCLES ════════ */}
+        {tab==="Circles"&&<>
 
-      {/* ── Mobile Bottom Nav — Fintastics style ── */}
+          {/* Cash Gap Warning Banner */}
+          {cashGap.hasCashGap&&(
+            <div className="card" style={{marginBottom:14,borderColor:`${C.warning}50`,background:`${C.warning}08`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:C.warning,marginBottom:3}}>⚠️ Cash Gap Detected!</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>Your salary arrives in <span style={{color:C.text,fontWeight:700}}>{cashGap.daysToSal} days</span>. Bills of <span style={{color:C.expense,fontWeight:700}}>{fc(cashGap.totalBillsDue)}</span> are due before then.</div>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+                {[
+                  {label:"Bills Due",    val:fc(cashGap.totalBillsDue), color:C.expense},
+                  {label:"Cash in Hand", val:fc(cashGap.currentCash),   color:C.income},
+                  {label:"Gap Amount",   val:fc(cashGap.gap),           color:C.warning},
+                ].map(item=>(
+                  <div key={item.label} style={{background:C.card,borderRadius:10,padding:"10px 12px",textAlign:"center",border:`1px solid ${C.border}`}}>
+                    <div className="lbl">{item.label}</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:item.color}}>{item.val}</div>
+                  </div>
+                ))}
+              </div>
+              {cashGap.billsDue.length>0&&(
+                <div style={{fontSize:11,color:C.muted,borderTop:`1px solid ${C.border}`,paddingTop:8}}>
+                  <span style={{fontWeight:700,color:C.text}}>Bills due before salary: </span>
+                  {cashGap.billsDue.map(b=>`${b.name||b.bank} ${fc(parseFloat(b.emi||b.minDue)||0)}`).join(" · ")}
+                </div>
+              )}
+              <button className="btn btn-p btn-sm" style={{marginTop:10,width:"100%"}}
+                onClick={()=>{setCircleForm({...EMPTY_CIRCLE,purpose:"Bill Payment",amount:String(Math.ceil(cashGap.gap))});setShowCircleForm(true);}}>
+                💸 Record a Borrow for this Gap
+              </button>
+            </div>
+          )}
+
+          {/* Summary Stats */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            <div style={{background:`${C.expense}10`,borderRadius:16,padding:"16px 14px",border:`1px solid ${C.expense}25`}}>
+              <div className="lbl" style={{color:C.expense}}>You Owe</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:C.expense}}>{fc(circleStats.totalOwed)}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:3}}>{circleStats.borrowed.length} pending</div>
+            </div>
+            <div style={{background:`${C.income}10`,borderRadius:16,padding:"16px 14px",border:`1px solid ${C.income}25`}}>
+              <div className="lbl" style={{color:C.income}}>You'll Get</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:C.income}}>{fc(circleStats.totalToGet)}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:3}}>{circleStats.lent.length} pending</div>
+            </div>
+          </div>
+
+          {/* Overdue Alert */}
+          {circleStats.overdue.length>0&&(
+            <div style={{marginBottom:14,padding:"12px 14px",background:`${C.expense}10`,borderRadius:12,border:`1px solid ${C.expense}40`}}>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.expense,marginBottom:6}}>🚨 Overdue — {circleStats.overdue.length} entry{circleStats.overdue.length>1?"s":""}</div>
+              {circleStats.overdue.map(c=>(
+                <div key={c.id} style={{fontSize:12,color:C.muted,marginBottom:3}}>
+                  {c.type==="borrowed"?"You owe":"Receive from"} <span style={{color:C.text,fontWeight:700}}>{c.person}</span> — {fc(c.amount)} · {Math.abs(daysUntil(c.returnDate))}d overdue
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Due This Week */}
+          {circleStats.dueThisWeek.length>0&&(
+            <div style={{marginBottom:14,padding:"12px 14px",background:`${C.warning}10`,borderRadius:12,border:`1px solid ${C.warning}30`}}>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.warning,marginBottom:6}}>⏰ Due this week</div>
+              {circleStats.dueThisWeek.map(c=>(
+                <div key={c.id} style={{fontSize:12,color:C.muted,marginBottom:3}}>
+                  {c.type==="borrowed"?"Pay back":"Collect from"} <span style={{color:C.text,fontWeight:700}}>{c.person}</span> — {fc(c.amount)} · in {daysUntil(c.returnDate)}d
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pending Circles */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div className="sec-hdr-title">💸 Active Circles</div>
+              <button className="btn btn-p btn-sm" onClick={()=>{setCircleForm({...EMPTY_CIRCLE});setEditCircleId(null);setShowCircleForm(true);}}>+ Add</button>
+            </div>
+            {circleStats.pending.length===0
+              ? <div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:12}}>
+                  <div style={{fontSize:36,marginBottom:8}}>🤝</div>
+                  No active borrows or lends.<br/>
+                  <span style={{color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}
+                    onClick={()=>{setCircleForm({...EMPTY_CIRCLE});setShowCircleForm(true);}}>
+                    + Record one now
+                  </span>
+                </div>
+              : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {circleStats.pending.map(c=>{
+                    const days = c.returnDate ? daysUntil(c.returnDate) : null;
+                    const isOverdue = days!==null && days<0;
+                    const isBorrowed = c.type==="borrowed";
+                    const accentColor = isBorrowed ? C.expense : C.income;
+                    return(
+                      <div key={c.id} style={{background:C.surface,borderRadius:14,padding:"14px",border:`1px solid ${isOverdue?C.expense+"50":accentColor+"25"}`}}>
+                        {/* Header */}
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            <div style={{width:40,height:40,borderRadius:12,background:`${accentColor}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
+                              {isBorrowed?"💸":"💰"}
+                            </div>
+                            <div>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.text}}>{c.person}</div>
+                              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>
+                                {isBorrowed?"You borrowed":"You lent"} · {c.purpose||"—"}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:17,color:accentColor}}>{fc(c.amount)}</div>
+                            {days!==null&&(
+                              <div style={{fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,
+                                color:isOverdue?C.expense:days<=3?C.warning:C.muted}}>
+                                {isOverdue?`🚨 ${Math.abs(days)}d overdue`:days===0?"Due today!":days===1?"Due tomorrow":`in ${days}d`}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {/* Dates */}
+                        <div style={{display:"flex",gap:16,fontSize:10,color:C.muted,marginBottom:10}}>
+                          <span>📅 Borrowed: {fd(c.borrowedDate)}</span>
+                          {c.returnDate&&<span>🔁 Return by: {fd(c.returnDate)}</span>}
+                        </div>
+                        {c.notes&&<div style={{fontSize:11,color:C.muted,fontStyle:"italic",marginBottom:10,padding:"6px 10px",background:C.card,borderRadius:8}}>"{c.notes}"</div>}
+                        {/* Actions */}
+                        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                          <button className="btn btn-g btn-sm" onClick={()=>markCircleReturned(c.id)}>
+                            ✅ {isBorrowed?"Returned":"Received"}
+                          </button>
+                          <button className="btn-ghost btn-sm" onClick={()=>openEditCircle(c)}>Edit</button>
+                          <button className="btn btn-danger" onClick={()=>deleteCircle(c.id)}>Delete</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+            }
+          </div>
+
+          {/* History */}
+          {circleStats.returned.length>0&&(
+            <div className="card" style={{marginBottom:14}}>
+              <div className="sec-hdr">
+                <div className="sec-hdr-title">✅ History</div>
+                <span style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{circleStats.returned.length} settled</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {[...circleStats.returned].reverse().slice(0,10).map(c=>(
+                  <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,opacity:0.8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{width:32,height:32,borderRadius:10,background:`${C.income}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>
+                        {c.type==="borrowed"?"💸":"💰"}
+                      </div>
+                      <div>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{c.person}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{c.type==="borrowed"?"Borrowed & returned":"Lent & received"} · {c.purpose||"—"}</div>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income}}>{fc(c.amount)}</div>
+                      {c.returnedDate&&<div style={{fontSize:10,color:C.muted}}>{fd(c.returnedDate)}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Buffer Fund Tip */}
+          <div style={{padding:"14px 16px",borderRadius:14,background:`${C.purple}10`,border:`1px solid ${C.purple}25`,marginBottom:14}}>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.purple,marginBottom:6}}>💡 Stop the Borrow Cycle</div>
+            {(()=>{
+              const avgMonthlyBills = (totalEMI+totalCCEMI) || 0;
+              const bufferNeeded = avgMonthlyBills + (totalExpense/6 || 5000);
+              const salDay = parseInt(salary?.creditDay)||5;
+              return(
+                <div style={{fontSize:12,color:C.muted,lineHeight:1.8}}>
+                  Build a <span style={{color:C.purple,fontWeight:700}}>Bill Buffer</span> of {fc(Math.ceil(bufferNeeded/1000)*1000)} to cover bills before your salary on <span style={{fontWeight:700,color:C.text}}>{salDay}{salDay===1?"st":salDay===2?"nd":salDay===3?"rd":"th"} of every month</span>.<br/>
+                  Set aside <span style={{color:C.income,fontWeight:700}}>{fc(Math.ceil(bufferNeeded/4/100)*100)}/week</span> and in 4 weeks you'll never need to borrow again. 🎉
+                </div>
+              );
+            })()}
+          </div>
+
+        </>}
+
+        {/* ── Money Circles Modal ── */}
+        {showCircleForm&&(
+          <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowCircleForm(false),setEditCircleId(null))}>
+            <div className="sheet">
+              {/* Purple header */}
+              <div style={{background:`linear-gradient(135deg,${C.purple},${C.purpleLight})`,borderRadius:16,padding:"14px 16px",marginBottom:20,textAlign:"center"}}>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:17,color:"#fff"}}>
+                  {editCircleId?"Edit Entry":"💸 Record Borrow / Lend"}
+                </div>
+              </div>
+
+              {/* Type toggle */}
+              <div className="tx-seg" style={{marginBottom:16}}>
+                {[["borrowed","💸 I Borrowed"],["lent","💰 I Lent"]].map(([v,l])=>(
+                  <button key={v} className={`tx-seg-btn ${circleForm.type===v?"on":""}`}
+                    onClick={()=>setCircleForm(p=>({...p,type:v}))}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div>
+                  <div className="lbl">{circleForm.type==="borrowed"?"Borrowed from *":"Lent to *"}</div>
+                  <input className="inp" placeholder="Person's name e.g. Rakesh bhai"
+                    value={circleForm.person} onChange={e=>setCircleForm(p=>({...p,person:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Amount ₹ *</div>
+                  <input className="inp" type="number" placeholder="e.g. 8000"
+                    value={circleForm.amount} onChange={e=>setCircleForm(p=>({...p,amount:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Purpose</div>
+                  <select className="inp" value={circleForm.purpose} onChange={e=>setCircleForm(p=>({...p,purpose:e.target.value}))}>
+                    <option value="">Select purpose</option>
+                    {CIRCLE_PURPOSES.map(p=><option key={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div className="g2">
+                  <div>
+                    <div className="lbl">Date {circleForm.type==="borrowed"?"Borrowed":"Lent"}</div>
+                    <input className="inp" type="date" value={circleForm.borrowedDate}
+                      onChange={e=>setCircleForm(p=>({...p,borrowedDate:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <div className="lbl">Return By Date</div>
+                    <input className="inp" type="date" value={circleForm.returnDate}
+                      onChange={e=>setCircleForm(p=>({...p,returnDate:e.target.value}))}/>
+                  </div>
+                </div>
+                <div>
+                  <div className="lbl">Notes (optional)</div>
+                  <input className="inp" placeholder="e.g. For electricity bill payment"
+                    value={circleForm.notes} onChange={e=>setCircleForm(p=>({...p,notes:e.target.value}))}/>
+                </div>
+                <div style={{display:"flex",gap:10,marginTop:4}}>
+                  <button className="btn btn-ghost" onClick={()=>{setShowCircleForm(false);setEditCircleId(null);}} style={{flex:1,borderRadius:99}}>Cancel</button>
+                  <button className="btn btn-p" onClick={saveCircle} style={{flex:2}}>
+                    {editCircleId?"Save Changes":"Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       <nav className="bnav">
         {MOBILE_TABS.slice(0,2).map(t=>(
           <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}>
@@ -2695,7 +3061,7 @@ if (!user) {
         <div style={{padding:"8px 0",flex:1,overflowY:"auto"}}>
           <div style={{padding:"6px 20px 4px",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Navigation</div>
           {ALL_TABS.map(t=>{
-            const icons={"Dashboard":"🏠","Plan":"🎯","Cards":"💳","Transactions":"📋","Budget":"🎯","Insights":"🔍","Smart":"⚡"};
+            const icons={"Dashboard":"🏠","Plan":"🎯","Cards":"💳","Transactions":"📋","Budget":"🎯","Insights":"🔍","Smart":"⚡","Circles":"💸"};
             return(
               <button key={t} className={`hmenu-item ${tab===t?"active":""}`} onClick={()=>{setTab(t);setShowMenu(false);}}>
                 <span style={{fontSize:16}}>{icons[t]||"•"}</span>{t}
