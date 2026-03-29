@@ -3033,6 +3033,9 @@ if (!user) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Mobile Bottom Nav — Fintastics style ── */}
       <nav className="bnav">
         {MOBILE_TABS.slice(0,2).map(t=>(
           <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}>
