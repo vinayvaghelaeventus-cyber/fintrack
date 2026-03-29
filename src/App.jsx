@@ -2778,7 +2778,8 @@ if (!user) {
             </div>
           </div>
 
-        {/* ════════ MONEY CIRCLES ════════ */}
+        </>}
+
         {tab==="Circles"&&<>
 
           {/* Cash Gap Warning Banner */}
