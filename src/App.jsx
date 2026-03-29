@@ -39,8 +39,10 @@ const MOBILE_TABS = [
   {id:"Cards",        icon:"💳", label:"Cards"},
   {id:"Plan",         icon:"📊", label:"Plan"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart"];
+const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart","Circles"];
+const CIRCLE_PURPOSES = ["Bill Payment","Rent","Medical","Groceries","EMI","Utility Bill","Travel","Emergency","Other"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const EMPTY_CIRCLE = {id:null, person:"", amount:"", purpose:"", borrowedDate:todayStr(), returnDate:"", type:"borrowed", status:"pending", notes:""};
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
@@ -189,8 +191,6 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [extraFund, setExtraFund]         = useState("");
   const [strategy, setStrategy]           = useState("avalanche");
   const [emergencyFund, setEmergencyFund] = useState("");
-  const [aiAdvice, setAiAdvice]           = useState("");
-  const [aiLoading, setAiLoading]         = useState(false);
 
   // ── Forms ──
   const [showTxForm, setShowTxForm]     = useState(false);
@@ -260,7 +260,11 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [accountForm, setAccountForm] = useState({...EMPTY_ACCOUNT});
   const [editAccountId, setEditAccountId] = useState(null);
 
-  // ── Custom Categories ──
+  // ── Money Circles ──
+  const [moneyCircles, setMoneyCircles] = useState([]);
+  const [showCircleForm, setShowCircleForm] = useState(false);
+  const [circleForm, setCircleForm] = useState({...EMPTY_CIRCLE});
+  const [editCircleId, setEditCircleId] = useState(null);
   const [customCats, setCustomCats] = useState({income:[], expense:[]});
   const [showCatManager, setShowCatManager] = useState(false);
   const [newCatName, setNewCatName] = useState("");
@@ -330,12 +334,12 @@ useEffect(() => {
           if (data.extraFund)     setExtraFund(data.extraFund);
           if (data.strategy)      setStrategy(data.strategy);
           if (data.emergencyFund) setEmergencyFund(data.emergencyFund);
-          if (data.aiAdvice)      setAiAdvice(data.aiAdvice);
           if (data.darkMode!==undefined) setDarkMode(data.darkMode);
           if (data.accounts)      setAccounts(data.accounts);
           if (data.allocationPct) setAllocationPct(data.allocationPct);
           if (data.customCats)    setCustomCats(data.customCats);
           if (data.recurringBills) setRecurringBills(data.recurringBills);
+          if (data.moneyCircles)   setMoneyCircles(data.moneyCircles);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -357,8 +361,8 @@ useEffect(() => {
       setSaving(true);
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks,
-        monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-        accounts, allocationPct, customCats,
+        monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
+        accounts, allocationPct, customCats, moneyCircles,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -366,8 +370,8 @@ useEffect(() => {
       else setFbStatus("error");
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
-      monthlyIncome, extraFund, strategy, emergencyFund, aiAdvice, darkMode,
-      accounts, allocationPct, customCats, loaded]);
+      monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
+      accounts, allocationPct, customCats, moneyCircles, loaded]);
 
 
 
@@ -558,6 +562,35 @@ const filterByPeriod = useCallback((txList, period) => {
       total: emiAmt + livingAmt + savingsAmt + bufferAmt,
     };
   }, [effectiveIncome, allocationPct, totalEMI, totalCCEMI, totalExpense, savingsTotal, cashLeft, C]);
+
+  // ─── MONEY CIRCLES COMPUTED ──────────────────────────────────────────────
+  const circleStats = useMemo(() => {
+    const pending = moneyCircles.filter(c=>c.status==="pending");
+    const returned = moneyCircles.filter(c=>c.status==="returned");
+    const borrowed = pending.filter(c=>c.type==="borrowed");
+    const lent     = pending.filter(c=>c.type==="lent");
+    const totalOwed    = borrowed.reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const totalToGet   = lent.reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const overdue = pending.filter(c=>c.returnDate&&daysUntil(c.returnDate)<0);
+    const dueThisWeek = pending.filter(c=>c.returnDate&&daysUntil(c.returnDate)>=0&&daysUntil(c.returnDate)<=7);
+    return { totalOwed, totalToGet, borrowed, lent, overdue, dueThisWeek, returned, pending };
+  }, [moneyCircles]);
+
+  // Cash Gap Detection — uses salary day + upcoming bills
+  const cashGap = useMemo(() => {
+    const salDay = parseInt(salary?.creditDay)||5;
+    const today  = new Date().getDate();
+    const daysToSal = salDay >= today ? salDay - today : (30 - today + salDay);
+    const billsDue = [...activeDebts, ...creditCards].filter(item=>{
+      if (!item.dueDate) return false;
+      const d = new Date(item.dueDate).getDate();
+      return d >= today && d < (today + daysToSal);
+    });
+    const totalBillsDue = billsDue.reduce((s,item)=>s+(parseFloat(item.emi||item.minDue)||0),0);
+    const currentCash = Math.max(totalAccountBalance, 0);
+    const gap = totalBillsDue - currentCash;
+    return { daysToSal, totalBillsDue, currentCash, gap, billsDue, hasCashGap: gap > 0 };
+  }, [salary, activeDebts, creditCards, totalAccountBalance]);
 
   // ─── ACTIONS ─────────────────────────────────────────────────────────────
   function saveTx() {
@@ -766,6 +799,29 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
   function updateAccountBalance(id, delta) {
     setAccounts(p => p.map(a => a.id===id ? {...a, balance: Math.max(0,(parseFloat(a.balance)||0)+delta)} : a));
   }
+
+  // ─── MONEY CIRCLES ACTIONS ───────────────────────────────────────────────
+  function saveCircle() {
+    if (!circleForm.person.trim() || !circleForm.amount || isNaN(circleForm.amount)) return;
+    const entry = {...circleForm, amount: parseFloat(circleForm.amount)};
+    if (editCircleId) {
+      setMoneyCircles(p => p.map(c => c.id===editCircleId ? {...entry, id:editCircleId} : c));
+    } else {
+      setMoneyCircles(p => [{...entry, id:Date.now()}, ...p]);
+    }
+    setCircleForm({...EMPTY_CIRCLE});
+    setShowCircleForm(false);
+    setEditCircleId(null);
+  }
+  function markCircleReturned(id) {
+    setMoneyCircles(p => p.map(c => c.id===id ? {...c, status:"returned", returnedDate:todayStr()} : c));
+  }
+  function deleteCircle(id) { setMoneyCircles(p => p.filter(c => c.id!==id)); }
+  function openEditCircle(c) {
+    setCircleForm({...c, amount:String(c.amount)});
+    setEditCircleId(c.id);
+    setShowCircleForm(true);
+  }
   function toggleDebtAutoEMI(id) {
     setDebts(p => p.map(d => d.id===id ? {...d, autoEMI: d.autoEMI===false ? true : false} : d));
   }
@@ -827,41 +883,6 @@ function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
     };
     reader.readAsText(file);
   }
-
-  // ─── AI ADVISOR ──────────────────────────────────────────────────────────
-  const getAdvice = useCallback(async()=>{
-    setAiLoading(true); setAiAdvice("");
-    const dti = effectiveIncome>0?(totalEMI/effectiveIncome*100).toFixed(0):0;
-    const prompt=`You are a warm expert personal finance advisor for India. Be specific and actionable.
-
-FINANCIAL SNAPSHOT:
-- Monthly Income: ${fc(effectiveIncome)}
-- Total EMIs (loans): ${fc(totalEMI)} (${dti}% of income)
-- CC EMIs: ${fc(totalCCEMI)}
-- Monthly Expenses: ${fc(totalExpense)}
-- Cash Left: ${fc(cashLeft)}
-- Loan Outstanding: ${fc(totalOutstanding)}
-- CC Outstanding: ${fc(totalCCOut)}
-- Health Score: ${health.score}/100 (Grade ${health.grade})
-- Recommended Strategy: ${recommended.strategy} — ${recommended.reason}
-
-LOANS: ${activeDebts.map(d=>`${d.name} ₹${d.outstanding} @ ${d.interestRate}% EMI:${fc(d.emi)}`).join("; ")||"None"}
-CREDIT CARDS: ${creditCards.map(c=>`${c.name}/${c.bank} out:₹${c.outstanding} limit:₹${c.limit} rate:${c.interestRate}%`).join("; ")||"None"}
-
-Provide (use emoji headers, max 350 words):
-## 🚨 Top 3 Actions (this week, with ₹ amounts)
-## 💳 Credit Card Strategy (use or avoid? pay which first?)
-## 🏁 Debt-Free Timeline (with vs without extra ₹${fc(extraFund)})
-## 🛡️ Post-Debt Plan (health insurance, term life, investments — India-specific)
-## ❤️ One line of encouragement`;
-    try {
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1200,messages:[{role:"user",content:prompt}]})});
-      const data=await res.json();
-      if(data.content?.[0])setAiAdvice(data.content[0].text);
-      else setAiAdvice("Could not generate. Try again.");
-    }catch{setAiAdvice("Connection error. Try again.");}
-    setAiLoading(false);
-  },[effectiveIncome,totalEMI,totalCCEMI,totalExpense,cashLeft,totalOutstanding,totalCCOut,health,activeDebts,creditCards,extraFund,recommended]);
 
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -1260,10 +1281,8 @@ Provide (use emoji headers, max 350 words):
   }
 
   // ─── NOTIFICATION ENGINE ─────────────────────────────────────────────────
-  // Register service worker on first load
+  // Check permission on load
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
     if ("Notification" in window) {
       setNotifPermission(Notification.permission);
     }
@@ -1275,42 +1294,51 @@ Provide (use emoji headers, max 350 words):
     const result = await Notification.requestPermission();
     setNotifPermission(result);
     if (result === "granted") {
-      showNotif("✅ FinTrack Notifications On", "You will get EMI reminders, budget alerts and daily expense nudges.", "welcome");
+      sendNotif("✅ FinTrack Notifications On", "You'll get EMI reminders, budget alerts and daily nudges.");
     }
   }
 
-  // Core notification sender
-  function showNotif(title, body, tag = "fintrack", actions = []) {
-    if (notifPermission !== "granted") return;
-    if (!("serviceWorker" in navigator)) return;
-    navigator.serviceWorker.ready.then(reg => {
-      reg.showNotification(title, {
+  // Core notification sender — uses direct Notification API, no SW needed
+  function sendNotif(title, body, tag = "fintrack") {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    try {
+      new Notification(title, {
         body,
         icon: "/icon-192.png",
-        badge: "/icon-72.png",
         tag,
         renotify: true,
-        vibrate: [200, 100, 200],
-        actions,
       });
-    });
+    } catch(e) {
+      // Some browsers block Notification in certain contexts — silently ignore
+    }
   }
 
-  // Smart notification scheduler — runs once after data loads
+  // Smart notification scheduler — fires every time app loads with data
+  // Uses localStorage to avoid spamming same notification multiple times per day
   useEffect(() => {
-    if (!loaded || notifPermission !== "granted" || notifScheduled.current) return;
-    notifScheduled.current = true;
-    const now = new Date();
-    const todayDate = now.getDate();
+    if (!loaded || notifPermission !== "granted") return;
+
+    const todayKey = new Date().toISOString().slice(0, 10); // "2026-03-27"
+    const storageKey = `fintrack_notif_${todayKey}`;
+    if (localStorage.getItem(storageKey)) return; // already ran today
+    localStorage.setItem(storageKey, "1");
+
+    // Clean up old keys (keep only last 7 days)
+    Object.keys(localStorage)
+      .filter(k => k.startsWith("fintrack_notif_") && k !== storageKey)
+      .forEach(k => localStorage.removeItem(k));
 
     // 1. EMI Due Reminders
     activeDebts.forEach(d => {
       if (!d.dueDate || !d.emi) return;
       const days = daysUntil(d.dueDate);
-      if (days === 3) showNotif("EMI Due in 3 Days", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " due on " + parseLocal(d.dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"}), "emi-3d-" + d.id);
-      else if (days === 1) showNotif("EMI Due Tomorrow!", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " — make sure funds are ready.", "emi-1d-" + d.id);
-      else if (days === 0) showNotif("EMI Due Today!", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " is being debited today.", "emi-today-" + d.id);
-      else if (days !== null && days < 0) showNotif("EMI Overdue!", d.name + " — Rs." + parseFloat(d.emi).toLocaleString("en-IN") + " was due " + Math.abs(days) + " days ago!", "emi-over-" + d.id);
+      const emiAmt = "₹" + parseFloat(d.emi).toLocaleString("en-IN");
+      if (days === 3)        sendNotif("📅 EMI Due in 3 Days",  `${d.name} — ${emiAmt} due on ${parseLocal(d.dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}`, "emi-3d-"+d.id);
+      else if (days === 1)   sendNotif("⚠️ EMI Due Tomorrow!",  `${d.name} — ${emiAmt}. Make sure funds are ready.`, "emi-1d-"+d.id);
+      else if (days === 0)   sendNotif("🔴 EMI Due Today!",      `${d.name} — ${emiAmt} is being debited today.`, "emi-0d-"+d.id);
+      else if (days !== null && days < 0)
+                             sendNotif("🚨 EMI Overdue!",        `${d.name} — ${emiAmt} was due ${Math.abs(days)} days ago!`, "emi-over-"+d.id);
     });
 
     // 2. Credit Card Due Reminders
@@ -1319,38 +1347,44 @@ Provide (use emoji headers, max 350 words):
       const days = daysUntil(cc.dueDate);
       const out = parseFloat(cc.outstanding) || 0;
       if (out === 0) return;
-      if (days === 3) showNotif("CC Bill Due in 3 Days", cc.name + " — Rs." + out.toLocaleString("en-IN") + " outstanding. Pay before " + parseLocal(cc.dueDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"}) + ".", "cc-3d-" + cc.id);
-      else if (days === 1) showNotif("CC Bill Due Tomorrow!", cc.name + " — Rs." + out.toLocaleString("en-IN") + " due. Avoid late fees!", "cc-1d-" + cc.id);
-      else if (days === 0) showNotif("CC Bill Due Today!", cc.name + " — Pay Rs." + out.toLocaleString("en-IN") + " today to avoid interest.", "cc-today-" + cc.id);
-      else if (days !== null && days < 0) showNotif("CC Bill Overdue!", cc.name + " — Rs." + out.toLocaleString("en-IN") + " is overdue! Pay now to stop interest.", "cc-over-" + cc.id);
+      const outAmt = "₹" + out.toLocaleString("en-IN");
+      if (days === 3)        sendNotif("📅 CC Bill Due in 3 Days", `${cc.name} — ${outAmt} outstanding.`, "cc-3d-"+cc.id);
+      else if (days === 1)   sendNotif("⚠️ CC Bill Due Tomorrow!", `${cc.name} — ${outAmt} due. Avoid late fees!`, "cc-1d-"+cc.id);
+      else if (days === 0)   sendNotif("🔴 CC Bill Due Today!",    `${cc.name} — Pay ${outAmt} today to avoid interest.`, "cc-0d-"+cc.id);
+      else if (days !== null && days < 0)
+                             sendNotif("🚨 CC Bill Overdue!",      `${cc.name} — ${outAmt} overdue! Pay now.`, "cc-over-"+cc.id);
     });
 
     // 3. Budget Overspend Alerts
     spendAlerts.forEach(a => {
-      if (a.over) showNotif("Budget Exceeded — " + a.cat, "You have spent Rs." + a.spent.toLocaleString("en-IN") + " vs Rs." + a.limit.toLocaleString("en-IN") + " budget (" + a.pct + "%).", "budget-over-" + a.cat);
-      else if (a.pct >= 90) showNotif("Budget Almost Full — " + a.cat, a.pct + "% used — only Rs." + (a.limit - a.spent).toLocaleString("en-IN") + " left this month.", "budget-90-" + a.cat);
+      if (a.over)          sendNotif("🚨 Budget Exceeded — " + a.cat, `Spent ₹${a.spent.toLocaleString("en-IN")} vs ₹${a.limit.toLocaleString("en-IN")} limit (${a.pct}%).`, "budget-over-"+a.cat);
+      else if (a.pct >= 90) sendNotif("⚠️ Budget Almost Full — " + a.cat, `${a.pct}% used — only ₹${(a.limit-a.spent).toLocaleString("en-IN")} left.`, "budget-90-"+a.cat);
     });
 
-    // 4. Daily Expense Reminder at 9 PM
-    const target = new Date();
-    target.setHours(21, 0, 0, 0);
-    if (target <= now) target.setDate(target.getDate() + 1);
-    const delay = target - now;
-    setTimeout(() => {
-      navigator.serviceWorker.ready.then(reg => {
-        reg.showNotification("Log Today Expenses", "Do not forget to add today spending to FinTrack!", {
-          icon: "/icon-192.png", badge: "/icon-72.png",
-          tag: "daily-nudge", vibrate: [200, 100, 200],
-        });
-      });
-    }, delay);
-
-    // 5. Low Balance Warning
+    // 4. Low Balance Warning
     if (cashLeft < totalEMI && totalEMI > 0) {
-      showNotif("Low Balance Warning", "Cash left Rs." + Math.max(0,cashLeft).toLocaleString("en-IN") + " may not cover upcoming EMIs Rs." + totalEMI.toLocaleString("en-IN") + ".", "low-balance");
+      sendNotif("⚠️ Low Balance Warning", `Cash left ₹${Math.max(0,cashLeft).toLocaleString("en-IN")} may not cover EMIs ₹${totalEMI.toLocaleString("en-IN")}.`, "low-balance");
     }
 
-    // Salary day notification removed — salary is added manually
+    // 5. Money Circles — return reminders
+    moneyCircles.filter(c=>c.status==="pending"&&c.returnDate).forEach(c=>{
+      const days = daysUntil(c.returnDate);
+      const amt = "₹"+parseFloat(c.amount).toLocaleString("en-IN");
+      if (c.type==="borrowed") {
+        if (days===1)            sendNotif("💸 Return Money Tomorrow", `Pay back ${amt} to ${c.person} tomorrow.`, "cr-1d-"+c.id);
+        else if (days===0)       sendNotif("💸 Return Money Today!", `Pay back ${amt} to ${c.person} today.`, "cr-0d-"+c.id);
+        else if (days!==null&&days<0) sendNotif("🚨 Overdue Return!", `You owe ${amt} to ${c.person} — ${Math.abs(days)} days overdue.`, "cr-ov-"+c.id);
+      } else {
+        if (days===0)            sendNotif("💰 Collect Money Today", `${c.person} should return ${amt} today.`, "cg-0d-"+c.id);
+        else if (days!==null&&days<0) sendNotif("💰 Money Not Received", `${c.person} hasn't returned ${amt} — ${Math.abs(days)} days overdue.`, "cg-ov-"+c.id);
+      }
+    });
+
+    // 6. Daily log reminder — fires on first app open each day
+    const hour = new Date().getHours();
+    if (hour >= 20) { // after 8 PM
+      sendNotif("📝 Log Today's Expenses", "Don't forget to add today's spending to FinTrack!", "daily-nudge");
+    }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, notifPermission]);
@@ -1447,7 +1481,7 @@ if (!user) {
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
             <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>setTab(t)}>
-              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Insights"?"🔍 Insights":t==="Smart"?"⚡ Smart":t==="Budget"?"🎯 Budget":t}
+              {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Insights"?"🔍 Insights":t==="Smart"?"⚡ Smart":t==="Budget"?"🎯 Budget":t==="Circles"?"💸 Circles":t}
             </button>
           ))}
         </div>
@@ -1610,6 +1644,7 @@ if (!user) {
               {icon:"📊",label:"Plan",      tab:"Plan"},
               {icon:"🔍",label:"Insights",  tab:"Insights"},
               {icon:"⚡",label:"Smart",     tab:"Smart"},
+              {icon:"💸",label:"Circles",   tab:"Circles"},
               {icon:"⬆",label:"Import",    action:()=>setShowImport(true)},
               {icon:"⬇",label:"Export",    action:exportTransactions},
             ].map(item=>(
@@ -1838,6 +1873,47 @@ if (!user) {
               <div className="sec-hdr-title">🔔 Dues & Reminders</div>
               <button className="sec-hdr-more" onClick={()=>setTab("Cards")}>View All →</button>
             </div>
+            {/* Cash Gap Alert */}
+            {cashGap.hasCashGap&&(
+              <div onClick={()=>setTab("Circles")} style={{
+                marginBottom:12,padding:"12px 14px",borderRadius:12,cursor:"pointer",
+                background:`${C.warning}12`,border:`1px solid ${C.warning}40`,
+              }}>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.warning,marginBottom:3}}>
+                  ⚠️ Cash Gap Detected!
+                </div>
+                <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
+                  Bills of <span style={{color:C.expense,fontWeight:700}}>{fc(cashGap.totalBillsDue)}</span> due before salary in <span style={{color:C.text,fontWeight:700}}>{cashGap.daysToSal} days</span>. You may need <span style={{color:C.warning,fontWeight:700}}>{fc(cashGap.gap)}</span> more. Tap to manage →
+                </div>
+              </div>
+            )}
+            {/* Money Circles summary if any pending */}
+            {circleStats.totalOwed>0&&(
+              <div onClick={()=>setTab("Circles")} style={{
+                marginBottom:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",
+                background:`${C.expense}08`,border:`1px solid ${C.expense}25`,
+                display:"flex",justifyContent:"space-between",alignItems:"center",
+              }}>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.expense}}>💸 You owe money</div>
+                  <div style={{fontSize:11,color:C.muted}}>{circleStats.borrowed.length} person{circleStats.borrowed.length>1?"s":""} · {fc(circleStats.totalOwed)} total</div>
+                </div>
+                <span style={{fontSize:11,color:C.muted}}>View →</span>
+              </div>
+            )}
+            {circleStats.totalToGet>0&&(
+              <div onClick={()=>setTab("Circles")} style={{
+                marginBottom:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",
+                background:`${C.income}08`,border:`1px solid ${C.income}25`,
+                display:"flex",justifyContent:"space-between",alignItems:"center",
+              }}>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.income}}>💰 You'll receive money</div>
+                  <div style={{fontSize:11,color:C.muted}}>{circleStats.lent.length} person{circleStats.lent.length>1?"s":""} · {fc(circleStats.totalToGet)} total</div>
+                </div>
+                <span style={{fontSize:11,color:C.muted}}>View →</span>
+              </div>
+            )}
             {/* 15-day stress banner */}
             {next15Days.dues.length>0&&(
               <div style={{
@@ -2028,15 +2104,47 @@ if (!user) {
             <button className="btn btn-v btn-sm" style={{marginTop:12}} onClick={()=>{setDebtForm({...EMPTY_DEBT});setEditDebtId(null);setShowDebtForm(true);}}>+ Add Loan</button>
           </div>
 
-          {/* AI Advisor */}
+          {/* Smart Plan Summary */}
           <div className="card">
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-              <div><div className="stitle" style={{marginBottom:2}}>🤖 AI Financial Advisor</div><div style={{fontSize:11,color:C.muted}}>Personalised advice + insurance & investment plan</div></div>
-              <button className="btn btn-ai btn-sm" onClick={getAdvice} disabled={aiLoading}>{aiLoading?"⏳ Analysing...":"✨ Get Advice"}</button>
+            <div className="stitle">💡 Your Financial Summary</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${health.color}30`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>Health Score</span>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:health.color}}>{health.score}/100 — Grade {health.grade}</span>
+                </div>
+                {health.items.map(item=>(
+                  <div key={item.label} style={{marginBottom:6}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginBottom:2}}>
+                      <span>{item.label}</span><span style={{color:item.score===item.max?C.income:item.score>0?C.warning:C.expense}}>{item.tip}</span>
+                    </div>
+                    <div className="pbar"><div className="pfill" style={{width:`${(item.score/item.max)*100}%`,background:health.color}}/></div>
+                  </div>
+                ))}
+              </div>
+              {debtFreeMonths!==null&&debtFreeMonths>0&&(
+                <div style={{padding:"12px 14px",background:`${C.loan}10`,borderRadius:12,border:`1px solid ${C.loan}30`}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.loan,marginBottom:3}}>🏁 Debt-Free Timeline</div>
+                  <div style={{fontSize:12,color:C.muted}}>
+                    At current pace: <span style={{color:C.text,fontWeight:700}}>{Math.floor(debtFreeMonths/12)>0?`${Math.floor(debtFreeMonths/12)}y `:""}{debtFreeMonths%12>0?`${debtFreeMonths%12}m`:""}</span>
+                    {parseFloat(extraFund)>0&&(()=>{
+                      const withExtra=Math.max(1,Math.ceil((totalOutstanding+totalCCOut)/(totalEMI+totalCCEMI+(parseFloat(extraFund)||0))));
+                      const saved=debtFreeMonths-withExtra;
+                      return saved>0?<span style={{color:C.income,fontWeight:700}}> → {saved}m faster with extra {fc(parseFloat(extraFund))}/mo 🎉</span>:null;
+                    })()}
+                  </div>
+                </div>
+              )}
+              {recommended.reason&&(
+                <div style={{padding:"12px 14px",background:`${C.income}08`,borderRadius:12,border:`1px solid ${C.income}25`}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income,marginBottom:3}}>🤖 Recommended: {recommended.strategy==="avalanche"?"Avalanche ⬆":"Snowball ❄"}</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{recommended.reason}</div>
+                </div>
+              )}
+              <div style={{padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,lineHeight:1.7}}>
+                💡 <span style={{fontWeight:700,color:C.text}}>Next steps:</span> For personalised investment advice, consult a SEBI-registered financial advisor. For tax planning, speak to a CA.
+              </div>
             </div>
-            {aiLoading&&<div>{[90,75,85,60,70].map((w,i)=><div key={i} className="shimmer" style={{height:14,marginBottom:10,width:w+"%"}}/>)}</div>}
-            {!aiLoading&&aiAdvice&&<div style={{borderLeft:`3px solid ${C.loan}`,paddingLeft:14}}><div className="ai-txt">{aiAdvice}</div><div style={{fontSize:10,color:C.muted,marginTop:10}}>⚠️ For planning only. Consult a SEBI-registered advisor for investments.</div><button className="btn-ghost btn-sm" style={{marginTop:8}} onClick={getAdvice}>↻ Refresh</button></div>}
-            {!aiLoading&&!aiAdvice&&<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:20}}>Fill in your numbers above, then tap "Get Advice".</div>}
           </div>
         </>}
 
@@ -2671,6 +2779,261 @@ if (!user) {
           </div>
 
         </>}
+
+        {tab==="Circles"&&<>
+
+          {/* Cash Gap Warning Banner */}
+          {cashGap.hasCashGap&&(
+            <div className="card" style={{marginBottom:14,borderColor:`${C.warning}50`,background:`${C.warning}08`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:C.warning,marginBottom:3}}>⚠️ Cash Gap Detected!</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>Your salary arrives in <span style={{color:C.text,fontWeight:700}}>{cashGap.daysToSal} days</span>. Bills of <span style={{color:C.expense,fontWeight:700}}>{fc(cashGap.totalBillsDue)}</span> are due before then.</div>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+                {[
+                  {label:"Bills Due",    val:fc(cashGap.totalBillsDue), color:C.expense},
+                  {label:"Cash in Hand", val:fc(cashGap.currentCash),   color:C.income},
+                  {label:"Gap Amount",   val:fc(cashGap.gap),           color:C.warning},
+                ].map(item=>(
+                  <div key={item.label} style={{background:C.card,borderRadius:10,padding:"10px 12px",textAlign:"center",border:`1px solid ${C.border}`}}>
+                    <div className="lbl">{item.label}</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:item.color}}>{item.val}</div>
+                  </div>
+                ))}
+              </div>
+              {cashGap.billsDue.length>0&&(
+                <div style={{fontSize:11,color:C.muted,borderTop:`1px solid ${C.border}`,paddingTop:8}}>
+                  <span style={{fontWeight:700,color:C.text}}>Bills due before salary: </span>
+                  {cashGap.billsDue.map(b=>`${b.name||b.bank} ${fc(parseFloat(b.emi||b.minDue)||0)}`).join(" · ")}
+                </div>
+              )}
+              <button className="btn btn-p btn-sm" style={{marginTop:10,width:"100%"}}
+                onClick={()=>{setCircleForm({...EMPTY_CIRCLE,purpose:"Bill Payment",amount:String(Math.ceil(cashGap.gap))});setShowCircleForm(true);}}>
+                💸 Record a Borrow for this Gap
+              </button>
+            </div>
+          )}
+
+          {/* Summary Stats */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            <div style={{background:`${C.expense}10`,borderRadius:16,padding:"16px 14px",border:`1px solid ${C.expense}25`}}>
+              <div className="lbl" style={{color:C.expense}}>You Owe</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:C.expense}}>{fc(circleStats.totalOwed)}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:3}}>{circleStats.borrowed.length} pending</div>
+            </div>
+            <div style={{background:`${C.income}10`,borderRadius:16,padding:"16px 14px",border:`1px solid ${C.income}25`}}>
+              <div className="lbl" style={{color:C.income}}>You'll Get</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:C.income}}>{fc(circleStats.totalToGet)}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:3}}>{circleStats.lent.length} pending</div>
+            </div>
+          </div>
+
+          {/* Overdue Alert */}
+          {circleStats.overdue.length>0&&(
+            <div style={{marginBottom:14,padding:"12px 14px",background:`${C.expense}10`,borderRadius:12,border:`1px solid ${C.expense}40`}}>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.expense,marginBottom:6}}>🚨 Overdue — {circleStats.overdue.length} entry{circleStats.overdue.length>1?"s":""}</div>
+              {circleStats.overdue.map(c=>(
+                <div key={c.id} style={{fontSize:12,color:C.muted,marginBottom:3}}>
+                  {c.type==="borrowed"?"You owe":"Receive from"} <span style={{color:C.text,fontWeight:700}}>{c.person}</span> — {fc(c.amount)} · {Math.abs(daysUntil(c.returnDate))}d overdue
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Due This Week */}
+          {circleStats.dueThisWeek.length>0&&(
+            <div style={{marginBottom:14,padding:"12px 14px",background:`${C.warning}10`,borderRadius:12,border:`1px solid ${C.warning}30`}}>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.warning,marginBottom:6}}>⏰ Due this week</div>
+              {circleStats.dueThisWeek.map(c=>(
+                <div key={c.id} style={{fontSize:12,color:C.muted,marginBottom:3}}>
+                  {c.type==="borrowed"?"Pay back":"Collect from"} <span style={{color:C.text,fontWeight:700}}>{c.person}</span> — {fc(c.amount)} · in {daysUntil(c.returnDate)}d
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pending Circles */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div className="sec-hdr-title">💸 Active Circles</div>
+              <button className="btn btn-p btn-sm" onClick={()=>{setCircleForm({...EMPTY_CIRCLE});setEditCircleId(null);setShowCircleForm(true);}}>+ Add</button>
+            </div>
+            {circleStats.pending.length===0
+              ? <div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:12}}>
+                  <div style={{fontSize:36,marginBottom:8}}>🤝</div>
+                  No active borrows or lends.<br/>
+                  <span style={{color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}
+                    onClick={()=>{setCircleForm({...EMPTY_CIRCLE});setShowCircleForm(true);}}>
+                    + Record one now
+                  </span>
+                </div>
+              : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {circleStats.pending.map(c=>{
+                    const days = c.returnDate ? daysUntil(c.returnDate) : null;
+                    const isOverdue = days!==null && days<0;
+                    const isBorrowed = c.type==="borrowed";
+                    const accentColor = isBorrowed ? C.expense : C.income;
+                    return(
+                      <div key={c.id} style={{background:C.surface,borderRadius:14,padding:"14px",border:`1px solid ${isOverdue?C.expense+"50":accentColor+"25"}`}}>
+                        {/* Header */}
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            <div style={{width:40,height:40,borderRadius:12,background:`${accentColor}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
+                              {isBorrowed?"💸":"💰"}
+                            </div>
+                            <div>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.text}}>{c.person}</div>
+                              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>
+                                {isBorrowed?"You borrowed":"You lent"} · {c.purpose||"—"}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:17,color:accentColor}}>{fc(c.amount)}</div>
+                            {days!==null&&(
+                              <div style={{fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,
+                                color:isOverdue?C.expense:days<=3?C.warning:C.muted}}>
+                                {isOverdue?`🚨 ${Math.abs(days)}d overdue`:days===0?"Due today!":days===1?"Due tomorrow":`in ${days}d`}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {/* Dates */}
+                        <div style={{display:"flex",gap:16,fontSize:10,color:C.muted,marginBottom:10}}>
+                          <span>📅 Borrowed: {fd(c.borrowedDate)}</span>
+                          {c.returnDate&&<span>🔁 Return by: {fd(c.returnDate)}</span>}
+                        </div>
+                        {c.notes&&<div style={{fontSize:11,color:C.muted,fontStyle:"italic",marginBottom:10,padding:"6px 10px",background:C.card,borderRadius:8}}>"{c.notes}"</div>}
+                        {/* Actions */}
+                        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                          <button className="btn btn-g btn-sm" onClick={()=>markCircleReturned(c.id)}>
+                            ✅ {isBorrowed?"Returned":"Received"}
+                          </button>
+                          <button className="btn-ghost btn-sm" onClick={()=>openEditCircle(c)}>Edit</button>
+                          <button className="btn btn-danger" onClick={()=>deleteCircle(c.id)}>Delete</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+            }
+          </div>
+
+          {/* History */}
+          {circleStats.returned.length>0&&(
+            <div className="card" style={{marginBottom:14}}>
+              <div className="sec-hdr">
+                <div className="sec-hdr-title">✅ History</div>
+                <span style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{circleStats.returned.length} settled</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {[...circleStats.returned].reverse().slice(0,10).map(c=>(
+                  <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,opacity:0.8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{width:32,height:32,borderRadius:10,background:`${C.income}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>
+                        {c.type==="borrowed"?"💸":"💰"}
+                      </div>
+                      <div>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{c.person}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{c.type==="borrowed"?"Borrowed & returned":"Lent & received"} · {c.purpose||"—"}</div>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income}}>{fc(c.amount)}</div>
+                      {c.returnedDate&&<div style={{fontSize:10,color:C.muted}}>{fd(c.returnedDate)}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Buffer Fund Tip */}
+          <div style={{padding:"14px 16px",borderRadius:14,background:`${C.purple}10`,border:`1px solid ${C.purple}25`,marginBottom:14}}>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.purple,marginBottom:6}}>💡 Stop the Borrow Cycle</div>
+            {(()=>{
+              const avgMonthlyBills = (totalEMI+totalCCEMI) || 0;
+              const bufferNeeded = avgMonthlyBills + (totalExpense/6 || 5000);
+              const salDay = parseInt(salary?.creditDay)||5;
+              return(
+                <div style={{fontSize:12,color:C.muted,lineHeight:1.8}}>
+                  Build a <span style={{color:C.purple,fontWeight:700}}>Bill Buffer</span> of {fc(Math.ceil(bufferNeeded/1000)*1000)} to cover bills before your salary on <span style={{fontWeight:700,color:C.text}}>{salDay}{salDay===1?"st":salDay===2?"nd":salDay===3?"rd":"th"} of every month</span>.<br/>
+                  Set aside <span style={{color:C.income,fontWeight:700}}>{fc(Math.ceil(bufferNeeded/4/100)*100)}/week</span> and in 4 weeks you'll never need to borrow again. 🎉
+                </div>
+              );
+            })()}
+          </div>
+
+        </>}
+
+        {/* ── Money Circles Modal ── */}
+        {showCircleForm&&(
+          <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowCircleForm(false),setEditCircleId(null))}>
+            <div className="sheet">
+              {/* Purple header */}
+              <div style={{background:`linear-gradient(135deg,${C.purple},${C.purpleLight})`,borderRadius:16,padding:"14px 16px",marginBottom:20,textAlign:"center"}}>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:17,color:"#fff"}}>
+                  {editCircleId?"Edit Entry":"💸 Record Borrow / Lend"}
+                </div>
+              </div>
+
+              {/* Type toggle */}
+              <div className="tx-seg" style={{marginBottom:16}}>
+                {[["borrowed","💸 I Borrowed"],["lent","💰 I Lent"]].map(([v,l])=>(
+                  <button key={v} className={`tx-seg-btn ${circleForm.type===v?"on":""}`}
+                    onClick={()=>setCircleForm(p=>({...p,type:v}))}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div>
+                  <div className="lbl">{circleForm.type==="borrowed"?"Borrowed from *":"Lent to *"}</div>
+                  <input className="inp" placeholder="Person's name e.g. Rakesh bhai"
+                    value={circleForm.person} onChange={e=>setCircleForm(p=>({...p,person:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Amount ₹ *</div>
+                  <input className="inp" type="number" placeholder="e.g. 8000"
+                    value={circleForm.amount} onChange={e=>setCircleForm(p=>({...p,amount:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Purpose</div>
+                  <select className="inp" value={circleForm.purpose} onChange={e=>setCircleForm(p=>({...p,purpose:e.target.value}))}>
+                    <option value="">Select purpose</option>
+                    {CIRCLE_PURPOSES.map(p=><option key={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div className="g2">
+                  <div>
+                    <div className="lbl">Date {circleForm.type==="borrowed"?"Borrowed":"Lent"}</div>
+                    <input className="inp" type="date" value={circleForm.borrowedDate}
+                      onChange={e=>setCircleForm(p=>({...p,borrowedDate:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <div className="lbl">Return By Date</div>
+                    <input className="inp" type="date" value={circleForm.returnDate}
+                      onChange={e=>setCircleForm(p=>({...p,returnDate:e.target.value}))}/>
+                  </div>
+                </div>
+                <div>
+                  <div className="lbl">Notes (optional)</div>
+                  <input className="inp" placeholder="e.g. For electricity bill payment"
+                    value={circleForm.notes} onChange={e=>setCircleForm(p=>({...p,notes:e.target.value}))}/>
+                </div>
+                <div style={{display:"flex",gap:10,marginTop:4}}>
+                  <button className="btn btn-ghost" onClick={()=>{setShowCircleForm(false);setEditCircleId(null);}} style={{flex:1,borderRadius:99}}>Cancel</button>
+                  <button className="btn btn-p" onClick={saveCircle} style={{flex:2}}>
+                    {editCircleId?"Save Changes":"Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Mobile Bottom Nav — Fintastics style ── */}
@@ -2702,7 +3065,7 @@ if (!user) {
         <div style={{padding:"8px 0",flex:1,overflowY:"auto"}}>
           <div style={{padding:"6px 20px 4px",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Navigation</div>
           {ALL_TABS.map(t=>{
-            const icons={"Dashboard":"🏠","Plan":"🎯","Cards":"💳","Transactions":"📋","Budget":"🎯","Insights":"🔍","Smart":"⚡"};
+            const icons={"Dashboard":"🏠","Plan":"🎯","Cards":"💳","Transactions":"📋","Budget":"🎯","Insights":"🔍","Smart":"⚡","Circles":"💸"};
             return(
               <button key={t} className={`hmenu-item ${tab===t?"active":""}`} onClick={()=>{setTab(t);setShowMenu(false);}}>
                 <span style={{fontSize:16}}>{icons[t]||"•"}</span>{t}
@@ -3102,7 +3465,6 @@ function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableN
       <div className="sheet">
         <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:18}}>⚙️ Settings</div>
 
-        {/* Notifications */}
         <div style={{marginBottom:20,padding:"14px 16px",borderRadius:14,border:`1.5px solid ${notifPermission==="granted"?C.income:C.border}`,background:notifPermission==="granted"?`${C.income}08`:"transparent"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:notifPermission==="granted"?C.income:C.text}}>🔔 Notifications</div>
@@ -3114,24 +3476,23 @@ function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableN
             }
           </div>
           {notifPermission==="granted" && (
-            <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
+            <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
               You will get alerts for:<br/>
               • EMI due in 3 days, 1 day, today &amp; overdue<br/>
               • Credit card bill due reminders<br/>
               • Budget overspend warnings<br/>
-              • Daily expense reminder at 9 PM<br/>
               • Low balance warning before EMI dates<br/>
-              • Salary credit day reminder
+              • Daily expense reminder (after 8 PM)
             </div>
           )}
           {notifPermission==="denied" && (
             <div style={{fontSize:11,color:C.muted,marginTop:4}}>
-              Go to browser Settings → Site Settings → Notifications → allow for this site.
+              Go to browser Settings → Site Settings → Notifications → allow for this site. Then refresh the app.
             </div>
           )}
           {notifPermission==="default" && (
             <div style={{fontSize:11,color:C.muted,marginTop:4}}>
-              Get EMI reminders, budget alerts and daily expense nudges.
+              Tap Enable to get EMI reminders, budget alerts and daily nudges directly in your browser.
             </div>
           )}
         </div>
