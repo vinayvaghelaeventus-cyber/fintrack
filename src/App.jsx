@@ -282,10 +282,13 @@ const [ccEmiForm, setCcEmiForm] = useState({...EMPTY_CC_EMI});
   const [exportDateTo, setExportDateTo] = useState("");
 
 
-  const [txSearch, setTxSearch] = useState("");
-  const [txType, setTxType]     = useState("all");
-  const [txMode, setTxMode]     = useState("all");
-  const [txBank, setTxBank]     = useState("all");
+  const [txSearch, setTxSearch]       = useState("");
+  const [txType, setTxType]           = useState("all");
+  const [txMode, setTxMode]           = useState("all");
+  const [txBank, setTxBank]           = useState("all");
+  const [txCategory, setTxCategory]   = useState("all");
+  const [txDateFrom, setTxDateFrom]   = useState("");
+  const [txDateTo, setTxDateTo]       = useState("");
 
 
 // ✅ REPLACE with this — clean and simple
@@ -457,6 +460,9 @@ const filterByPeriod = useCallback((txList, period) => {
     if (txType!=="all"&&t.type!==txType) return false;
     if (txMode!=="all"&&t.paymentMode!==txMode) return false;
     if (txBank!=="all"&&t.bank!==txBank) return false;
+    if (txCategory!=="all"&&t.category!==txCategory) return false;
+    if (txDateFrom) { const d=parseLocal(t.date); const from=parseLocal(txDateFrom); if (!d||d<from) return false; }
+    if (txDateTo)   { const d=parseLocal(t.date); const to=parseLocal(txDateTo); if (!d||d>to) return false; }
     if (txSearch) { const q=txSearch.toLowerCase(); if (!t.category?.toLowerCase().includes(q)&&!(t.note||"").toLowerCase().includes(q)&&!String(t.amount).includes(q)) return false; }
     return true;
   })
@@ -465,11 +471,21 @@ const filterByPeriod = useCallback((txList, period) => {
     const db = new Date(`${b.date}T${b.time||"00:00"}`);
     return db - da;
   })
-, [transactions,txType,txMode,txBank,txSearch]);
+, [transactions,txType,txMode,txBank,txCategory,txDateFrom,txDateTo,txSearch]);
 
   // ─── NEW FEATURE COMPUTEDS ────────────────────────────────────────────────
-  const thisMonthTx = useMemo(()=>{const n=new Date();return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
-  const lastMonthTx = useMemo(()=>{const n=new Date();n.setMonth(n.getMonth()-1);return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});},[transactions]);
+  const thisMonthTx = useMemo(()=>{
+    const n=new Date();
+    const mo=n.getMonth(), yr=n.getFullYear();
+    return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===mo&&d.getFullYear()===yr;});
+  },[transactions]);
+  const lastMonthTx = useMemo(()=>{
+    const n=new Date();
+    // Compute last month safely: if Jan (0) → Dec (11) of previous year
+    const lastMo = n.getMonth()===0 ? 11 : n.getMonth()-1;
+    const lastYr = n.getMonth()===0 ? n.getFullYear()-1 : n.getFullYear();
+    return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===lastMo&&d.getFullYear()===lastYr;});
+  },[transactions]);
   const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
   const lastMonthExp = useMemo(()=>lastMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
   const thisMonthInc = useMemo(()=>thisMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
@@ -2285,7 +2301,9 @@ if (!user) {
         {tab==="Transactions"&&<>
           <div className="card" style={{marginBottom:10}}>
             <input className="inp" placeholder="🔍 Search..." value={txSearch} onChange={e=>setTxSearch(e.target.value)} style={{marginBottom:10}}/>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+
+            {/* Row 1: Type + Mode + Bank + Category */}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
               {[["all","All"],["income","Income"],["expense","Expense"]].map(([v,l])=>(
                 <button key={v} className={`filter-btn ${txType===v?"on":""}`} onClick={()=>setTxType(v)}>{l}</button>
               ))}
@@ -2295,9 +2313,51 @@ if (!user) {
               <select className="inp" value={txBank} onChange={e=>setTxBank(e.target.value)} style={{width:"auto",fontSize:11,padding:"4px 8px"}}>
                 <option value="all">All Banks</option>{banks.map(b=><option key={b}>{b}</option>)}
               </select>
-              <button className="btn-ghost btn-sm" onClick={()=>{setTxSearch("");setTxType("all");setTxMode("all");setTxBank("all");}}>Clear</button>
-              <button className="btn-ghost btn-sm" onClick={()=>setShowImport(true)}>⬆ Import</button>
-              <button className="btn-ghost btn-sm" onClick={exportTransactions}>⬇ CSV</button>
+              <select className="inp" value={txCategory} onChange={e=>setTxCategory(e.target.value)} style={{width:"auto",fontSize:11,padding:"4px 8px"}}>
+                <option value="all">All Categories</option>
+                <optgroup label="Income">{allCategories.income.map(c=><option key={c} value={c}>{c}</option>)}</optgroup>
+                <optgroup label="Expense">{allCategories.expense.map(c=><option key={c} value={c}>{c}</option>)}</optgroup>
+              </select>
+            </div>
+
+            {/* Row 2: Date range filter */}
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,marginBottom:8}}>
+              <span style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,whiteSpace:"nowrap"}}>📅 Date:</span>
+              <div style={{display:"flex",alignItems:"center",gap:6,flex:1,flexWrap:"wrap"}}>
+                <input type="date" className="inp" value={txDateFrom} onChange={e=>setTxDateFrom(e.target.value)}
+                  style={{flex:"1 1 130px",fontSize:11,padding:"6px 10px"}} placeholder="From"/>
+                <span style={{fontSize:11,color:C.muted,fontWeight:700}}>→</span>
+                <input type="date" className="inp" value={txDateTo} onChange={e=>setTxDateTo(e.target.value)}
+                  style={{flex:"1 1 130px",fontSize:11,padding:"6px 10px"}} placeholder="To"/>
+              </div>
+              {/* Quick date presets */}
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {[
+                  {l:"Today",   fn:()=>{ const t=today(); setTxDateFrom(t); setTxDateTo(t); }},
+                  {l:"This Week",fn:()=>{ const t=new Date(),s=new Date(t);s.setDate(t.getDate()-7); setTxDateFrom(`${s.getFullYear()}-${String(s.getMonth()+1).padStart(2,"0")}-${String(s.getDate()).padStart(2,"0")}`); setTxDateTo(today()); }},
+                  {l:"This Month",fn:()=>{ const n=new Date(); setTxDateFrom(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-01`); setTxDateTo(today()); }},
+                  {l:"Last Month",fn:()=>{ const n=new Date(); const lm=n.getMonth()===0?11:n.getMonth()-1; const ly=n.getMonth()===0?n.getFullYear()-1:n.getFullYear(); const lastDay=new Date(ly,lm+1,0).getDate(); setTxDateFrom(`${ly}-${String(lm+1).padStart(2,"0")}-01`); setTxDateTo(`${ly}-${String(lm+1).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`); }},
+                ].map(p=>(
+                  <button key={p.l} className="filter-btn btn-sm" style={{fontSize:10,padding:"4px 10px"}} onClick={p.fn}>{p.l}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Active filters summary + Clear */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {txDateFrom&&<span className="tag" style={{background:`${C.purple}18`,color:C.purple,fontSize:10}}>From: {fd(txDateFrom)}</span>}
+                {txDateTo&&<span className="tag" style={{background:`${C.purple}18`,color:C.purple,fontSize:10}}>To: {fd(txDateTo)}</span>}
+                {txCategory!=="all"&&<span className="tag" style={{background:`${C.accent}18`,color:C.accent,fontSize:10}}>Cat: {txCategory}</span>}
+                {txType!=="all"&&<span className="tag" style={{background:`${C.income}18`,color:C.income,fontSize:10}}>{txType}</span>}
+                {txMode!=="all"&&<span className="tag" style={{background:`${C.warning}18`,color:C.warning,fontSize:10}}>{txMode}</span>}
+                {txBank!=="all"&&<span className="tag" style={{background:`${C.loan}18`,color:C.loan,fontSize:10}}>{txBank}</span>}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button className="btn-ghost btn-sm" onClick={()=>{setTxSearch("");setTxType("all");setTxMode("all");setTxBank("all");setTxCategory("all");setTxDateFrom("");setTxDateTo("");}}>Clear All</button>
+                <button className="btn-ghost btn-sm" onClick={()=>setShowImport(true)}>⬆ Import</button>
+                <button className="btn-ghost btn-sm" onClick={exportTransactions}>⬇ CSV</button>
+              </div>
             </div>
           </div>
           <div className="card">
