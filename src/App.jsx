@@ -1679,6 +1679,151 @@ if (!user) {
             ))}
           </div>
 
+          {/* ── 2. THIS MONTH EMI & LOAN SUMMARY ── */}
+          {(totalEMI>0||totalCCEMI>0||creditCards.length>0)&&(()=>{
+            const totalMonthlyDue = totalEMI + totalCCEMI;
+            const totalItems = activeDebts.length + ccEmis.length;
+            const nearestDue = [...activeDebts.filter(d=>d.dueDate), ...creditCards.filter(c=>c.dueDate)]
+              .map(item=>({name:item.name||item.bank, days:daysUntil(item.dueDate), amt:parseFloat(item.emi||item.minDue||0), kind:item.emi?"loan":"cc"}))
+              .filter(x=>x.days!==null)
+              .sort((a,b)=>a.days-b.days)[0];
+            const paidThisMonth = thisMonthTx.filter(t=>t.category==="Loan EMI"||t.category==="Credit Card EMI"||t.category==="Credit Card Bill").reduce((s,t)=>s+t.amount,0);
+            const remaining = Math.max(0, totalMonthlyDue - paidThisMonth);
+            const paidPct = totalMonthlyDue>0 ? Math.min(100,(paidThisMonth/totalMonthlyDue)*100) : 0;
+            const statusColor = remaining===0 ? C.income : nearestDue&&nearestDue.days<=3 ? C.expense : nearestDue&&nearestDue.days<=7 ? C.warning : C.loan;
+            return(
+              <div className="card" style={{marginBottom:14,borderColor:`${statusColor}35`}}>
+                {/* Header */}
+                <div className="sec-hdr">
+                  <div className="sec-hdr-title">🔁 This Month's EMI Summary</div>
+                  <button className="sec-hdr-more" onClick={()=>setTab("Plan")}>Manage →</button>
+                </div>
+
+                {/* Big total + paid progress */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
+                  <div>
+                    <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Total Due This Month</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:26,color:C.loan,letterSpacing:"-0.5px",lineHeight:1}}>{fc(totalMonthlyDue)}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:3}}>{activeDebts.length} loan{activeDebts.length!==1?"s":""} · {ccEmis.length} CC EMI{ccEmis.length!==1?"s":""} · {creditCards.length} card{creditCards.length!==1?"s":""}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    {remaining===0
+                      ? <div style={{background:`${C.income}18`,border:`1px solid ${C.income}40`,borderRadius:12,padding:"8px 14px"}}>
+                          <div style={{fontSize:18}}>🎉</div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,color:C.income}}>All Paid!</div>
+                        </div>
+                      : <div style={{background:`${C.loan}10`,border:`1px solid ${C.loan}30`,borderRadius:12,padding:"8px 14px",textAlign:"right"}}>
+                          <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:2}}>Still Remaining</div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:statusColor}}>{fc(remaining)}</div>
+                        </div>
+                    }
+                  </div>
+                </div>
+
+                {/* Paid progress bar */}
+                {totalMonthlyDue>0&&(
+                  <div style={{marginBottom:14}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted,marginBottom:5}}>
+                      <span>Paid: <span style={{color:C.income,fontWeight:700}}>{fc(paidThisMonth)}</span></span>
+                      <span style={{fontWeight:700,color:paidPct===100?C.income:C.muted}}>{paidPct.toFixed(0)}% done</span>
+                    </div>
+                    <div className="pbar" style={{height:8}}>
+                      <div className="pfill" style={{width:`${paidPct}%`,background:paidPct===100?C.income:C.loan}}/>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4-stat row */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
+                  {[
+                    {label:"Loan EMIs",  val:fc(totalEMI),    color:C.loan,    count:activeDebts.length,  icon:"🏦"},
+                    {label:"CC EMIs",    val:fc(totalCCEMI),  color:C.warning, count:ccEmis.length,       icon:"💳"},
+                    {label:"CC Bills",   val:fc(totalCCOut),  color:C.credit,  count:creditCards.length,  icon:"📄"},
+                    {label:"Total/mo",   val:fc(totalMonthlyDue), color:C.purple, count:totalItems,       icon:"📊"},
+                  ].map(item=>(
+                    <div key={item.label} style={{background:C.surface,borderRadius:12,padding:"10px 8px",textAlign:"center",border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:16,marginBottom:4}}>{item.icon}</div>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:item.color,lineHeight:1,marginBottom:2}}>{item.val}</div>
+                      <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:0.3}}>{item.label}</div>
+                      {item.count>0&&<div style={{fontSize:9,color:item.color,fontWeight:700,marginTop:2}}>{item.count} item{item.count!==1?"s":""}</div>}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Individual loan rows */}
+                {activeDebts.length>0&&(
+                  <div style={{marginBottom:10}}>
+                    <div className="lbl" style={{marginBottom:6}}>LOAN EMIs</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {activeDebts.slice(0,3).map(d=>{
+                        const days=daysUntil(d.dueDate);
+                        const dc=days!==null&&days<0?C.expense:days!==null&&days<=3?C.warning:C.loan;
+                        return(
+                          <div key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",background:C.surface,borderRadius:10,border:`1px solid ${dc}20`}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{width:8,height:8,borderRadius:"50%",background:dc,flexShrink:0}}/>
+                              <div>
+                                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{d.name}</div>
+                                <div style={{fontSize:10,color:C.muted}}>{d.lender}{d.dueDate?` · Due ${new Date(d.dueDate).getDate()}${["st","nd","rd"][new Date(d.dueDate).getDate()-1]||"th"}`:""}
+                                  {days!==null&&<span style={{color:dc,fontWeight:700,marginLeft:4}}>{days<0?`${Math.abs(days)}d overdue`:days===0?"Today!":days===1?"Tomorrow":`in ${days}d`}</span>}
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:dc}}>{fc(parseFloat(d.emi)||0)}</div>
+                          </div>
+                        );
+                      })}
+                      {activeDebts.length>3&&<div style={{fontSize:11,color:C.purple,textAlign:"center",cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Plan")}>+{activeDebts.length-3} more loans →</div>}
+                    </div>
+                  </div>
+                )}
+
+                {/* CC EMI rows */}
+                {ccEmis.length>0&&(
+                  <div style={{marginBottom:10}}>
+                    <div className="lbl" style={{marginBottom:6}}>CREDIT CARD EMIs</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {ccEmis.slice(0,3).map(e=>{
+                        const card=creditCards.find(c=>String(c.id)===String(e.cardId));
+                        return(
+                          <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",background:C.surface,borderRadius:10,border:`1px solid ${C.warning}20`}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{width:8,height:8,borderRadius:"50%",background:C.warning,flexShrink:0}}/>
+                              <div>
+                                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{e.description||"CC EMI"}</div>
+                                <div style={{fontSize:10,color:C.muted}}>{card?`${card.name} · ${card.bank}`:"Card"} · {e.monthsLeft} months left</div>
+                              </div>
+                            </div>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.warning}}>{fc(parseFloat(e.amount)||0)}</div>
+                          </div>
+                        );
+                      })}
+                      {ccEmis.length>3&&<div style={{fontSize:11,color:C.purple,textAlign:"center",cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Cards")}>+{ccEmis.length-3} more CC EMIs →</div>}
+                    </div>
+                  </div>
+                )}
+
+                {/* Nearest due alert */}
+                {nearestDue&&remaining>0&&(
+                  <div style={{padding:"10px 12px",background:nearestDue.days<=3?`${C.expense}10`:nearestDue.days<=7?`${C.warning}10`:`${C.loan}10`,borderRadius:10,border:`1px solid ${nearestDue.days<=3?C.expense:nearestDue.days<=7?C.warning:C.loan}25`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:nearestDue.days<=3?C.expense:nearestDue.days<=7?C.warning:C.loan}}>
+                        {nearestDue.days<0?"🚨 Overdue":nearestDue.days===0?"🔴 Due Today":nearestDue.days===1?"⚠️ Due Tomorrow":`📅 Next Due in ${nearestDue.days} days`}
+                      </div>
+                      <div style={{fontSize:10,color:C.muted,marginTop:2}}>{nearestDue.name} · {nearestDue.kind==="loan"?"Loan EMI":"CC Bill"}</div>
+                    </div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:nearestDue.days<=3?C.expense:nearestDue.days<=7?C.warning:C.loan}}>{fc(nearestDue.amt)}</div>
+                  </div>
+                )}
+
+                {/* Go to Plan button */}
+                <button className="btn btn-p btn-sm" style={{width:"100%",marginTop:12}} onClick={()=>setTab("Plan")}>
+                  📊 View Full Loan Payoff Plan →
+                </button>
+              </div>
+            );
+          })()}
+
           {/* ── 2. OVERALL SPENDING OVERVIEW ── */}
           <div className="card" style={{marginBottom:14}}>
             <div className="sec-hdr">
