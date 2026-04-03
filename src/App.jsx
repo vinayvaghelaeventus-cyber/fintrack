@@ -304,10 +304,10 @@ useEffect(() => {
       try {
         const data = await loadData(user.uid);
         if (data) {
-          if (data.transactions)  setTransactions(data.transactions);
+          if (data.transactions)  setTransactions(data.transactions.map(t=>({...t, amount: parseFloat(t.amount)||0})));
           if (data.debts)         setDebts(data.debts);
           if (data.creditCards)   setCreditCards(data.creditCards);
-          if (data.savings)       setSavings(data.savings);
+          if (data.savings)       setSavings(data.savings.map(g=>({...g, current: parseFloat(g.current)||0, goal: parseFloat(g.goal)||0})));
           if (data.budgets)       setBudgets(data.budgets);
           if (data.banks)         setBanks(data.banks);
           if (data.salary)        setSalary(data.salary);
@@ -316,7 +316,7 @@ useEffect(() => {
           if (data.strategy)      setStrategy(data.strategy);
           if (data.emergencyFund) setEmergencyFund(data.emergencyFund);
           if (data.darkMode!==undefined) setDarkMode(data.darkMode);
-          if (data.accounts)      setAccounts(data.accounts);
+          if (data.accounts)      setAccounts(data.accounts.map(a=>({...a, balance: parseFloat(a.balance)||0})));
           if (data.customCats)    setCustomCats(data.customCats);
           if (data.moneyCircles)  setMoneyCircles(data.moneyCircles);
         }
@@ -356,8 +356,8 @@ useEffect(() => {
 
 
   // ─── COMPUTED ────────────────────────────────────────────────────────────
-  const totalIncome    = useMemo(() => transactions.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0), [transactions]);
-  const totalExpense   = useMemo(() => transactions.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0), [transactions]);
+  const totalIncome    = useMemo(() => transactions.filter(t=>t.type==="income").reduce((s,t)=>s+(parseFloat(t.amount)||0),0), [transactions]);
+  const totalExpense   = useMemo(() => transactions.filter(t=>t.type==="expense").reduce((s,t)=>s+(parseFloat(t.amount)||0),0), [transactions]);
   const activeDebts    = useMemo(() => debts.filter(d=>!d.closed), [debts]);
   const totalEMI       = useMemo(() => activeDebts.reduce((s,d)=>s+(parseFloat(d.emi)||0),0), [activeDebts]);
   const totalOutstanding = useMemo(() => activeDebts.reduce((s,d)=>s+(parseFloat(d.outstanding)||0),0), [activeDebts]);
@@ -408,7 +408,7 @@ const filterByPeriod = useCallback((txList, period) => {
   const overdueCount = upcomingDues.filter(d=>d.days<0).length;
 
   const expenseByMode = useMemo(() => PAYMENT_MODES.map(m=>({
-    name:m, value:transactions.filter(t=>t.type==="expense"&&t.paymentMode===m).reduce((s,t)=>s+t.amount,0)
+    name:m, value:transactions.filter(t=>t.type==="expense"&&t.paymentMode===m).reduce((s,t)=>s+(parseFloat(t.amount)||0),0)
   })).filter(d=>d.value>0), [transactions]);
 
   // ─── MERGED CATEGORIES (default + custom) — must be before expenseByCat ──
@@ -418,15 +418,15 @@ const filterByPeriod = useCallback((txList, period) => {
   }), [customCats]);
 
   const expenseByCat = useMemo(() => allCategories.expense.map((cat,i)=>({
-    name:cat, value:transactions.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0), color:CAT_COLORS[i]
+    name:cat, value:transactions.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+(parseFloat(t.amount)||0),0), color:CAT_COLORS[i]
   })).filter(d=>d.value>0), [transactions, allCategories]);
 
   const last6Months = useMemo(() => Array.from({length:6},(_,i)=>{
     const d=new Date(); d.setMonth(d.getMonth()-(5-i));
     const mo=d.getMonth(), yr=d.getFullYear(), lbl=d.toLocaleDateString("en-IN",{month:"short"});
     const pLocal = ds => { if(!ds) return null; const [y,m,dd]=String(ds).split("-").map(Number); return new Date(y,m-1,dd); };
-    const inc=transactions.filter(t=>{const td=pLocal(t.date);return td&&t.type==="income"&&td.getMonth()===mo&&td.getFullYear()===yr;}).reduce((s,t)=>s+t.amount,0);
-    const exp=transactions.filter(t=>{const td=pLocal(t.date);return td&&t.type==="expense"&&td.getMonth()===mo&&td.getFullYear()===yr;}).reduce((s,t)=>s+t.amount,0);
+    const inc=transactions.filter(t=>{const td=pLocal(t.date);return td&&t.type==="income"&&td.getMonth()===mo&&td.getFullYear()===yr;}).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+    const exp=transactions.filter(t=>{const td=pLocal(t.date);return td&&t.type==="expense"&&td.getMonth()===mo&&td.getFullYear()===yr;}).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
     return {label:lbl,income:inc,expense:exp};
   }), [transactions]);
 
@@ -461,15 +461,15 @@ const filterByPeriod = useCallback((txList, period) => {
     const lastYr = n.getMonth()===0 ? n.getFullYear()-1 : n.getFullYear();
     return transactions.filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===lastMo&&d.getFullYear()===lastYr;});
   },[transactions]);
-  const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
-  const lastMonthExp = useMemo(()=>lastMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
-  const thisMonthInc = useMemo(()=>thisMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[thisMonthTx]);
-  const lastMonthInc = useMemo(()=>lastMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[lastMonthTx]);
-  const catComparison = useMemo(()=>allCategories.expense.map(cat=>({cat,thisMonth:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),lastMonth:lastMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0)})).filter(c=>c.thisMonth>0||c.lastMonth>0),[thisMonthTx,lastMonthTx,allCategories]);
+  const thisMonthExp = useMemo(()=>thisMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+(parseFloat(t.amount)||0),0),[thisMonthTx]);
+  const lastMonthExp = useMemo(()=>lastMonthTx.filter(t=>t.type==="expense").reduce((s,t)=>s+(parseFloat(t.amount)||0),0),[lastMonthTx]);
+  const thisMonthInc = useMemo(()=>thisMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+(parseFloat(t.amount)||0),0),[thisMonthTx]);
+  const lastMonthInc = useMemo(()=>lastMonthTx.filter(t=>t.type==="income").reduce((s,t)=>s+(parseFloat(t.amount)||0),0),[lastMonthTx]);
+  const catComparison = useMemo(()=>allCategories.expense.map(cat=>({cat,thisMonth:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+(parseFloat(t.amount)||0),0),lastMonth:lastMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+(parseFloat(t.amount)||0),0)})).filter(c=>c.thisMonth>0||c.lastMonth>0),[thisMonthTx,lastMonthTx,allCategories]);
   const savingsRateTrend = useMemo(()=>last6Months.map(m=>({label:m.label,rate:m.income>0?Math.max(0,((m.income-m.expense)/m.income)*100):0})),[last6Months]);
   const debtFreeMonths = useMemo(()=>{const owe=totalOutstanding+totalCCOut;const pmt=totalEMI+(parseFloat(extraFund)||0);if(owe===0)return 0;if(!pmt)return null;return Math.ceil(owe/pmt);},[totalOutstanding,totalCCOut,totalEMI,extraFund]);
   const cashFlowForecast = useMemo(()=>{const now=new Date();const salDay=parseInt(salary.creditDay)||1;const salAmt=parseFloat(salary.amount)||effectiveIncome||0;const dailyExp=Math.max(thisMonthExp,totalExpense,1)/30;let running=Math.max(cashLeft,0);return Array.from({length:30},(_,i)=>{const d=new Date(now);d.setDate(d.getDate()+i+1);if(d.getDate()===salDay&&salAmt>0)running+=salAmt;[...activeDebts,...creditCards].forEach(item=>{if(item.dueDate&&new Date(item.dueDate).getDate()===d.getDate())running-=parseFloat(item.emi||item.minDue||0);});running-=dailyExp;return{day:i+1,label:d.getDate()+"/"+(d.getMonth()+1),balance:Math.round(running)};});},[cashLeft,salary,effectiveIncome,thisMonthExp,totalExpense,activeDebts,creditCards]);
-  const spendAlerts = useMemo(()=>allCategories.expense.map(cat=>({cat,spent:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0),limit:budgets[cat]||0})).filter(a=>a.limit>0&&(a.spent/a.limit)>=0.8).map(a=>({...a,pct:Math.round((a.spent/a.limit)*100),over:a.spent>a.limit})),[thisMonthTx,budgets,allCategories]);
+  const spendAlerts = useMemo(()=>allCategories.expense.map(cat=>({cat,spent:thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+(parseFloat(t.amount)||0),0),limit:budgets[cat]||0})).filter(a=>a.limit>0&&(a.spent/a.limit)>=0.8).map(a=>({...a,pct:Math.round((a.spent/a.limit)*100),over:a.spent>a.limit})),[thisMonthTx,budgets,allCategories]);
 
   // ─── ACCOUNT BALANCE ─────────────────────────────────────────────────────
   const totalAccountBalance = useMemo(() =>
@@ -1471,9 +1471,9 @@ if (!user) {
             {v:"custom",  l:"Custom Range"},
           ];
           const pt = filterByPeriod(transactions, dashPeriod);
-          const pInc = pt.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
-          const pExp = pt.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
-          const pEMI = pt.filter(t=>t._emiKey||t.category==="Loan EMI"||t.category==="Credit Card EMI").reduce((s,t)=>s+t.amount,0);
+          const pInc = pt.filter(t=>t.type==="income").reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+          const pExp = pt.filter(t=>t.type==="expense").reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+          const pEMI = pt.filter(t=>t._emiKey||t.category==="Loan EMI"||t.category==="Credit Card EMI").reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
           const netBal = pInc - pExp;
 
           return <>
@@ -1578,8 +1578,8 @@ if (!user) {
             const totalLoanEMI   = totalEMI;
             const totalCCBill    = totalCCOut;
             const grandTotal     = totalLoanEMI + totalCCBill;
-            const paidLoans      = thisMonthTx.filter(t=>t.category==="Loan EMI").reduce((s,t)=>s+t.amount,0);
-            const paidCC         = thisMonthTx.filter(t=>t.category==="Credit Card Bill").reduce((s,t)=>s+t.amount,0);
+            const paidLoans      = thisMonthTx.filter(t=>t.category==="Loan EMI").reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+            const paidCC         = thisMonthTx.filter(t=>t.category==="Credit Card Bill").reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
             const totalPaid      = paidLoans + paidCC;
             const remaining      = Math.max(0, grandTotal - totalPaid);
             const paidPct        = grandTotal>0 ? Math.min(100,(totalPaid/grandTotal)*100) : 0;
@@ -1850,7 +1850,7 @@ if (!user) {
                     .slice(0,5)
                     .map((cat,i)=>{
                       const limit=budgets[cat]||0;
-                      const spent=thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0);
+                      const spent=thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
                       const pct=limit>0?Math.min(100,(spent/limit)*100):0;
                       const over=spent>limit&&limit>0;
                       const barColor=over?C.expense:pct>80?C.warning:CAT_COLORS[i%CAT_COLORS.length];
@@ -2359,7 +2359,7 @@ if (!user) {
           <div className="card">
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
               <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{filteredTx.length} transactions</div>
-              <div style={{fontSize:11,color:C.muted}}><span style={{color:C.income}}>+{fc(filteredTx.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0))}</span> / <span style={{color:C.expense}}>-{fc(filteredTx.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0))}</span></div>
+              <div style={{fontSize:11,color:C.muted}}><span style={{color:C.income}}>+{fc(filteredTx.filter(t=>t.type==="income").reduce((s,t)=>s+(parseFloat(t.amount)||0),0))}</span> / <span style={{color:C.expense}}>-{fc(filteredTx.filter(t=>t.type==="expense").reduce((s,t)=>s+(parseFloat(t.amount)||0),0))}</span></div>
             </div>
             {filteredTx.length===0?<div style={{color:C.muted,textAlign:"center",padding:30,fontSize:12}}>No transactions found.</div>:filteredTx.map(t=>(
               <div key={t.id} className="row">
@@ -2401,7 +2401,7 @@ if (!user) {
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:10}}>
             {allCategories.expense.map((cat,i)=>{
-              const limit=budgets[cat]||0, spent=thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+t.amount,0);
+              const limit=budgets[cat]||0, spent=thisMonthTx.filter(t=>t.type==="expense"&&t.category===cat).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
               const pct=limit>0?Math.min(100,(spent/limit)*100):0, over=spent>limit&&limit>0;
               return(
                 <div key={cat} className="card">
