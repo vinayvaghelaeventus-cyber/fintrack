@@ -2533,46 +2533,110 @@ if (!user) {
 
           {/* This Month vs Last Month */}
           <div className="card" style={{marginBottom:12}}>
-            <div className="stitle">📊 This Month vs Last Month</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:6}}>
+              <div className="stitle" style={{marginBottom:0}}>📊 This Month vs Last Month</div>
+              <div style={{display:"flex",gap:8,fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                <span style={{color:C.purple,background:`${C.purple}15`,padding:"3px 10px",borderRadius:99}}>
+                  {new Date().toLocaleDateString("en-IN",{month:"short",year:"numeric"})}
+                </span>
+                <span style={{color:C.muted,background:C.surface,padding:"3px 10px",borderRadius:99,border:`1px solid ${C.border}`}}>
+                  {(()=>{const n=new Date();const lm=n.getMonth()===0?11:n.getMonth()-1;const ly=n.getMonth()===0?n.getFullYear()-1:n.getFullYear();return new Date(ly,lm,1).toLocaleDateString("en-IN",{month:"short",year:"numeric"});})()}
+                </span>
+              </div>
+            </div>
+
+            {/* Income & Expense comparison cards */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
               {[
-                {label:"Income",  thisVal:thisMonthInc,lastVal:lastMonthInc,color:C.income},
-                {label:"Expenses",thisVal:thisMonthExp,lastVal:lastMonthExp,color:C.expense},
+                {label:"Income",  thisVal:thisMonthInc, lastVal:lastMonthInc, color:C.income},
+                {label:"Expenses",thisVal:thisMonthExp,  lastVal:lastMonthExp,  color:C.expense},
               ].map(item=>{
-                const diff=item.thisVal-item.lastVal;
-                const pct=item.lastVal>0?Math.abs(diff/item.lastVal*100):0;
-                const better=item.label==="Income"?diff>=0:diff<=0;
+                const diff = item.thisVal - item.lastVal;
+                const pct  = item.lastVal>0 ? Math.abs(diff/item.lastVal*100) : null;
+                const better = item.label==="Income" ? diff>=0 : diff<=0;
+                const hasLastData = item.lastVal > 0;
                 return(
-                  <div key={item.label} style={{background:C.surface,borderRadius:12,padding:"12px",border:`1px solid ${C.border}`}}>
+                  <div key={item.label} style={{background:C.surface,borderRadius:12,padding:"14px 12px",border:`1px solid ${C.border}`}}>
                     <div className="lbl">{item.label}</div>
-                    <div style={{fontSize:15,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(item.thisVal)}</div>
-                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>Last: {fc(item.lastVal)}</div>
-                    {item.lastVal>0&&<div style={{fontSize:11,fontWeight:700,color:better?C.income:C.expense,marginTop:4}}>{diff>=0?"↑":"↓"} {pct.toFixed(1)}% {better?"better":"worse"}</div>}
+                    {/* This month — big number */}
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:16,color:item.color,marginBottom:6}}>{fc(item.thisVal)}</div>
+                    {/* Last month row */}
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
+                      <div style={{fontSize:11,color:C.muted}}>
+                        Last: <span style={{fontWeight:700,color:hasLastData?C.text:C.muted}}>{hasLastData?fc(item.lastVal):"No data"}</span>
+                      </div>
+                      {pct!==null
+                        ? <div style={{fontSize:11,fontWeight:700,color:better?C.income:C.expense}}>
+                            {diff>=0?"↑":"↓"} {pct.toFixed(1)}%
+                          </div>
+                        : <div style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>—</div>
+                      }
+                    </div>
+                    {/* Visual bar comparing this vs last */}
+                    {hasLastData&&(
+                      <div style={{marginTop:8}}>
+                        <div style={{display:"flex",gap:2,height:4,borderRadius:99,overflow:"hidden",background:C.border}}>
+                          <div style={{flex:Math.min(item.lastVal,item.thisVal)/Math.max(item.thisVal,item.lastVal,1),background:C.muted+"60",borderRadius:99}}/>
+                          <div style={{flex:Math.abs(diff)/Math.max(item.thisVal,item.lastVal,1),background:better?C.income:C.expense,borderRadius:99}}/>
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted,marginTop:3,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                          <span>Last month</span>
+                          <span style={{color:better?C.income:C.expense}}>{better?"+":" "}{diff>=0?"+":""}{fc(diff)}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
-            <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:8}}>BY CATEGORY</div>
-            {catComparison.length===0?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:10}}>No data yet.</div>
-              :catComparison.sort((a,b)=>(b.thisMonth+b.lastMonth)-(a.thisMonth+a.lastMonth)).slice(0,8).map(c=>{
-                const diff=c.thisMonth-c.lastMonth;const maxVal=Math.max(c.thisMonth,c.lastMonth,1);
-                return(
-                  <div key={c.cat} style={{marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:4}}>
-                      <span style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{c.cat}</span>
-                      <div style={{display:"flex",gap:8,fontSize:10}}>
-                        <span style={{color:C.purple}}>This: {fc(c.thisMonth)}</span>
-                        <span style={{color:C.muted}}>Last: {fc(c.lastMonth)}</span>
-                        {diff!==0&&<span style={{color:diff>0?C.expense:C.income,fontWeight:700}}>{diff>0?"↑":"↓"}{fc(Math.abs(diff))}</span>}
+
+            {/* By Category breakdown */}
+            <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+              <span>BY CATEGORY</span>
+              <div style={{display:"flex",gap:6,fontSize:9}}>
+                <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.purple+"80",display:"inline-block"}}/> This month</span>
+                <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.muted+"50",display:"inline-block"}}/> Last month</span>
+              </div>
+            </div>
+            {catComparison.length===0
+              ? <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:12}}>
+                  <div style={{fontSize:24,marginBottom:6}}>📊</div>
+                  No expense data yet this month.<br/>Add transactions to see comparison.
+                </div>
+              : catComparison.sort((a,b)=>(b.thisMonth+b.lastMonth)-(a.thisMonth+a.lastMonth)).slice(0,8).map(c=>{
+                  const diff = c.thisMonth - c.lastMonth;
+                  const maxVal = Math.max(c.thisMonth, c.lastMonth, 1);
+                  return(
+                    <div key={c.cat} style={{marginBottom:12}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,flexWrap:"wrap",gap:4}}>
+                        <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,color:C.text}}>{c.cat}</span>
+                        <div style={{display:"flex",gap:8,fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                          <span style={{color:C.purple,fontWeight:700}}>{fc(c.thisMonth)}</span>
+                          {c.lastMonth>0 && <span style={{color:C.muted}}>vs {fc(c.lastMonth)}</span>}
+                          {diff!==0&&c.lastMonth>0&&<span style={{color:diff>0?C.expense:C.income,fontWeight:700}}>{diff>0?"↑":"↓"} {fc(Math.abs(diff))}</span>}
+                          {c.lastMonth===0&&<span style={{color:C.muted,fontSize:10,fontStyle:"italic"}}>new</span>}
+                        </div>
+                      </div>
+                      {/* Dual bar: last month (grey) + this month (colored) */}
+                      <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                        {c.lastMonth>0&&(
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:9,color:C.muted,width:28,textAlign:"right",fontFamily:"'Cabinet Grotesk',sans-serif"}}>Last</span>
+                            <div style={{flex:1,height:5,background:C.border,borderRadius:99}}>
+                              <div style={{width:`${(c.lastMonth/maxVal)*100}%`,height:"100%",background:C.muted+"60",borderRadius:99}}/>
+                            </div>
+                          </div>
+                        )}
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:9,color:C.purple,width:28,textAlign:"right",fontFamily:"'Cabinet Grotesk',sans-serif"}}>This</span>
+                          <div style={{flex:1,height:5,background:C.border,borderRadius:99}}>
+                            <div style={{width:`${(c.thisMonth/maxVal)*100}%`,height:"100%",background:diff>0?C.expense:C.income,borderRadius:99}}/>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <div style={{display:"flex",gap:3,height:6}}>
-                      <div style={{flex:c.lastMonth/maxVal,background:C.muted+"50",borderRadius:3,minWidth:c.lastMonth>0?2:0}}/>
-                      <div style={{flex:c.thisMonth/maxVal,background:diff>0?C.expense:C.income,borderRadius:3,minWidth:c.thisMonth>0?2:0}}/>
-                    </div>
-                  </div>
-                );
-              })
+                  );
+                })
             }
           </div>
 
