@@ -636,8 +636,6 @@ const filterByPeriod = useCallback((txList, period) => {
     if (primaryAcc) setAccounts(p=>p.map(a=>a.id===primaryAcc.id?{...a,balance:Math.max(0,(parseFloat(a.balance)||0)-amt)}:a));
   }
 
-  function addBudget() { if(!budgetForm.limit)return; setBudgets(p=>({...p,[budgetForm.category]:parseFloat(budgetForm.limit)})); setBudgetForm({category:"Food",limit:""}); }
-
   // Account actions
   function saveAccount() {
     if (!accountForm.name) return;
