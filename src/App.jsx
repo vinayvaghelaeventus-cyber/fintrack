@@ -252,6 +252,11 @@ export default function App() {
   const [showCircleForm, setShowCircleForm] = useState(false);
   const [circleForm, setCircleForm] = useState({...EMPTY_CIRCLE});
   const [editCircleId, setEditCircleId] = useState(null);
+  // ── Expense Calendar ──
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calSelectedDay, setCalSelectedDay] = useState(null);
+  const [showSmartBudget, setShowSmartBudget] = useState(true);
   const [customCats, setCustomCats] = useState({income:[], expense:[]});
   const [showCatManager, setShowCatManager] = useState(false);
   const [newCatName, setNewCatName] = useState("");
@@ -536,6 +541,157 @@ const filterByPeriod = useCallback((txList, period) => {
     const gap = totalBillsDue - currentCash;
     return { daysToSal, totalBillsDue, currentCash, gap, billsDue, hasCashGap: gap > 0 };
   }, [salary, activeDebts, creditCards, totalAccountBalance]);
+
+  // ─── SPENDING PERSONALITY SCORE ──────────────────────────────────────────
+  const spendingPersonality = useMemo(() => {
+    if (!thisMonthTx.length || totalExpense === 0) return null;
+    const expTx = thisMonthTx.filter(t => t.type === "expense");
+    if (!expTx.length) return null;
+    const total = expTx.reduce((s,t) => s + (parseFloat(t.amount)||0), 0);
+    const bycat = {};
+    expTx.forEach(t => { bycat[t.category] = (bycat[t.category]||0) + (parseFloat(t.amount)||0); });
+    const pct = cat => ((bycat[cat]||0)/total*100);
+    const food = pct("Food") + pct("Groceries");
+    const shopping = pct("Shopping");
+    const transport = pct("Transport");
+    const entertainment = pct("Entertainment");
+    const housing = pct("Housing") + pct("Utilities");
+    const health = pct("Health") + pct("Medical") + pct("Insurance");
+    const savRate = effectiveIncome > 0 ? (effectiveIncome - totalExpense) / effectiveIncome * 100 : 0;
+    const budgetBreached = spendAlerts.filter(a => a.over).length;
+    if (savRate >= 25 && budgetBreached === 0)
+      return { emoji:"💪", title:"The Disciplined Saver", desc:"Excellent control — saving 25%+ and no budgets broken. Keep it up!", color:"#00e5a0" };
+    if (food >= 35)
+      return { emoji:"🍕", title:"The Foodie", desc:"Food & groceries dominate your spending. Worth a home-cooking challenge?", color:"#f59e0b" };
+    if (shopping >= 30)
+      return { emoji:"🛍", title:"The Impulse Buyer", desc:"Shopping is your biggest category. A 24-hour rule before purchases could help.", color:"#f43f5e" };
+    if (entertainment >= 25)
+      return { emoji:"🎉", title:"The Social One", desc:"Entertainment is high — you invest in experiences. Balance it with savings.", color:"#a78bfa" };
+    if (transport >= 25)
+      return { emoji:"🚗", title:"The Commuter", desc:"Transport eats a big chunk. Could carpooling or WFH days reduce this?", color:"#38bdf8" };
+    if (housing >= 45)
+      return { emoji:"🏠", title:"The Homebody", desc:"Housing & utilities take up most of your budget — very common in metro cities.", color:"#fb923c" };
+    if (health >= 20)
+      return { emoji:"🛡", title:"The Protector", desc:"You prioritise health & insurance. That's smart long-term thinking.", color:"#34d399" };
+    if (budgetBreached >= 3)
+      return { emoji:"⚠️", title:"The Over-Spender", desc:"Multiple budgets breached this month. Try the 50-30-20 rule next month.", color:"#f43f5e" };
+    return { emoji:"💎", title:"The Balanced Spender", desc:"No single category dominates — you spread spending well. Solid foundation!", color:"#7b4fd4" };
+  }, [thisMonthTx, totalExpense, effectiveIncome, spendAlerts]);
+
+  // ─── NO-SPEND STREAK ─────────────────────────────────────────────────────
+  const noSpendStreak = useMemo(() => {
+    // Build a set of dates with at least one expense
+    const spendDates = new Set(
+      transactions.filter(t => t.type === "expense").map(t => t.date)
+    );
+    // Current streak: go backwards from yesterday (today might still have expenses)
+    let streak = 0;
+    const d = new Date();
+    // Check today first
+    const todayKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    if (!spendDates.has(todayKey)) streak = 1;
+    // Walk backwards
+    for (let i = 1; i <= 365; i++) {
+      const prev = new Date(d); prev.setDate(d.getDate() - i);
+      const key = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,"0")}-${String(prev.getDate()).padStart(2,"0")}`;
+      if (!spendDates.has(key)) { if (i === 1 || streak > 0) streak++; }
+      else { if (streak > 0) break; }
+    }
+    // Best ever streak
+    let best = 0, cur = 0;
+    const allDates = [];
+    for (let i = 364; i >= 0; i--) {
+      const prev = new Date(); prev.setDate(prev.getDate() - i);
+      const key = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,"0")}-${String(prev.getDate()).padStart(2,"0")}`;
+      allDates.push(key);
+    }
+    allDates.forEach(key => {
+      if (!spendDates.has(key)) { cur++; best = Math.max(best, cur); }
+      else cur = 0;
+    });
+    // Zero spend days this month
+    const n = new Date();
+    const daysInMonth = new Date(n.getFullYear(), n.getMonth()+1, 0).getDate();
+    const daysSoFar = n.getDate();
+    let zeroThisMonth = 0;
+    for (let i = 1; i <= daysSoFar; i++) {
+      const key = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(i).padStart(2,"0")}`;
+      if (!spendDates.has(key)) zeroThisMonth++;
+    }
+    return { streak: Math.max(0, streak), best: Math.max(0, best), zeroThisMonth, daysSoFar };
+  }, [transactions]);
+
+  // ─── WEEKEND VS WEEKDAY SPENDING ─────────────────────────────────────────
+  const weekendVsWeekday = useMemo(() => {
+    const last30 = transactions.filter(t => {
+      if (t.type !== "expense") return false;
+      const d = parseLocal(t.date);
+      if (!d) return false;
+      const diff = (new Date() - d) / (1000 * 60 * 60 * 24);
+      return diff <= 30;
+    });
+    const weekendTx = last30.filter(t => { const d = parseLocal(t.date); return d && (d.getDay()===0||d.getDay()===6); });
+    const weekdayTx = last30.filter(t => { const d = parseLocal(t.date); return d && d.getDay()>=1 && d.getDay()<=5; });
+    const weekendTotal = weekendTx.reduce((s,t) => s+(parseFloat(t.amount)||0), 0);
+    const weekdayTotal = weekdayTx.reduce((s,t) => s+(parseFloat(t.amount)||0), 0);
+    // Count unique days
+    const weekendDays = new Set(weekendTx.map(t=>t.date)).size || 1;
+    const weekdayDays = new Set(weekdayTx.map(t=>t.date)).size || 1;
+    const weekendAvg = weekendTotal / weekendDays;
+    const weekdayAvg = weekdayTotal / weekdayDays;
+    const ratio = weekdayAvg > 0 ? weekendAvg / weekdayAvg : 0;
+    // By day of week
+    const dayNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const byDay = dayNames.map((name, dow) => {
+      const dayTx = last30.filter(t => { const d=parseLocal(t.date); return d&&d.getDay()===dow; });
+      const total = dayTx.reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+      const days = new Set(dayTx.map(t=>t.date)).size || 1;
+      return { name, avg: total/days, total, isWeekend: dow===0||dow===6 };
+    });
+    const peakDay = [...byDay].sort((a,b)=>b.avg-a.avg)[0];
+    // Weekend categories
+    const weCats = {};
+    weekendTx.forEach(t => { weCats[t.category]=(weCats[t.category]||0)+(parseFloat(t.amount)||0); });
+    const topWeekendCats = Object.entries(weCats).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([cat])=>cat);
+    return { weekendAvg, weekdayAvg, ratio, byDay, peakDay, topWeekendCats, weekendTotal, weekdayTotal };
+  }, [transactions]);
+
+  // ─── SALARY COUNTDOWN ────────────────────────────────────────────────────
+  const salaryCountdown = useMemo(() => {
+    const salDay = parseInt(salary?.creditDay) || 0;
+    const salAmt = parseFloat(salary?.amount) || 0;
+    if (!salDay) return null;
+    const now = new Date();
+    const todayDate = now.getDate();
+    let daysLeft = salDay - todayDate;
+    if (daysLeft < 0) {
+      // Next month
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+      daysLeft = daysInMonth - todayDate + salDay;
+    }
+    return { daysLeft, salDay, salAmt, isToday: daysLeft === 0 };
+  }, [salary]);
+
+  // ─── SMART BUDGET SUGGESTIONS ────────────────────────────────────────────
+  const smartBudgetSuggestions = useMemo(() => {
+    if (!salaryCountdown?.isToday && salaryCountdown?.daysLeft !== 0) return null;
+    // Calculate 3-month category averages
+    const suggestions = [];
+    allCategories.expense.forEach(cat => {
+      const vals = [0,1,2].map(monthsAgo => {
+        const n = new Date();
+        const mo = n.getMonth() - monthsAgo;
+        const yr = n.getFullYear() + (mo < 0 ? -1 : 0);
+        const adjMo = ((mo % 12) + 12) % 12;
+        return transactions
+          .filter(t => { const d=parseLocal(t.date); return d&&t.type==="expense"&&t.category===cat&&d.getMonth()===adjMo&&d.getFullYear()===yr; })
+          .reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+      });
+      const avg = vals.reduce((s,v)=>s+v,0) / 3;
+      if (avg > 100) suggestions.push({ cat, avg: Math.round(avg), suggested: Math.round(avg * 1.1 / 100) * 100 });
+    });
+    return suggestions.sort((a,b)=>b.avg-a.avg).slice(0,6);
+  }, [salaryCountdown, allCategories, transactions]);
 
   // ─── ACTIONS ─────────────────────────────────────────────────────────────
   function saveTx() {
@@ -1543,6 +1699,18 @@ if (!user) {
                 <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:"#fff"}}>{fc(pExp)}</div>
               </div>
             </div>
+            {/* Salary Countdown */}
+            {salaryCountdown&&(
+              <div style={{marginTop:10,padding:"8px 12px",background:"rgba(255,255,255,0.12)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center",position:"relative",zIndex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:14}}>💰</span>
+                  <span style={{fontSize:11,color:"rgba(255,255,255,0.9)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                    {salaryCountdown.isToday ? "🎉 Salary Day!" : `Salary in ${salaryCountdown.daysLeft} day${salaryCountdown.daysLeft===1?"":"s"}`}
+                  </span>
+                </div>
+                {salaryCountdown.salAmt>0&&<span style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800}}>{fc(salaryCountdown.salAmt)}</span>}
+              </div>
+            )}
           </div>
 
           {/* ── QUICK ACCESS GRID ── */}
@@ -1739,7 +1907,33 @@ if (!user) {
             );
           })()}
 
-                    {/* ── 2. OVERALL SPENDING OVERVIEW ── */}
+                    {/* ── NO-SPEND STREAK ── */}
+          {noSpendStreak.streak > 0 || noSpendStreak.zeroThisMonth > 0 ? (
+            <div style={{marginBottom:14,padding:"14px 16px",borderRadius:16,background:noSpendStreak.streak>=3?`${C.income}12`:`${C.surface}`,border:`1px solid ${noSpendStreak.streak>=3?C.income+"40":C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <div style={{fontSize:28}}>{noSpendStreak.streak>=7?"🏆":noSpendStreak.streak>=3?"🔥":"🟢"}</div>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:noSpendStreak.streak>=3?C.income:C.text}}>
+                    {noSpendStreak.streak>=1?`${noSpendStreak.streak}-Day No-Spend Streak!`:"No-Spend Tracker"}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                    🟢 {noSpendStreak.zeroThisMonth} zero-spend days this month · 🏆 Best ever: {noSpendStreak.best} days
+                  </div>
+                </div>
+              </div>
+              {noSpendStreak.streak>=3&&<div style={{background:`${C.income}20`,borderRadius:99,padding:"4px 12px",fontSize:11,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>Keep going! 💪</div>}
+            </div>
+          ) : (
+            <div style={{marginBottom:14,padding:"12px 16px",borderRadius:16,background:C.surface,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:20}}>🟢</span>
+              <div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>Start a No-Spend Streak!</div>
+                <div style={{fontSize:11,color:C.muted}}>A day with zero expenses = 🔥 streak. Try it today!</div>
+              </div>
+            </div>
+          )}
+
+          {/* ── 2. OVERALL SPENDING OVERVIEW ── */}
           <div className="card" style={{marginBottom:14}}>
             <div className="sec-hdr">
               <div className="sec-hdr-title">📊 Spending Overview</div>
@@ -2388,6 +2582,36 @@ if (!user) {
 
         {/* ════════ BUDGET ════════ */}
         {tab==="Budget"&&<>
+          {/* Smart Budget Reset — shows on salary day */}
+          {salaryCountdown?.isToday && smartBudgetSuggestions?.length > 0 && showSmartBudget && (
+            <div className="card" style={{marginBottom:12,borderColor:`${C.income}50`,background:`${C.income}06`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:C.income,marginBottom:3}}>🎉 Salary Day! Smart Budget Suggestions</div>
+                  <div style={{fontSize:11,color:C.muted}}>Based on your last 3 months average spending (+10% buffer)</div>
+                </div>
+                <button onClick={()=>setShowSmartBudget(false)} style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:16,padding:"0 4px"}}>×</button>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+                {smartBudgetSuggestions.map(s=>(
+                  <div key={s.cat} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:C.card,borderRadius:10,border:`1px solid ${C.border}`}}>
+                    <div>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>{s.cat}</div>
+                      <div style={{fontSize:10,color:C.muted}}>3-mo avg: {fc(s.avg)}</div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.accent}}>{fc(s.suggested)}</span>
+                      <button className="btn btn-g btn-sm" onClick={()=>setBudgets(p=>({...p,[s.cat]:s.suggested}))}>Apply</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn btn-p" style={{flex:1}} onClick={()=>{ smartBudgetSuggestions.forEach(s=>setBudgets(p=>({...p,[s.cat]:s.suggested}))); setShowSmartBudget(false); }}>✅ Apply All Suggestions</button>
+                <button className="btn-ghost" style={{flex:1}} onClick={()=>setShowSmartBudget(false)}>Skip</button>
+              </div>
+            </div>
+          )}
           <div className="card" style={{marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:6}}>
               <div className="stitle" style={{marginBottom:0}}>Set Monthly Limits</div>
@@ -2420,6 +2644,26 @@ if (!user) {
 
         {/* ════════ INSIGHTS ════════ */}
         {tab==="Insights"&&<>
+          {/* ── SPENDING PERSONALITY ── */}
+          {spendingPersonality&&(
+            <div className="card" style={{marginBottom:12,borderColor:`${spendingPersonality.color}40`,background:`${spendingPersonality.color}08`}}>
+              <div style={{display:"flex",alignItems:"center",gap:14}}>
+                <div style={{fontSize:42,flexShrink:0}}>{spendingPersonality.emoji}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:spendingPersonality.color,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>This Month's Personality</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:17,color:C.text,marginBottom:5}}>{spendingPersonality.title}</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{spendingPersonality.desc}</div>
+                </div>
+              </div>
+            </div>
+          )}
+          {!spendingPersonality&&(
+            <div className="card" style={{marginBottom:12,textAlign:"center",padding:"20px 16px"}}>
+              <div style={{fontSize:32,marginBottom:8}}>🎭</div>
+              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>Spending Personality</div>
+              <div style={{fontSize:12,color:C.muted}}>Add this month's transactions to reveal your spending personality!</div>
+            </div>
+          )}
           {/* Key metrics */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:12}}>
             {[
@@ -2638,6 +2882,219 @@ if (!user) {
                   );
                 })
             }
+          </div>
+
+          {/* ── WEEKEND VS WEEKDAY SPENDING ── */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:6}}>
+              <div className="stitle" style={{marginBottom:0}}>📅 Weekend vs Weekday</div>
+              <span style={{fontSize:11,color:C.muted}}>Last 30 days</span>
+            </div>
+            {weekendVsWeekday.weekendTotal===0&&weekendVsWeekday.weekdayTotal===0
+              ? <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>Add transactions to see weekend vs weekday breakdown.</div>
+              : <>
+                  {/* Big comparison */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+                    {[
+                      {label:"Weekend avg/day",val:weekendVsWeekday.weekendAvg,color:C.expense,icon:"🎉"},
+                      {label:"Weekday avg/day",val:weekendVsWeekday.weekdayAvg,color:C.income,icon:"💼"},
+                    ].map(item=>(
+                      <div key={item.label} style={{background:C.surface,borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:16,marginBottom:4}}>{item.icon}</div>
+                        <div className="lbl">{item.label}</div>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:item.color}}>{fc(Math.round(item.val))}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Ratio insight */}
+                  {weekendVsWeekday.ratio>0&&(
+                    <div style={{padding:"10px 14px",background:weekendVsWeekday.ratio>2?`${C.expense}10`:`${C.income}10`,borderRadius:12,border:`1px solid ${weekendVsWeekday.ratio>2?C.expense:C.income}25`,marginBottom:12}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:weekendVsWeekday.ratio>2?C.expense:C.income}}>
+                        {weekendVsWeekday.ratio>2
+                          ? `⚠️ You spend ${weekendVsWeekday.ratio.toFixed(1)}× more on weekends!`
+                          : weekendVsWeekday.ratio>1
+                          ? `Weekend spending is ${weekendVsWeekday.ratio.toFixed(1)}× weekdays — fairly typical`
+                          : `✅ Your weekday spending is higher — discipline on weekends!`}
+                      </div>
+                      {weekendVsWeekday.topWeekendCats.length>0&&(
+                        <div style={{fontSize:11,color:C.muted,marginTop:4}}>Weekend goes to: {weekendVsWeekday.topWeekendCats.join(", ")}</div>
+                      )}
+                    </div>
+                  )}
+                  {/* By day of week bar chart */}
+                  <div className="lbl" style={{marginBottom:8}}>AVERAGE SPEND BY DAY</div>
+                  <div style={{display:"flex",gap:4,alignItems:"flex-end",height:80}}>
+                    {weekendVsWeekday.byDay.map(day=>{
+                      const maxAvg = Math.max(...weekendVsWeekday.byDay.map(d=>d.avg), 1);
+                      const h = Math.max(4, (day.avg/maxAvg)*68);
+                      const isPeak = weekendVsWeekday.peakDay?.name===day.name;
+                      return(
+                        <div key={day.name} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                          {isPeak&&<div style={{fontSize:8,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>💸</div>}
+                          <div style={{width:"100%",height:h,borderRadius:6,background:day.isWeekend?`${C.expense}80`:C.income+"80",transition:"height 0.4s"}}/>
+                          <div style={{fontSize:9,color:day.isWeekend?C.expense:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:day.isWeekend?700:400}}>{day.name}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {weekendVsWeekday.peakDay&&(
+                    <div style={{marginTop:10,fontSize:11,color:C.muted,textAlign:"center"}}>
+                      💸 Biggest spend day: <span style={{color:C.expense,fontWeight:700}}>{weekendVsWeekday.peakDay.name}</span> · avg {fc(Math.round(weekendVsWeekday.peakDay.avg))}/day
+                    </div>
+                  )}
+                </>
+            }
+          </div>
+
+          {/* ── EXPENSE CALENDAR ── */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div className="stitle" style={{marginBottom:0}}>🗓 Expense Calendar</div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <button onClick={()=>{ let m=calMonth-1,y=calYear; if(m<0){m=11;y--;} setCalMonth(m);setCalYear(y);setCalSelectedDay(null); }} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:28,height:28,cursor:"pointer",color:C.text,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+                <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text,minWidth:100,textAlign:"center"}}>
+                  {new Date(calYear,calMonth,1).toLocaleDateString("en-IN",{month:"long",year:"numeric"})}
+                </span>
+                <button onClick={()=>{ let m=calMonth+1,y=calYear; if(m>11){m=0;y++;} setCalMonth(m);setCalYear(y);setCalSelectedDay(null); }} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:28,height:28,cursor:"pointer",color:C.text,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+              </div>
+            </div>
+            {(()=>{
+              const daysInMo = new Date(calYear,calMonth+1,0).getDate();
+              const firstDow = new Date(calYear,calMonth,1).getDay();
+              const todayD = new Date();
+              const isCurrentMo = calMonth===todayD.getMonth()&&calYear===todayD.getFullYear();
+              // Build spend map for this month
+              const spendMap = {};
+              transactions.filter(t=>{
+                const d = parseLocal(t.date);
+                return d && t.type==="expense" && d.getMonth()===calMonth && d.getFullYear()===calYear;
+              }).forEach(t=>{
+                const day = parseLocal(t.date).getDate();
+                if(!spendMap[day]) spendMap[day] = {total:0, txs:[]};
+                spendMap[day].total += parseFloat(t.amount)||0;
+                spendMap[day].txs.push(t);
+              });
+              // Daily average for color coding
+              const spendVals = Object.values(spendMap).map(d=>d.total);
+              const avgSpend = spendVals.length ? spendVals.reduce((s,v)=>s+v,0)/spendVals.length : 0;
+              const getColor = (total) => {
+                if (!total) return { bg:`${C.income}20`, text:C.income };
+                if (total < avgSpend * 0.5) return { bg:`${C.income}30`, text:C.income };
+                if (total < avgSpend) return { bg:`${C.warning}25`, text:C.warning };
+                if (total < avgSpend * 2) return { bg:`${C.expense}25`, text:C.expense };
+                return { bg:`${C.expense}50`, text:C.expense };
+              };
+              const zeroSpendDays = Array.from({length:daysInMo},(_,i)=>i+1).filter(d=>{
+                const key = `${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+                const pastOrToday = !isCurrentMo || d <= todayD.getDate();
+                return pastOrToday && !spendMap[d];
+              });
+              // Best streak in this month
+              let bestStreak=0, curStreak=0;
+              for(let d=1;d<=daysInMo;d++){
+                const pastOrToday = !isCurrentMo||d<=todayD.getDate();
+                if(pastOrToday&&!spendMap[d]){curStreak++;bestStreak=Math.max(bestStreak,curStreak);}
+                else if(pastOrToday){curStreak=0;}
+              }
+              const highestDay = Object.entries(spendMap).sort((a,b)=>b[1].total-a[1].total)[0];
+              const selectedTxs = calSelectedDay ? (spendMap[calSelectedDay]?.txs||[]) : [];
+              return(
+                <>
+                  {/* Day headers */}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:6}}>
+                    {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>(
+                      <div key={d} style={{textAlign:"center",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,paddingBottom:2}}>{d}</div>
+                    ))}
+                  </div>
+                  {/* Calendar grid */}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:12}}>
+                    {Array.from({length:firstDow},(_,i)=><div key={"e"+i}/>)}
+                    {Array.from({length:daysInMo},(_,i)=>{
+                      const day = i+1;
+                      const data = spendMap[day];
+                      const isToday = isCurrentMo && day===todayD.getDate();
+                      const isFuture = isCurrentMo && day>todayD.getDate();
+                      const isSelected = calSelectedDay===day;
+                      const col = isFuture ? {bg:"transparent",text:C.muted} : getColor(data?.total||0);
+                      return(
+                        <div key={day} onClick={()=>!isFuture&&setCalSelectedDay(isSelected?null:day)}
+                          style={{
+                            borderRadius:8,padding:"4px 2px",textAlign:"center",cursor:isFuture?"default":"pointer",
+                            background:isSelected?C.purple:col.bg,
+                            border:isToday?`2px solid ${C.purple}`:isSelected?`2px solid ${C.purpleLight}`:`1px solid transparent`,
+                            opacity:isFuture?0.3:1,
+                            transition:"all 0.15s",
+                          }}>
+                          <div style={{fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:isToday||data?700:400,color:isSelected?"#fff":isToday?C.purple:C.text}}>{day}</div>
+                          {data&&!isFuture&&(
+                            <div style={{fontSize:8,fontFamily:"'JetBrains Mono',monospace",color:isSelected?"rgba(255,255,255,0.85)":col.text,lineHeight:1,marginTop:1}}>
+                              {data.total>=1000?`${(data.total/1000).toFixed(1)}k`:Math.round(data.total)}
+                            </div>
+                          )}
+                          {!data&&!isFuture&&<div style={{fontSize:8,color:isSelected?"rgba(255,255,255,0.7)":C.income,lineHeight:1,marginTop:1}}>🟢</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Selected day detail */}
+                  {calSelectedDay&&(
+                    <div style={{marginBottom:12,padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.purple}30`}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.purple,marginBottom:8}}>
+                        {new Date(calYear,calMonth,calSelectedDay).toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"})}
+                      </div>
+                      {selectedTxs.length===0
+                        ? <div style={{fontSize:12,color:C.income,display:"flex",alignItems:"center",gap:6}}>🟢 Zero-spend day! Great job.</div>
+                        : <>
+                            {selectedTxs.map((t,i)=>(
+                              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,fontSize:12}}>
+                                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                  <div style={{width:6,height:6,borderRadius:"50%",background:C.expense,flexShrink:0}}/>
+                                  <div>
+                                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600,color:C.text}}>{t.category}</div>
+                                    {t.note&&<div style={{fontSize:10,color:C.muted}}>{t.note}</div>}
+                                  </div>
+                                </div>
+                                <span style={{color:C.expense,fontWeight:700,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(t.amount)}</span>
+                              </div>
+                            ))}
+                            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:6,marginTop:4,display:"flex",justifyContent:"space-between",fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                              <span>Total</span><span style={{color:C.expense}}>{fc(spendMap[calSelectedDay]?.total||0)}</span>
+                            </div>
+                          </>
+                      }
+                    </div>
+                  )}
+                  {/* Summary strip */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                    {[
+                      {icon:"🟢",label:"Zero-spend days",val:zeroSpendDays.length},
+                      {icon:"🔥",label:"Best streak",val:`${bestStreak}d`},
+                      {icon:"🔴",label:"Biggest day",val:highestDay?`${highestDay[0]}${["st","nd","rd"][highestDay[0]-1]||"th"}`:"-"},
+                    ].map(item=>(
+                      <div key={item.label} style={{background:C.surface,borderRadius:10,padding:"10px 8px",textAlign:"center",border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:16,marginBottom:3}}>{item.icon}</div>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.text}}>{item.val}</div>
+                        <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:2}}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Legend */}
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:10,justifyContent:"center"}}>
+                    {[
+                      {color:C.income,label:"Zero spend"},
+                      {color:C.warning,label:"Low"},
+                      {color:C.expense+"80",label:"Moderate"},
+                      {color:C.expense,label:"High"},
+                    ].map(l=>(
+                      <div key={l.label} style={{display:"flex",alignItems:"center",gap:4,fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                        <div style={{width:10,height:10,borderRadius:3,background:l.color}}/>
+                        {l.label}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
           </div>
 
           {/* Savings Rate Trend */}
