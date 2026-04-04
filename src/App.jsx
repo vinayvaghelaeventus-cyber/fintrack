@@ -410,7 +410,40 @@ const filterByPeriod = useCallback((txList, period) => {
     ...creditCards.filter(c=>c.dueDate).map(c=>({...c,days:daysUntil(c.dueDate),kind:"cc"})),
   ].sort((a,b)=>a.days-b.days), [activeDebts, creditCards]);
 
-  const overdueCount = upcomingDues.filter(d=>d.days<0).length;
+  // Track which loans/CCs were paid this month (by name match in transactions)
+  const paidThisMonth = useMemo(() => {
+    const n = new Date();
+    const mo = n.getMonth(), yr = n.getFullYear();
+    const loanPaid = new Set();
+    const ccPaid = new Set();
+    transactions.forEach(t => {
+      const d = parseLocal(t.date);
+      if (!d || d.getMonth()!==mo || d.getFullYear()!==yr) return;
+      if (t.category==="Loan EMI") {
+        // Match by note "Payment: LoanName" or by _emiKey
+        activeDebts.forEach(debt => {
+          if ((t.note||"").includes(debt.name) || (t._emiKey||"").includes(String(debt.id))) {
+            loanPaid.add(debt.id);
+          }
+        });
+      }
+      if (t.category==="Credit Card Bill") {
+        creditCards.forEach(cc => {
+          if ((t.note||"").includes(cc.name) || (t.bank||"")===(cc.bank||"")) {
+            ccPaid.add(cc.id);
+          }
+        });
+      }
+    });
+    return { loanPaid, ccPaid };
+  }, [transactions, activeDebts, creditCards]);
+
+  const overdueCount = upcomingDues.filter(d => {
+    if (d.days >= 0) return false;
+    if (d.kind==="loan" && paidThisMonth.loanPaid.has(d.id)) return false;
+    if (d.kind==="cc"   && paidThisMonth.ccPaid.has(d.id))   return false;
+    return true;
+  }).length;
 
   const expenseByMode = useMemo(() => PAYMENT_MODES.map(m=>({
     name:m, value:transactions.filter(t=>t.type==="expense"&&t.paymentMode===m).reduce((s,t)=>s+(parseFloat(t.amount)||0),0)
@@ -759,7 +792,23 @@ const filterByPeriod = useCallback((txList, period) => {
   function deleteDebt(id)  { setDebts(p=>p.filter(d=>d.id!==id)); }
   function toggleDebtClosed(id) { setDebts(p=>p.map(d=>d.id===id?{...d,closed:!d.closed}:d)); }
   function recordLoanPayment(id, amt, emiKey) {
-    setDebts(p=>p.map(d=>{ if(d.id!==id)return d; const n=Math.max(0,(parseFloat(d.outstanding)||0)-amt); return{...d,outstanding:n,closed:n===0}; }));
+    setDebts(p=>p.map(d=>{
+      if(d.id!==id) return d;
+      const newOutstanding = Math.max(0,(parseFloat(d.outstanding)||0)-amt);
+      // Advance dueDate to next month after payment
+      let newDueDate = d.dueDate;
+      if (d.dueDate) {
+        const dd = parseLocal(d.dueDate);
+        const now = new Date();
+        // If due date is in the past or this month, advance to next month
+        if (dd && (dd <= now || (dd.getMonth()===now.getMonth() && dd.getFullYear()===now.getFullYear()))) {
+          const nextDue = new Date(dd);
+          nextDue.setMonth(nextDue.getMonth() + 1);
+          newDueDate = `${nextDue.getFullYear()}-${String(nextDue.getMonth()+1).padStart(2,"0")}-${String(nextDue.getDate()).padStart(2,"0")}`;
+        }
+      }
+      return {...d, outstanding: newOutstanding, closed: newOutstanding===0, dueDate: newDueDate};
+    }));
     const d=debts.find(x=>x.id===id);
     const primaryAcc = accounts.find(a=>a.type==="savings")||accounts[0];
     const tx = {id:Date.now(),type:"expense",amount:amt,category:"Loan EMI",paymentMode:"Net Banking",
@@ -781,7 +830,22 @@ const filterByPeriod = useCallback((txList, period) => {
   function openEditCC(c) { setCcForm({...c}); setEditCCId(c.id); setShowCCForm(true); }
   function deleteCC(id)  { setCreditCards(p=>p.filter(c=>c.id!==id)); }
   function recordCCPayment(id, amt) {
-    setCreditCards(p=>p.map(c=>{ if(c.id!==id)return c; return{...c,outstanding:Math.max(0,(parseFloat(c.outstanding)||0)-amt)}; }));
+    setCreditCards(p=>p.map(c=>{
+      if(c.id!==id) return c;
+      const newOut = Math.max(0,(parseFloat(c.outstanding)||0)-amt);
+      // Advance dueDate to next month after payment
+      let newDueDate = c.dueDate;
+      if (c.dueDate) {
+        const dd = parseLocal(c.dueDate);
+        const now = new Date();
+        if (dd && (dd <= now || (dd.getMonth()===now.getMonth() && dd.getFullYear()===now.getFullYear()))) {
+          const nextDue = new Date(dd);
+          nextDue.setMonth(nextDue.getMonth() + 1);
+          newDueDate = `${nextDue.getFullYear()}-${String(nextDue.getMonth()+1).padStart(2,"0")}-${String(nextDue.getDate()).padStart(2,"0")}`;
+        }
+      }
+      return {...c, outstanding: newOut, dueDate: newDueDate};
+    }));
     const cc=creditCards.find(c=>c.id===id);
     const primaryAcc = accounts.find(a=>a.type==="savings")||accounts[0];
     const tx = {id:Date.now(),type:"expense",amount:amt,category:"Credit Card Bill",
@@ -1830,20 +1894,35 @@ if (!user) {
                     <div style={{display:"flex",flexDirection:"column",gap:6}}>
                       {activeDebts.slice(0,3).map(d=>{
                         const days=daysUntil(d.dueDate);
-                        const dc=days!==null&&days<0?C.expense:days!==null&&days<=3?C.warning:C.loan;
+                        const isPaid = paidThisMonth.loanPaid.has(d.id);
+                        const dc=isPaid?C.income:days!==null&&days<0?C.expense:days!==null&&days<=3?C.warning:C.loan;
                         return(
-                          <div key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",background:C.surface,borderRadius:10,border:`1px solid ${dc}20`}}>
-                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",background:isPaid?`${C.income}08`:C.surface,borderRadius:10,border:`1px solid ${dc}25`}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
                               <div style={{width:8,height:8,borderRadius:"50%",background:dc,flexShrink:0}}/>
-                              <div>
+                              <div style={{minWidth:0}}>
                                 <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{d.name}</div>
-                                <div style={{fontSize:10,color:C.muted,display:"flex",gap:6,alignItems:"center"}}>
+                                <div style={{fontSize:10,color:C.muted,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                                   <span>{d.lender}</span>
-                                  {days!==null&&<span style={{color:dc,fontWeight:700}}>{days<0?`${Math.abs(days)}d overdue`:days===0?"Due today!":days===1?"Due tomorrow":`Due in ${days}d`}</span>}
+                                  {isPaid
+                                    ? <span style={{color:C.income,fontWeight:700}}>✅ Paid this month</span>
+                                    : days!==null&&<span style={{color:dc,fontWeight:700}}>{days<0?`${Math.abs(days)}d overdue`:days===0?"Due today!":days===1?"Due tomorrow":`Due in ${days}d`}</span>
+                                  }
                                 </div>
                               </div>
                             </div>
-                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:dc}}>{fc(parseFloat(d.emi)||0)}</div>
+                            <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:dc}}>{fc(parseFloat(d.emi)||0)}</div>
+                              {!isPaid&&<button className="btn btn-p btn-sm" style={{padding:"5px 10px",fontSize:10}} onClick={()=>{
+                                const emiAmt=parseFloat(d.emi)||0;
+                                if(!emiAmt) return;
+                                const now=new Date();
+                                const key=`emi_${d.id}_${now.getFullYear()}_${now.getMonth()}`;
+                                const alreadyPaid=transactions.some(t=>t._emiKey===key);
+                                if(alreadyPaid){alert(`${d.name} EMI already recorded this month`);return;}
+                                recordLoanPayment(d.id,emiAmt,key);
+                              }}>Pay</button>}
+                            </div>
                           </div>
                         );
                       })}
@@ -1859,24 +1938,35 @@ if (!user) {
                     <div style={{display:"flex",flexDirection:"column",gap:6}}>
                       {creditCards.filter(c=>parseFloat(c.outstanding)>0).slice(0,3).map(cc=>{
                         const days=daysUntil(cc.dueDate);
-                        const dc=days!==null&&days<0?C.expense:days!==null&&days<=3?C.warning:C.credit;
+                        const isPaid = paidThisMonth.ccPaid.has(cc.id);
+                        const dc=isPaid?C.income:days!==null&&days<0?C.expense:days!==null&&days<=3?C.warning:C.credit;
                         const out=parseFloat(cc.outstanding)||0;
                         const util=Math.min(100,(out/(parseFloat(cc.limit)||1))*100);
                         return(
-                          <div key={cc.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",background:C.surface,borderRadius:10,border:`1px solid ${dc}20`}}>
-                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div key={cc.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",background:isPaid?`${C.income}08`:C.surface,borderRadius:10,border:`1px solid ${dc}25`}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
                               <div style={{width:8,height:8,borderRadius:"50%",background:dc,flexShrink:0}}/>
-                              <div>
+                              <div style={{minWidth:0}}>
                                 <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{cc.name} · {cc.bank}</div>
-                                <div style={{fontSize:10,color:C.muted,display:"flex",gap:6,alignItems:"center"}}>
+                                <div style={{fontSize:10,color:C.muted,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                                   <span>{util.toFixed(0)}% used</span>
-                                  {days!==null&&<span style={{color:dc,fontWeight:700}}>{days<0?`${Math.abs(days)}d overdue`:days===0?"Due today!":days===1?"Due tomorrow":`Due in ${days}d`}</span>}
+                                  {isPaid
+                                    ? <span style={{color:C.income,fontWeight:700}}>✅ Paid this month</span>
+                                    : days!==null&&<span style={{color:dc,fontWeight:700}}>{days<0?`${Math.abs(days)}d overdue`:days===0?"Due today!":days===1?"Due tomorrow":`Due in ${days}d`}</span>
+                                  }
                                 </div>
                               </div>
                             </div>
-                            <div style={{textAlign:"right"}}>
-                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:dc}}>{fc(out)}</div>
-                              <div style={{fontSize:9,color:C.muted}}>full bill</div>
+                            <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                              <div style={{textAlign:"right"}}>
+                                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:dc}}>{fc(out)}</div>
+                                <div style={{fontSize:9,color:C.muted}}>full bill</div>
+                              </div>
+                              {!isPaid&&<button className="btn btn-p btn-sm" style={{padding:"5px 10px",fontSize:10}} onClick={()=>{
+                                const v=prompt(`Pay how much for ${cc.name}?\nFull bill: ${fc(out)}`);
+                                const n=parseFloat(v);
+                                if(!isNaN(n)&&n>0) recordCCPayment(cc.id,n);
+                              }}>Pay</button>}
                             </div>
                           </div>
                         );
