@@ -351,7 +351,7 @@ useEffect(() => {
       setSaving(true);
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, savings, budgets, banks,
-        monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
+        salary, monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
         accounts, customCats, moneyCircles,
         lastUpdated: new Date().toISOString(),
       });
@@ -360,7 +360,7 @@ useEffect(() => {
       else setFbStatus("error");
     }, 1200);
   }, [transactions, debts, creditCards, savings, budgets, banks,
-      monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
+      salary, monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
       accounts, customCats, moneyCircles, loaded]);
 
 
@@ -571,18 +571,27 @@ const filterByPeriod = useCallback((txList, period) => {
   // Cash Gap Detection — uses salary day + upcoming bills
   const cashGap = useMemo(() => {
     const salDay = parseInt(salary?.creditDay)||5;
-    const today  = new Date().getDate();
-    const daysToSal = salDay >= today ? salDay - today : (30 - today + salDay);
+    const todayNum = new Date().getDate();
+    // If salary already received this month, gap detection resets to NEXT month
+    const salaryAlreadyReceived = salaryCountdown?.received || false;
+    const daysToSal = salaryAlreadyReceived
+      ? salaryCountdown?.daysLeft || 30   // days to next month's salary
+      : salDay >= todayNum
+        ? salDay - todayNum               // days until this month's salary
+        : (new Date(new Date().getFullYear(), new Date().getMonth()+1,0).getDate()) - todayNum + salDay;
+    // Only flag gap if salary not yet received and bills are due before it
     const billsDue = [...activeDebts, ...creditCards].filter(item=>{
       if (!item.dueDate) return false;
       const d = new Date(item.dueDate).getDate();
-      return d >= today && d < (today + daysToSal);
+      return d >= todayNum && d < (todayNum + daysToSal);
     });
     const totalBillsDue = billsDue.reduce((s,item)=>s+(parseFloat(item.emi||item.minDue)||0),0);
     const currentCash = Math.max(totalAccountBalance, 0);
     const gap = totalBillsDue - currentCash;
-    return { daysToSal, totalBillsDue, currentCash, gap, billsDue, hasCashGap: gap > 0 };
-  }, [salary, activeDebts, creditCards, totalAccountBalance]);
+    // Don't show cash gap if salary already received this month
+    return { daysToSal, totalBillsDue, currentCash, gap, billsDue,
+             hasCashGap: gap > 0 && !salaryAlreadyReceived };
+  }, [salary, salaryCountdown, activeDebts, creditCards, totalAccountBalance]);
 
   // ─── SPENDING PERSONALITY SCORE ──────────────────────────────────────────
   const spendingPersonality = useMemo(() => {
@@ -699,24 +708,75 @@ const filterByPeriod = useCallback((txList, period) => {
   }, [transactions]);
 
   // ─── SALARY COUNTDOWN ────────────────────────────────────────────────────
+  // Smart: checks if salary was already received this month via a transaction
   const salaryCountdown = useMemo(() => {
     const salDay = parseInt(salary?.creditDay) || 0;
     const salAmt = parseFloat(salary?.amount) || 0;
     if (!salDay) return null;
+
     const now = new Date();
     const todayDate = now.getDate();
-    let daysLeft = salDay - todayDate;
-    if (daysLeft < 0) {
-      // Next month
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-      daysLeft = daysInMonth - todayDate + salDay;
+    const thisMonth = now.getMonth();
+    const thisYear  = now.getFullYear();
+
+    // Check if user already added a Salary income transaction this month
+    // (category = "Salary" OR type = income with note containing salary/payroll)
+    const salaryReceivedThisMonth = transactions.some(t => {
+      if (t.type !== "income") return false;
+      const d = parseLocal(t.date);
+      if (!d) return false;
+      const sameMonth = d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+      if (!sameMonth) return false;
+      const isSalary = (t.category === "Salary") ||
+        (t.note || "").toLowerCase().includes("salary") ||
+        (t.note || "").toLowerCase().includes("payroll");
+      return isSalary;
+    });
+
+    // If salary already received this month — show received status
+    if (salaryReceivedThisMonth) {
+      // Count days until NEXT month's salary
+      const daysInMonth = new Date(thisYear, thisMonth + 1, 0).getDate();
+      const daysToNext = daysInMonth - todayDate + salDay;
+      return {
+        daysLeft: daysToNext,
+        salDay,
+        salAmt,
+        isToday: false,
+        received: true,   // ← key flag
+        receivedThisMonth: true,
+      };
     }
-    return { daysLeft, salDay, salAmt, isToday: daysLeft === 0 };
-  }, [salary]);
+
+    // Salary not yet received — count down to this month's salary day
+    let daysLeft = salDay - todayDate;
+
+    if (daysLeft > 0) {
+      // Salary day is still coming this month
+      return { daysLeft, salDay, salAmt, isToday: false, received: false };
+    } else if (daysLeft === 0) {
+      // Today IS salary day
+      return { daysLeft: 0, salDay, salAmt, isToday: true, received: false };
+    } else {
+      // Salary day passed this month but no transaction recorded
+      // Could be delayed — show "Overdue by X days" or count to next month
+      const daysInMonth = new Date(thisYear, thisMonth + 1, 0).getDate();
+      const daysToNext = daysInMonth - todayDate + salDay;
+      return {
+        daysLeft: daysToNext,
+        salDay,
+        salAmt,
+        isToday: false,
+        received: false,
+        delayed: true,          // salary day passed, not yet added
+        delayedDays: Math.abs(daysLeft),
+      };
+    }
+  }, [salary, transactions]);
 
   // ─── SMART BUDGET SUGGESTIONS ────────────────────────────────────────────
   const smartBudgetSuggestions = useMemo(() => {
-    if (!salaryCountdown?.isToday && salaryCountdown?.daysLeft !== 0) return null;
+    if (!salaryCountdown?.isToday && !salaryCountdown?.received) return null;
     // Calculate 3-month category averages
     const suggestions = [];
     allCategories.expense.forEach(cat => {
@@ -1859,16 +1919,40 @@ if (!user) {
                 <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:"#fff"}}>{fc(pExp)}</div>
               </div>
             </div>
-            {/* Salary Countdown */}
+            {/* Salary Status — smart: shows received/pending/due based on transactions */}
             {salaryCountdown&&(
-              <div style={{marginTop:10,padding:"8px 12px",background:"rgba(255,255,255,0.12)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center",position:"relative",zIndex:1}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontSize:14}}>💰</span>
-                  <span style={{fontSize:11,color:"rgba(255,255,255,0.9)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
-                    {salaryCountdown.isToday ? "🎉 Salary Day!" : `Salary in ${salaryCountdown.daysLeft} day${salaryCountdown.daysLeft===1?"":"s"}`}
+              <div style={{marginTop:10,padding:"10px 14px",background:"rgba(255,255,255,0.12)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center",position:"relative",zIndex:1,border:salaryCountdown.delayed?"1.5px solid rgba(255,181,71,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:16}}>
+                    {salaryCountdown.received?"✅":salaryCountdown.isToday?"🎉":salaryCountdown.delayed?"⏳":"💰"}
                   </span>
+                  <div>
+                    <div style={{fontSize:12,color:"rgba(255,255,255,0.95)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,lineHeight:1.2}}>
+                      {salaryCountdown.received
+                        ? "Salary Received ✓"
+                        : salaryCountdown.isToday
+                        ? "🎉 Salary Day Today!"
+                        : salaryCountdown.delayed
+                        ? `Salary Pending — ${salaryCountdown.delayedDays}d delayed`
+                        : `Salary in ${salaryCountdown.daysLeft} day${salaryCountdown.daysLeft===1?"":"s"}`
+                      }
+                    </div>
+                    <div style={{fontSize:10,color:"rgba(255,255,255,0.6)",fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:1}}>
+                      {salaryCountdown.received
+                        ? `Next on ${salaryCountdown.salDay}${salaryCountdown.salDay===1?"st":salaryCountdown.salDay===2?"nd":salaryCountdown.salDay===3?"rd":"th"} next month · in ${salaryCountdown.daysLeft}d`
+                        : salaryCountdown.delayed
+                        ? `Expected on ${salaryCountdown.salDay}${salaryCountdown.salDay===1?"st":salaryCountdown.salDay===2?"nd":salaryCountdown.salDay===3?"rd":"th"} — not yet logged`
+                        : `Every ${salaryCountdown.salDay}${salaryCountdown.salDay===1?"st":salaryCountdown.salDay===2?"nd":salaryCountdown.salDay===3?"rd":"th"} of month`
+                      }
+                    </div>
+                  </div>
                 </div>
-                {salaryCountdown.salAmt>0&&<span style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800}}>{fc(salaryCountdown.salAmt)}</span>}
+                {salaryCountdown.salAmt>0&&(
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:13,color:"rgba(255,255,255,0.9)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900}}>{fc(salaryCountdown.salAmt)}</div>
+                    {salaryCountdown.received&&<div style={{fontSize:9,color:"rgba(0,229,160,0.9)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>CREDITED</div>}
+                  </div>
+                )}
               </div>
             )}
           </div>
