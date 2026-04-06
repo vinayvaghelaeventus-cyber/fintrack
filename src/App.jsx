@@ -257,6 +257,12 @@ export default function App() {
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calSelectedDay, setCalSelectedDay] = useState(null);
   const [showSmartBudget, setShowSmartBudget] = useState(true);
+  // ── PWA ──
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [showUpdateBanner, setShowUpdateBanner] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const [pageKey, setPageKey] = useState(0);
   const [customCats, setCustomCats] = useState({income:[], expense:[]});
   const [showCatManager, setShowCatManager] = useState(false);
   const [newCatName, setNewCatName] = useState("");
@@ -1386,6 +1392,27 @@ const filterByPeriod = useCallback((txList, period) => {
     }
     .period-opt:hover{background:${C.surface};}
     .period-opt.active{background:${C.purpleDim};color:${C.purple};font-weight:700;}
+
+    /* ══ ANDROID-NATIVE FEEL ══ */
+    .page-enter{animation:pageSlideIn 0.28s cubic-bezier(0.4,0,0.2,1) forwards;}
+    @keyframes pageSlideIn{from{opacity:0;transform:translateY(18px) scale(0.98);}to{opacity:1;transform:translateY(0) scale(1);}}
+    .card{animation:cardIn 0.32s cubic-bezier(0.4,0,0.2,1) both;}
+    @keyframes cardIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+    .ripple{position:absolute;border-radius:50%;transform:scale(0);animation:ripple-anim 0.55s linear;background:rgba(255,255,255,0.25);pointer-events:none;}
+    @keyframes ripple-anim{to{transform:scale(4);opacity:0;}}
+    .sheet{animation:sheetUp 0.32s cubic-bezier(0.4,0,0.2,1) forwards;}
+    @keyframes sheetUp{from{transform:translateY(100%);opacity:0.6;}to{transform:translateY(0);opacity:1;}}
+    .bn-fab:active,.fab:active{transform:scale(0.88)!important;box-shadow:0 2px 8px rgba(0,0,0,0.3)!important;}
+    .row:active{background:${C.surface};border-radius:12px;}
+    .scard:active{transform:scale(0.97);box-shadow:0 1px 4px rgba(0,0,0,0.15);}
+    .ripple-btn{overflow:hidden;position:relative;}
+    .install-banner{position:fixed;bottom:70px;left:12px;right:12px;background:linear-gradient(135deg,${C.purple},${C.purpleLight});border-radius:18px;padding:14px 16px;display:flex;align-items:center;gap:12px;z-index:150;box-shadow:0 8px 32px rgba(123,79,212,0.45);animation:bannerUp 0.4s cubic-bezier(0.4,0,0.2,1);}
+    @keyframes bannerUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+    .update-banner{position:fixed;top:0;left:0;right:0;background:${C.income};color:${darkMode?"#0d0d14":"#fff"};padding:10px 16px;display:flex;justify-content:space-between;align-items:center;z-index:999;font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:13px;animation:slideDown 0.3s ease;}
+    @keyframes slideDown{from{transform:translateY(-100%);}to{transform:translateY(0);}}
+    .bnav{padding-bottom:max(env(safe-area-inset-bottom),8px)!important;}
+    a,button,[role=button]{touch-action:manipulation;}
+    @media(display-mode:standalone){body{padding-top:env(safe-area-inset-top);}.dtabs{display:none!important;}}
   `;
 
   function DueBadge({days, dueDate}){
@@ -1408,6 +1435,72 @@ const filterByPeriod = useCallback((txList, period) => {
       <text x="50" y="44" textAnchor="middle" fill={color} fontSize="22" fontWeight="900" fontFamily="Cabinet Grotesk">{score}</text>
       <text x="50" y="58" textAnchor="middle" fill={color+"80"} fontSize="9" fontFamily="Cabinet Grotesk" letterSpacing="1">/100</text>
     </svg>;
+  }
+
+  // ─── PWA INSTALL PROMPT ──────────────────────────────────────────────────
+  useEffect(() => {
+    // Check if already installed
+    if (window.matchMedia('(display-mode: standalone)').matches ||
+        window.navigator.standalone === true) {
+      setIsInstalled(true);
+      return;
+    }
+    // Listen for install prompt
+    const handler = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      // Show banner after 30 seconds of use (not immediately)
+      setTimeout(() => setShowInstallBanner(true), 30000);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    // Listen for successful install
+    window.addEventListener('appinstalled', () => {
+      setIsInstalled(true);
+      setShowInstallBanner(false);
+      setInstallPrompt(null);
+    });
+    // Listen for SW update
+    window.addEventListener('sw-update-available', () => setShowUpdateBanner(true));
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  // ─── RIPPLE EFFECT (Android Material ripple on all buttons) ──────────────
+  useEffect(() => {
+    function addRipple(e) {
+      const btn = e.currentTarget;
+      const circle = document.createElement('span');
+      const diameter = Math.max(btn.clientWidth, btn.clientHeight);
+      const radius = diameter / 2;
+      const rect = btn.getBoundingClientRect();
+      circle.style.cssText = `width:${diameter}px;height:${diameter}px;left:${e.clientX-rect.left-radius}px;top:${e.clientY-rect.top-radius}px;position:absolute;`;
+      circle.classList.add('ripple');
+      const existing = btn.querySelector('.ripple');
+      if (existing) existing.remove();
+      btn.appendChild(circle);
+      setTimeout(() => circle.remove(), 600);
+    }
+    // Apply to all nav buttons
+    const btns = document.querySelectorAll('.bn, .bn-fab, .btn-p, .btn-g');
+    btns.forEach(btn => btn.addEventListener('click', addRipple));
+    return () => btns.forEach(btn => btn.removeEventListener('click', addRipple));
+  });
+
+  // ─── TAB CHANGE ANIMATION ────────────────────────────────────────────────
+  function navigateTo(newTab) {
+    setPageKey(k => k + 1);
+    setTab(newTab);
+  }
+
+  // ─── PWA INSTALL HANDLER ─────────────────────────────────────────────────
+  async function handleInstall() {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstalled(true);
+      setShowInstallBanner(false);
+    }
+    setInstallPrompt(null);
   }
 
   // ─── NOTIFICATION ENGINE ─────────────────────────────────────────────────
@@ -1664,7 +1757,7 @@ if (!user) {
         {refreshing&&<div className="ptr-spinner"/>}
       </div>
 
-      <div style={{maxWidth:1200,margin:"0 auto",padding:"16px 14px 16px",paddingBottom:100}}>
+      <div key={pageKey} className="page-enter" style={{maxWidth:1200,margin:"0 auto",padding:"16px 14px 16px",paddingBottom:100}}>
 
         {/* ════════ DASHBOARD ════════ */}
         {tab==="Dashboard"&&(()=>{
@@ -3702,17 +3795,38 @@ if (!user) {
         )}
       </div>
 
+      {/* ── Install PWA Banner ── */}
+      {showInstallBanner&&!isInstalled&&(
+        <div className="install-banner">
+          <div style={{width:40,height:40,borderRadius:12,background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>₹</div>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:"#fff",marginBottom:2}}>Install FinTrack App</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.75)"}}>Add to home screen for native app feel</div>
+          </div>
+          <button onClick={handleInstall} style={{background:"#fff",color:"#7b4fd4",border:"none",borderRadius:99,padding:"8px 14px",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer",flexShrink:0}}>Install</button>
+          <button onClick={()=>setShowInstallBanner(false)} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.7)",cursor:"pointer",fontSize:18,padding:"0 4px",flexShrink:0}}>×</button>
+        </div>
+      )}
+
+      {/* ── Update Available Banner ── */}
+      {showUpdateBanner&&(
+        <div className="update-banner">
+          <span>🆕 New version available!</span>
+          <button onClick={()=>{window.location.reload();}} style={{background:"rgba(0,0,0,0.15)",border:"none",borderRadius:99,padding:"5px 14px",color:"inherit",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer"}}>Reload</button>
+        </div>
+      )}
+
       {/* ── Mobile Bottom Nav — Fintastics style ── */}
       <nav className="bnav">
         {MOBILE_TABS.slice(0,2).map(t=>(
-          <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}>
+          <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>navigateTo(t.id)}>
             <span style={{fontSize:18}}>{t.icon}</span>{t.label}
           </button>
         ))}
         {/* Centre FAB */}
         <button className="bn-fab" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+</button>
         {MOBILE_TABS.slice(2).map(t=>(
-          <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}>
+          <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>navigateTo(t.id)}>
             <span style={{fontSize:18}}>{t.icon}</span>{t.label}
           </button>
         ))}
