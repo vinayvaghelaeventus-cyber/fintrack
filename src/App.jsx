@@ -351,7 +351,7 @@ useEffect(() => {
       setSaving(true);
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, savings, budgets, banks,
-        salary, monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
+        monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
         accounts, customCats, moneyCircles,
         lastUpdated: new Date().toISOString(),
       });
@@ -360,7 +360,7 @@ useEffect(() => {
       else setFbStatus("error");
     }, 1200);
   }, [transactions, debts, creditCards, savings, budgets, banks,
-      salary, monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
+      monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
       accounts, customCats, moneyCircles, loaded]);
 
 
@@ -426,8 +426,8 @@ const filterByPeriod = useCallback((txList, period) => {
       const d = parseLocal(t.date);
       if (!d || d.getMonth()!==mo || d.getFullYear()!==yr) return;
       if (t.category==="Loan EMI") {
+        // Match by note "Payment: LoanName" or by _emiKey
         activeDebts.forEach(debt => {
-          // Match by note containing loan name, OR by _emiKey containing debt id
           if ((t.note||"").includes(debt.name) || (t._emiKey||"").includes(String(debt.id))) {
             loanPaid.add(debt.id);
           }
@@ -435,10 +435,7 @@ const filterByPeriod = useCallback((txList, period) => {
       }
       if (t.category==="Credit Card Bill") {
         creditCards.forEach(cc => {
-          // Match by note "CC: CardName" (set by recordCCPayment) OR note includes cc.name
-          const noteMatch = (t.note||"").includes(cc.name);
-          const recordMatch = (t.note||"") === `CC: ${cc.name}`;
-          if (noteMatch || recordMatch) {
+          if ((t.note||"").includes(cc.name) || (t.bank||"")===(cc.bank||"")) {
             ccPaid.add(cc.id);
           }
         });
@@ -571,27 +568,18 @@ const filterByPeriod = useCallback((txList, period) => {
   // Cash Gap Detection — uses salary day + upcoming bills
   const cashGap = useMemo(() => {
     const salDay = parseInt(salary?.creditDay)||5;
-    const todayNum = new Date().getDate();
-    // If salary already received this month, gap detection resets to NEXT month
-    const salaryAlreadyReceived = salaryCountdown?.received || false;
-    const daysToSal = salaryAlreadyReceived
-      ? salaryCountdown?.daysLeft || 30   // days to next month's salary
-      : salDay >= todayNum
-        ? salDay - todayNum               // days until this month's salary
-        : (new Date(new Date().getFullYear(), new Date().getMonth()+1,0).getDate()) - todayNum + salDay;
-    // Only flag gap if salary not yet received and bills are due before it
+    const today  = new Date().getDate();
+    const daysToSal = salDay >= today ? salDay - today : (30 - today + salDay);
     const billsDue = [...activeDebts, ...creditCards].filter(item=>{
       if (!item.dueDate) return false;
       const d = new Date(item.dueDate).getDate();
-      return d >= todayNum && d < (todayNum + daysToSal);
+      return d >= today && d < (today + daysToSal);
     });
     const totalBillsDue = billsDue.reduce((s,item)=>s+(parseFloat(item.emi||item.minDue)||0),0);
     const currentCash = Math.max(totalAccountBalance, 0);
     const gap = totalBillsDue - currentCash;
-    // Don't show cash gap if salary already received this month
-    return { daysToSal, totalBillsDue, currentCash, gap, billsDue,
-             hasCashGap: gap > 0 && !salaryAlreadyReceived };
-  }, [salary, salaryCountdown, activeDebts, creditCards, totalAccountBalance]);
+    return { daysToSal, totalBillsDue, currentCash, gap, billsDue, hasCashGap: gap > 0 };
+  }, [salary, activeDebts, creditCards, totalAccountBalance]);
 
   // ─── SPENDING PERSONALITY SCORE ──────────────────────────────────────────
   const spendingPersonality = useMemo(() => {
@@ -708,75 +696,24 @@ const filterByPeriod = useCallback((txList, period) => {
   }, [transactions]);
 
   // ─── SALARY COUNTDOWN ────────────────────────────────────────────────────
-  // Smart: checks if salary was already received this month via a transaction
   const salaryCountdown = useMemo(() => {
     const salDay = parseInt(salary?.creditDay) || 0;
     const salAmt = parseFloat(salary?.amount) || 0;
     if (!salDay) return null;
-
     const now = new Date();
     const todayDate = now.getDate();
-    const thisMonth = now.getMonth();
-    const thisYear  = now.getFullYear();
-
-    // Check if user already added a Salary income transaction this month
-    // (category = "Salary" OR type = income with note containing salary/payroll)
-    const salaryReceivedThisMonth = transactions.some(t => {
-      if (t.type !== "income") return false;
-      const d = parseLocal(t.date);
-      if (!d) return false;
-      const sameMonth = d.getMonth() === thisMonth && d.getFullYear() === thisYear;
-      if (!sameMonth) return false;
-      const isSalary = (t.category === "Salary") ||
-        (t.note || "").toLowerCase().includes("salary") ||
-        (t.note || "").toLowerCase().includes("payroll");
-      return isSalary;
-    });
-
-    // If salary already received this month — show received status
-    if (salaryReceivedThisMonth) {
-      // Count days until NEXT month's salary
-      const daysInMonth = new Date(thisYear, thisMonth + 1, 0).getDate();
-      const daysToNext = daysInMonth - todayDate + salDay;
-      return {
-        daysLeft: daysToNext,
-        salDay,
-        salAmt,
-        isToday: false,
-        received: true,   // ← key flag
-        receivedThisMonth: true,
-      };
-    }
-
-    // Salary not yet received — count down to this month's salary day
     let daysLeft = salDay - todayDate;
-
-    if (daysLeft > 0) {
-      // Salary day is still coming this month
-      return { daysLeft, salDay, salAmt, isToday: false, received: false };
-    } else if (daysLeft === 0) {
-      // Today IS salary day
-      return { daysLeft: 0, salDay, salAmt, isToday: true, received: false };
-    } else {
-      // Salary day passed this month but no transaction recorded
-      // Could be delayed — show "Overdue by X days" or count to next month
-      const daysInMonth = new Date(thisYear, thisMonth + 1, 0).getDate();
-      const daysToNext = daysInMonth - todayDate + salDay;
-      return {
-        daysLeft: daysToNext,
-        salDay,
-        salAmt,
-        isToday: false,
-        received: false,
-        delayed: true,          // salary day passed, not yet added
-        delayedDays: Math.abs(daysLeft),
-      };
+    if (daysLeft < 0) {
+      // Next month
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+      daysLeft = daysInMonth - todayDate + salDay;
     }
-  }, [salary, transactions]);
+    return { daysLeft, salDay, salAmt, isToday: daysLeft === 0 };
+  }, [salary]);
 
   // ─── SMART BUDGET SUGGESTIONS ────────────────────────────────────────────
   const smartBudgetSuggestions = useMemo(() => {
-    if (!salaryCountdown?.isToday && !salaryCountdown?.received) return null;
+    if (!salaryCountdown?.isToday && salaryCountdown?.daysLeft !== 0) return null;
     // Calculate 3-month category averages
     const suggestions = [];
     allCategories.expense.forEach(cat => {
@@ -1919,40 +1856,16 @@ if (!user) {
                 <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:"#fff"}}>{fc(pExp)}</div>
               </div>
             </div>
-            {/* Salary Status — smart: shows received/pending/due based on transactions */}
+            {/* Salary Countdown */}
             {salaryCountdown&&(
-              <div style={{marginTop:10,padding:"10px 14px",background:"rgba(255,255,255,0.12)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center",position:"relative",zIndex:1,border:salaryCountdown.delayed?"1.5px solid rgba(255,181,71,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:16}}>
-                    {salaryCountdown.received?"✅":salaryCountdown.isToday?"🎉":salaryCountdown.delayed?"⏳":"💰"}
+              <div style={{marginTop:10,padding:"8px 12px",background:"rgba(255,255,255,0.12)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center",position:"relative",zIndex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:14}}>💰</span>
+                  <span style={{fontSize:11,color:"rgba(255,255,255,0.9)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                    {salaryCountdown.isToday ? "🎉 Salary Day!" : `Salary in ${salaryCountdown.daysLeft} day${salaryCountdown.daysLeft===1?"":"s"}`}
                   </span>
-                  <div>
-                    <div style={{fontSize:12,color:"rgba(255,255,255,0.95)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,lineHeight:1.2}}>
-                      {salaryCountdown.received
-                        ? "Salary Received ✓"
-                        : salaryCountdown.isToday
-                        ? "🎉 Salary Day Today!"
-                        : salaryCountdown.delayed
-                        ? `Salary Pending — ${salaryCountdown.delayedDays}d delayed`
-                        : `Salary in ${salaryCountdown.daysLeft} day${salaryCountdown.daysLeft===1?"":"s"}`
-                      }
-                    </div>
-                    <div style={{fontSize:10,color:"rgba(255,255,255,0.6)",fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:1}}>
-                      {salaryCountdown.received
-                        ? `Next on ${salaryCountdown.salDay}${salaryCountdown.salDay===1?"st":salaryCountdown.salDay===2?"nd":salaryCountdown.salDay===3?"rd":"th"} next month · in ${salaryCountdown.daysLeft}d`
-                        : salaryCountdown.delayed
-                        ? `Expected on ${salaryCountdown.salDay}${salaryCountdown.salDay===1?"st":salaryCountdown.salDay===2?"nd":salaryCountdown.salDay===3?"rd":"th"} — not yet logged`
-                        : `Every ${salaryCountdown.salDay}${salaryCountdown.salDay===1?"st":salaryCountdown.salDay===2?"nd":salaryCountdown.salDay===3?"rd":"th"} of month`
-                      }
-                    </div>
-                  </div>
                 </div>
-                {salaryCountdown.salAmt>0&&(
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:13,color:"rgba(255,255,255,0.9)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900}}>{fc(salaryCountdown.salAmt)}</div>
-                    {salaryCountdown.received&&<div style={{fontSize:9,color:"rgba(0,229,160,0.9)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>CREDITED</div>}
-                  </div>
-                )}
+                {salaryCountdown.salAmt>0&&<span style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800}}>{fc(salaryCountdown.salAmt)}</span>}
               </div>
             )}
           </div>
@@ -2477,66 +2390,33 @@ if (!user) {
                   No dues right now!<br/>Add loans or credit cards to track.
                 </div>
               : <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {upcomingDues.slice(0,6).map((d,i)=>{
-                    const isPaid = d.kind==="loan"
-                      ? paidThisMonth.loanPaid.has(d.id)
-                      : paidThisMonth.ccPaid.has(d.id);
-                    const isOverdue = !isPaid && (d.days??0)<0;
-                    const isUrgent  = !isPaid && (d.days??99)<=3 && (d.days??99)>=0;
-                    const dueColor  = isPaid ? C.income : isOverdue ? C.expense : isUrgent ? C.warning : C.muted;
+                  {upcomingDues.slice(0,5).map((d,i)=>{
+                    const isOverdue=(d.days??0)<0;
+                    const isUrgent=(d.days??99)<=3&&(d.days??99)>=0;
+                    const dueColor=isOverdue?C.expense:isUrgent?C.warning:C.muted;
                     return(
-                      <div key={i} style={{
-                        display:"flex",justifyContent:"space-between",alignItems:"center",
-                        padding:"10px 12px",
-                        background:isPaid?`${C.income}08`:C.surface,
-                        borderRadius:12,
-                        border:`1px solid ${dueColor}25`,
-                        opacity: isPaid ? 0.85 : 1,
-                      }}>
-                        <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-                          <div style={{width:36,height:36,borderRadius:10,background:`${dueColor}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>
-                            {isPaid ? "✅" : d.kind==="loan" ? "🏦" : "💳"}
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${dueColor}25`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{width:36,height:36,borderRadius:10,background:`${dueColor}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>
+                            {d.kind==="loan"?"🏦":"💳"}
                           </div>
-                          <div style={{minWidth:0}}>
+                          <div>
                             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{d.name}</div>
-                            {isPaid
-                              ? <span style={{fontSize:10,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>✅ Paid this month</span>
-                              : <DueBadge days={d.days} dueDate={d.dueDate}/>
-                            }
+                            <DueBadge days={d.days} dueDate={d.dueDate}/>
                           </div>
                         </div>
-                        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-                          <div style={{textAlign:"right"}}>
-                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:isPaid?C.income:d.kind==="loan"?C.loan:C.credit}}>
-                              {fc(parseFloat(d.emi||d.minDue||0))}
-                            </div>
-                            <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>{d.kind==="loan"?"EMI":"Min Due"}</div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:d.kind==="loan"?C.loan:C.credit}}>
+                            {fc(parseFloat(d.emi||d.minDue||0))}
                           </div>
-                          {/* Quick Pay button — only if not paid */}
-                          {!isPaid&&(
-                            <button className="btn btn-p btn-sm" style={{padding:"5px 10px",fontSize:10,flexShrink:0}}
-                              onClick={()=>{
-                                if(d.kind==="loan"){
-                                  const emiAmt=parseFloat(d.emi)||0;
-                                  if(!emiAmt)return;
-                                  const now=new Date();
-                                  const key=`emi_${d.id}_${now.getFullYear()}_${now.getMonth()}`;
-                                  if(transactions.some(t=>t._emiKey===key)){alert(`${d.name} EMI already recorded`);return;}
-                                  recordLoanPayment(d.id,emiAmt,key);
-                                } else {
-                                  const v=prompt(`Pay how much for ${d.name}?\nFull bill: ${fc(parseFloat(d.outstanding||d.minDue)||0)}`);
-                                  const n=parseFloat(v);
-                                  if(!isNaN(n)&&n>0) recordCCPayment(d.id,n);
-                                }
-                              }}>Pay</button>
-                          )}
+                          <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>{d.kind==="loan"?"EMI":"Min Due"}</div>
                         </div>
                       </div>
                     );
                   })}
-                  {upcomingDues.length>6&&(
+                  {upcomingDues.length>5&&(
                     <div style={{textAlign:"center",fontSize:11,color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Cards")}>
-                      +{upcomingDues.length-6} more dues →
+                      +{upcomingDues.length-5} more dues →
                     </div>
                   )}
                 </div>
