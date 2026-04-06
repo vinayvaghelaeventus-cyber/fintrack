@@ -426,8 +426,8 @@ const filterByPeriod = useCallback((txList, period) => {
       const d = parseLocal(t.date);
       if (!d || d.getMonth()!==mo || d.getFullYear()!==yr) return;
       if (t.category==="Loan EMI") {
-        // Match by note "Payment: LoanName" or by _emiKey
         activeDebts.forEach(debt => {
+          // Match by note containing loan name, OR by _emiKey containing debt id
           if ((t.note||"").includes(debt.name) || (t._emiKey||"").includes(String(debt.id))) {
             loanPaid.add(debt.id);
           }
@@ -435,7 +435,10 @@ const filterByPeriod = useCallback((txList, period) => {
       }
       if (t.category==="Credit Card Bill") {
         creditCards.forEach(cc => {
-          if ((t.note||"").includes(cc.name) || (t.bank||"")===(cc.bank||"")) {
+          // Match by note "CC: CardName" (set by recordCCPayment) OR note includes cc.name
+          const noteMatch = (t.note||"").includes(cc.name);
+          const recordMatch = (t.note||"") === `CC: ${cc.name}`;
+          if (noteMatch || recordMatch) {
             ccPaid.add(cc.id);
           }
         });
@@ -2390,33 +2393,66 @@ if (!user) {
                   No dues right now!<br/>Add loans or credit cards to track.
                 </div>
               : <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {upcomingDues.slice(0,5).map((d,i)=>{
-                    const isOverdue=(d.days??0)<0;
-                    const isUrgent=(d.days??99)<=3&&(d.days??99)>=0;
-                    const dueColor=isOverdue?C.expense:isUrgent?C.warning:C.muted;
+                  {upcomingDues.slice(0,6).map((d,i)=>{
+                    const isPaid = d.kind==="loan"
+                      ? paidThisMonth.loanPaid.has(d.id)
+                      : paidThisMonth.ccPaid.has(d.id);
+                    const isOverdue = !isPaid && (d.days??0)<0;
+                    const isUrgent  = !isPaid && (d.days??99)<=3 && (d.days??99)>=0;
+                    const dueColor  = isPaid ? C.income : isOverdue ? C.expense : isUrgent ? C.warning : C.muted;
                     return(
-                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${dueColor}25`}}>
-                        <div style={{display:"flex",alignItems:"center",gap:10}}>
-                          <div style={{width:36,height:36,borderRadius:10,background:`${dueColor}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>
-                            {d.kind==="loan"?"🏦":"💳"}
+                      <div key={i} style={{
+                        display:"flex",justifyContent:"space-between",alignItems:"center",
+                        padding:"10px 12px",
+                        background:isPaid?`${C.income}08`:C.surface,
+                        borderRadius:12,
+                        border:`1px solid ${dueColor}25`,
+                        opacity: isPaid ? 0.85 : 1,
+                      }}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                          <div style={{width:36,height:36,borderRadius:10,background:`${dueColor}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>
+                            {isPaid ? "✅" : d.kind==="loan" ? "🏦" : "💳"}
                           </div>
-                          <div>
+                          <div style={{minWidth:0}}>
                             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{d.name}</div>
-                            <DueBadge days={d.days} dueDate={d.dueDate}/>
+                            {isPaid
+                              ? <span style={{fontSize:10,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>✅ Paid this month</span>
+                              : <DueBadge days={d.days} dueDate={d.dueDate}/>
+                            }
                           </div>
                         </div>
-                        <div style={{textAlign:"right"}}>
-                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:d.kind==="loan"?C.loan:C.credit}}>
-                            {fc(parseFloat(d.emi||d.minDue||0))}
+                        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:isPaid?C.income:d.kind==="loan"?C.loan:C.credit}}>
+                              {fc(parseFloat(d.emi||d.minDue||0))}
+                            </div>
+                            <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>{d.kind==="loan"?"EMI":"Min Due"}</div>
                           </div>
-                          <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}}>{d.kind==="loan"?"EMI":"Min Due"}</div>
+                          {/* Quick Pay button — only if not paid */}
+                          {!isPaid&&(
+                            <button className="btn btn-p btn-sm" style={{padding:"5px 10px",fontSize:10,flexShrink:0}}
+                              onClick={()=>{
+                                if(d.kind==="loan"){
+                                  const emiAmt=parseFloat(d.emi)||0;
+                                  if(!emiAmt)return;
+                                  const now=new Date();
+                                  const key=`emi_${d.id}_${now.getFullYear()}_${now.getMonth()}`;
+                                  if(transactions.some(t=>t._emiKey===key)){alert(`${d.name} EMI already recorded`);return;}
+                                  recordLoanPayment(d.id,emiAmt,key);
+                                } else {
+                                  const v=prompt(`Pay how much for ${d.name}?\nFull bill: ${fc(parseFloat(d.outstanding||d.minDue)||0)}`);
+                                  const n=parseFloat(v);
+                                  if(!isNaN(n)&&n>0) recordCCPayment(d.id,n);
+                                }
+                              }}>Pay</button>
+                          )}
                         </div>
                       </div>
                     );
                   })}
-                  {upcomingDues.length>5&&(
+                  {upcomingDues.length>6&&(
                     <div style={{textAlign:"center",fontSize:11,color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Cards")}>
-                      +{upcomingDues.length-5} more dues →
+                      +{upcomingDues.length-6} more dues →
                     </div>
                   )}
                 </div>
