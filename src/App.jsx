@@ -350,7 +350,7 @@ useEffect(() => {
       if (!user) return;
       setSaving(true);
       const ok = await saveData(user.uid, {
-        transactions, debts, creditCards, ccEmis, savings, budgets, banks,
+        transactions, debts, creditCards, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
         accounts, customCats, moneyCircles, salary,
         lastUpdated: new Date().toISOString(),
@@ -359,7 +359,7 @@ useEffect(() => {
       if (ok) setLastSaved(new Date());
       else setFbStatus("error");
     }, 1200);
-  }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
+  }, [transactions, debts, creditCards, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
       accounts, customCats, moneyCircles, salary, loaded]);
 
