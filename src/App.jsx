@@ -43,7 +43,7 @@ const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget",
 const CIRCLE_PURPOSES = ["Bill Payment","Rent","Medical","Groceries","EMI","Utility Bill","Travel","Emergency","Other"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const EMPTY_CIRCLE = {id:null, person:"", amount:"", purpose:"", borrowedDate:todayStr(), returnDate:"", type:"borrowed", status:"pending", notes:""};
-const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:""};
+const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:"",_toAccountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
@@ -350,18 +350,18 @@ useEffect(() => {
       if (!user) return;
       setSaving(true);
       const ok = await saveData(user.uid, {
-        transactions, debts, creditCards, savings, budgets, banks,
+        transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
-        accounts, customCats, moneyCircles,
+        accounts, customCats, moneyCircles, salary,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
       if (ok) setLastSaved(new Date());
       else setFbStatus("error");
     }, 1200);
-  }, [transactions, debts, creditCards, savings, budgets, banks,
+  }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
-      accounts, customCats, moneyCircles, loaded]);
+      accounts, customCats, moneyCircles, salary, loaded]);
 
 
 
@@ -703,20 +703,36 @@ const filterByPeriod = useCallback((txList, period) => {
     const salDay = parseInt(salary?.creditDay) || 0;
     const salAmt = parseFloat(salary?.amount) || 0;
     if (!salDay) return null;
+
     const now = new Date();
+    const mo = now.getMonth(), yr = now.getFullYear();
+
+    // Check if salary income was ALREADY added this month via transactions
+    const alreadyCredited = transactions.some(t => {
+      const d = parseLocal(t.date);
+      return d && d.getMonth()===mo && d.getFullYear()===yr
+        && t.type==="income"
+        && (t.category==="Salary" || (t.note||"").toLowerCase().includes("salary"));
+    });
+
+    if (alreadyCredited) {
+      return { daysLeft: -1, salDay, salAmt, isToday: false, alreadyCredited: true };
+    }
+
     const todayDate = now.getDate();
     let daysLeft = salDay - todayDate;
     if (daysLeft < 0) {
-      // Next month
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+      // Salary day passed this month but not yet credited — next month
+      const daysInMonth = new Date(yr, mo+1, 0).getDate();
       daysLeft = daysInMonth - todayDate + salDay;
     }
-    return { daysLeft, salDay, salAmt, isToday: daysLeft === 0 };
-  }, [salary]);
+    return { daysLeft, salDay, salAmt, isToday: daysLeft === 0, alreadyCredited: false };
+  }, [salary, transactions]);
 
   // ─── SMART BUDGET SUGGESTIONS ────────────────────────────────────────────
   const smartBudgetSuggestions = useMemo(() => {
-    if (!salaryCountdown?.isToday && salaryCountdown?.daysLeft !== 0) return null;
+    // Show on salary day OR the day after salary credited
+    if (!salaryCountdown?.isToday && !salaryCountdown?.alreadyCredited) return null;
     // Calculate 3-month category averages
     const suggestions = [];
     allCategories.expense.forEach(cat => {
@@ -748,6 +764,25 @@ const filterByPeriod = useCallback((txList, period) => {
           : a
       ));
     };
+
+    // ── TRANSFER: deduct from source, add to destination, no income/expense ──
+    if (tx.type === "transfer") {
+      if (!tx._accountId || !tx._toAccountId) return; // need both accounts
+      if (editTxId) {
+        const oldTx = transactions.find(t => t.id === editTxId);
+        if (oldTx && oldTx.type === "transfer") {
+          applyToAccount(oldTx._accountId,   +oldTx.amount); // reverse old from
+          applyToAccount(oldTx._toAccountId, -oldTx.amount); // reverse old to
+        }
+        setTransactions(p => p.map(t => t.id === editTxId ? {...tx, id: editTxId} : t));
+      } else {
+        setTransactions(p => [{...tx, id: Date.now()}, ...p]);
+      }
+      applyToAccount(tx._accountId,   -tx.amount); // deduct from source
+      applyToAccount(tx._toAccountId, +tx.amount); // add to destination
+      setTxForm({...EMPTY_TX}); setShowTxForm(false); setEditTxId(null);
+      return;
+    }
 
     if (editTxId) {
       const oldTx = transactions.find(t => t.id === editTxId);
@@ -788,8 +823,19 @@ const filterByPeriod = useCallback((txList, period) => {
   }
 
     
-  function openEditTx(t) { setTxForm({...t}); setEditTxId(t.id); setShowTxForm(true); }
-  function deleteTx(id) { setTransactions(p=>p.filter(t=>t.id!==id)); }
+  function openEditTx(t) { setTxForm({...t, _toAccountId: t._toAccountId||""}); setEditTxId(t.id); setShowTxForm(true); }
+  function deleteTx(id) {
+    const tx = transactions.find(t => t.id === id);
+    if (tx?.type === "transfer") {
+      // Reverse the transfer
+      setAccounts(p => p.map(a => {
+        if (String(a.id) === String(tx._accountId))   return {...a, balance: (parseFloat(a.balance)||0) + tx.amount};
+        if (String(a.id) === String(tx._toAccountId)) return {...a, balance: Math.max(0,(parseFloat(a.balance)||0) - tx.amount)};
+        return a;
+      }));
+    }
+    setTransactions(p=>p.filter(t=>t.id!==id));
+  }
 
   function saveDebt() {
     if (!debtForm.name) return;
@@ -1859,16 +1905,25 @@ if (!user) {
                 <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:"#fff"}}>{fc(pExp)}</div>
               </div>
             </div>
-            {/* Salary Countdown */}
+            {/* Salary Countdown / Credited */}
             {salaryCountdown&&(
               <div style={{marginTop:10,padding:"8px 12px",background:"rgba(255,255,255,0.12)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"center",position:"relative",zIndex:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontSize:14}}>💰</span>
+                  <span style={{fontSize:14}}>{salaryCountdown.alreadyCredited?"✅":"💰"}</span>
                   <span style={{fontSize:11,color:"rgba(255,255,255,0.9)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
-                    {salaryCountdown.isToday ? "🎉 Salary Day!" : `Salary in ${salaryCountdown.daysLeft} day${salaryCountdown.daysLeft===1?"":"s"}`}
+                    {salaryCountdown.alreadyCredited
+                      ? "Salary credited this month"
+                      : salaryCountdown.isToday
+                      ? "🎉 Salary Day!"
+                      : `Salary in ${salaryCountdown.daysLeft} day${salaryCountdown.daysLeft===1?"":"s"}`
+                    }
                   </span>
                 </div>
-                {salaryCountdown.salAmt>0&&<span style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800}}>{fc(salaryCountdown.salAmt)}</span>}
+                {salaryCountdown.salAmt>0&&(
+                  <span style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800}}>
+                    {fc(salaryCountdown.salAmt)}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -2196,7 +2251,7 @@ if (!user) {
               : transactions.slice(0,6).map(t=>(
                 <div key={t.id} className="row">
                   <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-                    <div style={{width:38,height:38,borderRadius:12,background:(t.type==="income"?C.income:C.expense)+"16",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:15,fontWeight:700,color:t.type==="income"?C.income:C.expense}}>{t.type==="income"?"↑":"↓"}</div>
+                    <div style={{width:38,height:38,borderRadius:12,background:(t.type==="income"?C.income:t.type==="transfer"?C.accent:C.expense)+"16",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:15,fontWeight:700,color:t.type==="income"?C.income:t.type==="transfer"?C.accent:C.expense}}>{t.type==="income"?"↑":t.type==="transfer"?"↔":"↓"}</div>
                     <div style={{minWidth:0}}>
                       <div style={{fontSize:13,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:2}}>{t.category}</div>
                       <div style={{fontSize:10,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",gap:6,alignItems:"center"}}>
@@ -2206,7 +2261,7 @@ if (!user) {
                       </div>
                     </div>
                   </div>
-                  <span style={{color:t.type==="income"?C.income:C.expense,fontWeight:800,fontSize:13,flexShrink:0,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{t.type==="income"?"+":"−"}{fc(t.amount)}</span>
+                  <span style={{color:t.type==="income"?C.income:t.type==="transfer"?C.accent:C.expense,fontWeight:800,fontSize:13,flexShrink:0,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{t.type==="income"?"+":t.type==="transfer"?"↔":"−"}{fc(t.amount)}</span>
                 </div>
               ))
             }
@@ -2777,7 +2832,7 @@ if (!user) {
             {filteredTx.length===0?<div style={{color:C.muted,textAlign:"center",padding:30,fontSize:12}}>No transactions found.</div>:filteredTx.map(t=>(
               <div key={t.id} className="row">
                 <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,flex:1}}>
-                  <div style={{width:32,height:32,borderRadius:8,background:(t.type==="income"?C.income:C.expense)+"18",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{t.type==="income"?"↑":"↓"}</div>
+                  <div style={{width:32,height:32,borderRadius:8,background:(t.type==="income"?C.income:t.type==="transfer"?C.accent:C.expense)+"18",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{t.type==="income"?"↑":t.type==="transfer"?"↔":"↓"}</div>
                   <div style={{minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:500,display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
                       <span>{t.category}</span>
@@ -2790,7 +2845,7 @@ if (!user) {
                   </div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                  <span style={{color:t.type==="income"?C.income:C.expense,fontWeight:600,fontSize:12}}>{t.type==="income"?"+":"-"}{fc(t.amount)}</span>
+                  <span style={{color:t.type==="income"?C.income:t.type==="transfer"?C.accent:C.expense,fontWeight:600,fontSize:12}}>{t.type==="income"?"+":t.type==="transfer"?"↔":"-"}{fc(t.amount)}</span>
                   <button className="btn-ghost btn-sm" style={{padding:"3px 7px"}} onClick={()=>openEditTx(t)}>✏️</button>
                   <button className="btn btn-danger" onClick={()=>deleteTx(t.id)}>×</button>
                 </div>
@@ -3398,7 +3453,49 @@ if (!user) {
         {/* ════════ SMART ════════ */}
         {tab==="Smart"&&<>
 
-          {/* ── 15-Day Stress Panel ── */}
+          {/* ── SALARY SETUP ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>💰 Salary Setup</div>
+                <div style={{fontSize:11,color:C.muted}}>Used for countdown, cash gap & budget suggestions</div>
+              </div>
+              {salaryCountdown?.alreadyCredited&&(
+                <span style={{background:`${C.income}18`,color:C.income,padding:"4px 12px",borderRadius:99,fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>✅ Credited this month</span>
+              )}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              <div>
+                <div className="lbl">Monthly Salary ₹</div>
+                <input className="inp" type="number" placeholder="e.g. 45000"
+                  value={salary.amount}
+                  onChange={e=>setSalary(p=>({...p,amount:e.target.value}))}/>
+              </div>
+              <div>
+                <div className="lbl">Credit Day (date of month)</div>
+                <input className="inp" type="number" min="1" max="31" placeholder="e.g. 5"
+                  value={salary.creditDay}
+                  onChange={e=>setSalary(p=>({...p,creditDay:e.target.value}))}/>
+                <div style={{fontSize:10,color:C.muted,marginTop:4}}>
+                  {salary.creditDay ? `Your salary credits on ${salary.creditDay}${["st","nd","rd"][parseInt(salary.creditDay)-1]||"th"} of every month` : "Which date does salary arrive?"}
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="lbl">Bank / Employer (optional)</div>
+              <input className="inp" placeholder="e.g. HDFC / Company Name"
+                value={salary.bank}
+                onChange={e=>setSalary(p=>({...p,bank:e.target.value}))}/>
+            </div>
+            {salaryCountdown&&!salaryCountdown.alreadyCredited&&(
+              <div style={{marginTop:12,padding:"10px 14px",background:`${C.purple}10`,borderRadius:12,border:`1px solid ${C.purple}25`,fontSize:12,color:C.muted}}>
+                💡 Next salary: <span style={{color:C.text,fontWeight:700}}>
+                  {salaryCountdown.isToday ? "Today!" : `in ${salaryCountdown.daysLeft} days`}
+                </span>
+                {" · "}<span style={{fontSize:11}}>Add it as an <span style={{color:C.income,fontWeight:700,cursor:"pointer"}} onClick={()=>{setTxForm({...EMPTY_TX,type:"income",category:"Salary",amount:salary.amount||"",bank:salary.bank||""});setShowTxForm(true);}}>Income transaction</span> when credited.</span>
+              </div>
+            )}
+          </div>
           <div className="card" style={{marginBottom:14, borderColor: next15Days.status==="risk"?`${C.expense}50`:next15Days.status==="tight"?`${C.warning}40`:C.border}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
               <div>
@@ -3477,9 +3574,10 @@ if (!user) {
                         <div className="lbl">{a.name}</div>
                         <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18,color:a.color}}>{fc(parseFloat(a.balance)||0)}</div>
                         <div style={{fontSize:10,color:C.muted,marginTop:2,textTransform:"capitalize"}}>{a.type} · {a.bank}</div>
-                        <div style={{display:"flex",gap:4,marginTop:8}}>
-                          <button className="btn-ghost" style={{flex:1,padding:"4px",fontSize:11}} onClick={()=>{const v=prompt("Add amount:");const n=parseFloat(v);if(!isNaN(n))updateAccountBalance(a.id,n);}}>+ Add</button>
-                          <button className="btn-ghost" style={{flex:1,padding:"4px",fontSize:11}} onClick={()=>{const v=prompt("Deduct amount:");const n=parseFloat(v);if(!isNaN(n))updateAccountBalance(a.id,-n);}}>− Deduct</button>
+                        <div style={{fontSize:9,color:C.muted,marginTop:4,textAlign:"center",lineHeight:1.4}}>Balance correction only</div>
+                        <div style={{display:"flex",gap:4,marginTop:4}}>
+                          <button className="btn-ghost" style={{flex:1,padding:"4px",fontSize:11}} onClick={()=>{const v=prompt("Correction amount to ADD:\n(Use this only to fix opening balance,\nnot for regular income)");const n=parseFloat(v);if(!isNaN(n)&&n>0)updateAccountBalance(a.id,n);}}>+ Correct</button>
+                          <button className="btn-ghost" style={{flex:1,padding:"4px",fontSize:11}} onClick={()=>{const v=prompt("Correction amount to DEDUCT:\n(Use this only to fix opening balance,\nnot for regular expenses)");const n=parseFloat(v);if(!isNaN(n)&&n>0)updateAccountBalance(a.id,-n);}}>− Correct</button>
                         </div>
                       </div>
                     ))}
@@ -3815,8 +3913,8 @@ if (!user) {
                   </div>
                 </div>
                 <div>
-                  <div className="lbl">Notes (optional)</div>
-                  <input className="inp" placeholder="e.g. For electricity bill payment"
+                  <div className="lbl">Used For / Notes</div>
+                  <input className="inp" placeholder="e.g. Paid electricity bill ₹3,200 · Groceries ₹800"
                     value={circleForm.notes} onChange={e=>setCircleForm(p=>({...p,notes:e.target.value}))}/>
                 </div>
                 <div style={{display:"flex",gap:10,marginTop:4}}>
@@ -3923,13 +4021,60 @@ if (!user) {
 
             {/* Expense / Income / Transfer segmented tabs */}
             <div className="tx-seg" style={{marginBottom:18}}>
-              {["expense","income"].map(type=>(
+              {[["expense","↓ Expense"],["income","↑ Income"],["transfer","↔ Transfer"]].map(([type,label])=>(
                 <button key={type} className={`tx-seg-btn ${txForm.type===type?"on":""}`}
-                  onClick={()=>setTxForm(p=>({...p,type,category:allCategories[type][0]}))}>
-                  {type==="income"?"↑ Income":"↓ Expense"}
+                  onClick={()=>setTxForm(p=>({...p,type,category:type==="transfer"?"Transfer":allCategories[type]?.[0]||""}))}>
+                  {label}
                 </button>
               ))}
             </div>
+
+            {/* Transfer UI — simple two-account selector */}
+            {txForm.type==="transfer"?(
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <div style={{padding:"12px 14px",background:`${C.accent}10`,borderRadius:12,border:`1px solid ${C.accent}25`,fontSize:11,color:C.muted,lineHeight:1.7}}>
+                  ↔ <span style={{fontWeight:700,color:C.text}}>Bank Transfer</span> — moves money between your accounts. Does <b>not</b> count as income or expense.
+                </div>
+                <div>
+                  <div className="lbl">Amount ₹ *</div>
+                  <input className="inp-line" type="number" placeholder="0.00"
+                    value={txForm.amount} onChange={e=>setTxForm(p=>({...p,amount:e.target.value}))}
+                    style={{fontSize:22,fontWeight:800,color:C.accent,flex:1,width:"100%"}}/>
+                </div>
+                <div className="g2">
+                  <div>
+                    <div className="lbl">From Account *</div>
+                    <select className="inp" value={txForm._accountId} onChange={e=>setTxForm(p=>({...p,_accountId:e.target.value}))}>
+                      <option value="">Select account</option>
+                      {accounts.map(a=><option key={a.id} value={a.id}>{a.icon||"🏦"} {a.name} · {fc(parseFloat(a.balance)||0)}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div className="lbl">To Account *</div>
+                    <select className="inp" value={txForm._toAccountId} onChange={e=>setTxForm(p=>({...p,_toAccountId:e.target.value}))}>
+                      <option value="">Select account</option>
+                      {accounts.filter(a=>String(a.id)!==String(txForm._accountId)).map(a=><option key={a.id} value={a.id}>{a.icon||"🏦"} {a.name} · {fc(parseFloat(a.balance)||0)}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="g2">
+                  <div><div className="lbl">Date</div><input className="inp" type="date" value={txForm.date} onChange={e=>setTxForm(p=>({...p,date:e.target.value}))}/></div>
+                  <div><div className="lbl">Note (optional)</div><input className="inp" placeholder="e.g. Moving to savings" value={txForm.note} onChange={e=>setTxForm(p=>({...p,note:e.target.value}))}/></div>
+                </div>
+                {txForm._accountId&&txForm._toAccountId&&txForm.amount&&(
+                  <div style={{padding:"10px 14px",background:`${C.income}10`,borderRadius:12,border:`1px solid ${C.income}25`,fontSize:12,color:C.muted}}>
+                    ↔ Moving <span style={{color:C.accent,fontWeight:700}}>{fc(parseFloat(txForm.amount)||0)}</span> from <span style={{fontWeight:700,color:C.text}}>{accounts.find(a=>String(a.id)===String(txForm._accountId))?.name}</span> → <span style={{fontWeight:700,color:C.text}}>{accounts.find(a=>String(a.id)===String(txForm._toAccountId))?.name}</span>
+                  </div>
+                )}
+                <div style={{display:"flex",gap:10,marginTop:4}}>
+                  <button className="btn btn-ghost" onClick={()=>{setShowTxForm(false);setEditTxId(null);}} style={{flex:1,borderRadius:99}}>Cancel</button>
+                  <button className="btn btn-p" onClick={saveTx} style={{flex:2}}
+                    disabled={!txForm._accountId||!txForm._toAccountId||!txForm.amount}>
+                    {editTxId?"Save Transfer":"Transfer"}
+                  </button>
+                </div>
+              </div>
+            ):(
 
             <div style={{display:"flex",flexDirection:"column",gap:14}}>
               {/* Amount — large underline field */}
@@ -4013,6 +4158,7 @@ if (!user) {
                 <button className="btn btn-p" onClick={saveTx} style={{flex:2}}>{editTxId?"Save Changes":"Save"}</button>
               </div>
             </div>
+            )}
           </div>
         </div>
       )}
