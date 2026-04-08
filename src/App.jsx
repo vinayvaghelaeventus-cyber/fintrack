@@ -46,6 +46,7 @@ const EMPTY_CIRCLE = {id:null, person:"", amount:"", purpose:"", borrowedDate:to
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:"",_toAccountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
+const EMPTY_CC_EMI = {id:null, cardId:"", description:"", amount:"", monthsLeft:"", _totalMonths:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 const EMPTY_ACCOUNT = {id:null, name:"", type:"savings", balance:"", bank:"", color:"#5b8def", icon:"🏦"};
 const ACCOUNT_TYPES = ["savings","current","cash","wallet","fd","other"];
@@ -169,6 +170,7 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [debts, setDebts]               = useState([]);
   const [creditCards, setCreditCards]   = useState([]);
+  const [ccEmis, setCcEmis]             = useState([]);
   const [savings, setSavings]           = useState([]);
   const [budgets, setBudgets]           = useState({});
   const [banks, setBanks]               = useState(["SBI","HDFC","ICICI","Axis","Kotak"]);
@@ -190,6 +192,8 @@ export default function App() {
   const [showDebtForm, setShowDebtForm] = useState(false);
   const [editDebtId, setEditDebtId]     = useState(null);
   const [showCCForm, setShowCCForm]     = useState(false);
+  const [showCCEmiForm, setShowCCEmiForm] = useState(false);
+  const [ccEmiForm, setCcEmiForm]       = useState({...EMPTY_CC_EMI});
   const [editCCId, setEditCCId]         = useState(null);
   const [showImport, setShowImport]     = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -213,6 +217,7 @@ export default function App() {
         if (user) { try { const data=await loadData(user.uid); if(data){
           if(data.transactions)  setTransactions(data.transactions);
           if(data.creditCards)   setCreditCards(data.creditCards);
+            if(data.ccEmis)        setCcEmis(data.ccEmis);
           if(data.debts)         setDebts(data.debts);
           if(data.savings)       setSavings(data.savings);
           if(data.budgets)       setBudgets(data.budgets);
