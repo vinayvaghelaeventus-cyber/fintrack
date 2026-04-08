@@ -350,7 +350,7 @@ useEffect(() => {
       if (!user) return;
       setSaving(true);
       const ok = await saveData(user.uid, {
-        transactions, debts, creditCards, savings, budgets, banks,
+        transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
         accounts, customCats, moneyCircles, salary,
         lastUpdated: new Date().toISOString(),
@@ -359,7 +359,7 @@ useEffect(() => {
       if (ok) setLastSaved(new Date());
       else setFbStatus("error");
     }, 1200);
-  }, [transactions, debts, creditCards, savings, budgets, banks,
+  }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
       accounts, customCats, moneyCircles, salary, loaded]);
 
@@ -1875,16 +1875,29 @@ if (!user) {
             </div>
 
             {/* Balance numbers */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,position:"relative",zIndex:1}}>
-              <div>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Net Balance</div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:28,color:netBal>=0?"#fff":"#ff8fa3",letterSpacing:"-0.5px",lineHeight:1}}>{fc(netBal)}</div>
-                <div style={{fontSize:9,color:"rgba(255,255,255,0.55)",fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:3}}>Income − Expenses · {periodLabel}</div>
+            <div style={{marginBottom:14,position:"relative",zIndex:1}}>
+              {/* Main number - cash in hand */}
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+                  💵 Cash in Hand (Accounts)
+                </div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:32,color:"#fff",letterSpacing:"-0.5px",lineHeight:1}}>{fc(totalAccountBalance)}</div>
+                <div style={{fontSize:9,color:"rgba(255,255,255,0.55)",fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:4}}>
+                  Actual money across all your bank accounts
+                </div>
               </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Account Balance</div>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,color:"rgba(255,255,255,0.9)",letterSpacing:"-0.3px",lineHeight:1}}>{fc(totalAccountBalance)}</div>
-                <div style={{fontSize:9,color:"rgba(255,255,255,0.55)",fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:3}}>Net Worth: {fc(netWorth)}</div>
+              {/* Secondary stats row */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <div style={{background:"rgba(255,255,255,0.12)",borderRadius:12,padding:"10px 12px"}}>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",marginBottom:3}}>{periodLabel} Net</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:16,color:netBal>=0?"#fff":"#ff8fa3"}}>{fc(netBal)}</div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.45)",marginTop:2}}>Income − Expenses</div>
+                </div>
+                <div style={{background:"rgba(255,255,255,0.12)",borderRadius:12,padding:"10px 12px"}}>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",marginBottom:3}}>Net Worth</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:16,color:netWorth>=0?"#fff":"#ff8fa3"}}>{fc(netWorth)}</div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.45)",marginTop:2}}>Assets − Loans & CCs</div>
+                </div>
               </div>
             </div>
 
