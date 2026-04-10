@@ -46,7 +46,6 @@ const EMPTY_CIRCLE = {id:null, person:"", amount:"", purpose:"", borrowedDate:to
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:"",_toAccountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
-const EMPTY_CC_EMI = {id:null, cardId:"", description:"", amount:"", monthsLeft:"", _totalMonths:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 const EMPTY_ACCOUNT = {id:null, name:"", type:"savings", balance:"", bank:"", color:"#5b8def", icon:"🏦"};
 const ACCOUNT_TYPES = ["savings","current","cash","wallet","fd","other"];
@@ -192,8 +191,6 @@ export default function App() {
   const [showDebtForm, setShowDebtForm] = useState(false);
   const [editDebtId, setEditDebtId]     = useState(null);
   const [showCCForm, setShowCCForm]     = useState(false);
-  const [showCCEmiForm, setShowCCEmiForm] = useState(false);
-  const [ccEmiForm, setCcEmiForm]       = useState({...EMPTY_CC_EMI});
   const [editCCId, setEditCCId]         = useState(null);
   const [showImport, setShowImport]     = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -217,7 +214,6 @@ export default function App() {
         if (user) { try { const data=await loadData(user.uid); if(data){
           if(data.transactions)  setTransactions(data.transactions);
           if(data.creditCards)   setCreditCards(data.creditCards);
-            if(data.ccEmis)        setCcEmis(data.ccEmis);
           if(data.debts)         setDebts(data.debts);
           if(data.savings)       setSavings(data.savings);
           if(data.budgets)       setBudgets(data.budgets);
@@ -378,13 +374,14 @@ useEffect(() => {
   const totalEMI       = useMemo(() => activeDebts.reduce((s,d)=>s+(parseFloat(d.emi)||0),0), [activeDebts]);
   const totalOutstanding = useMemo(() => activeDebts.reduce((s,d)=>s+(parseFloat(d.outstanding)||0),0), [activeDebts]);
   const totalCCOut     = useMemo(() => creditCards.reduce((s,c)=>s+(parseFloat(c.outstanding)||0),0), [creditCards]);
+  const totalCCEMI     = useMemo(() => (ccEmis||[]).reduce((s,e)=>s+(parseFloat(e.amount)||0),0), [ccEmis]);
   const effectiveIncome = parseFloat(monthlyIncome) || totalIncome || 0;
   const savingsTotal   = useMemo(() => savings.reduce((s,g)=>s+g.current,0), [savings]);
   const emergencyMonths = useMemo(() => {
     const ef = parseFloat(emergencyFund)||savingsTotal;
     return ef / Math.max(totalExpense||effectiveIncome*0.7, 1);
   }, [emergencyFund, savingsTotal, totalExpense, effectiveIncome]);
-  const cashLeft = effectiveIncome - totalEMI - totalExpense;
+  const cashLeft = effectiveIncome - totalEMI - totalCCEMI - totalExpense;
 
   const recommended   = useMemo(() => recommendStrategy(activeDebts, cashLeft), [activeDebts, cashLeft]);
   const payoffPlan    = useMemo(() => calcPayoffPlan(activeDebts, parseFloat(extraFund)||0, strategy), [activeDebts, extraFund, strategy]);
@@ -559,6 +556,80 @@ const filterByPeriod = useCallback((txList, period) => {
     const status = ratio < 0.5 ? "safe" : ratio < 0.85 ? "tight" : "risk";
     return { dues, totalDue, balance, status, ratio };
   }, [activeDebts, creditCards, cashLeft, totalAccountBalance, C]);
+
+  // ─── DEBT PROGRESS TRACKER ───────────────────────────────────────────────
+  const debtProgress = useMemo(() => {
+    const now = new Date();
+    const mo  = now.getMonth();
+    const yr  = now.getFullYear();
+
+    // Payments made this month from transactions
+    const thisMonthPayments = transactions.filter(t => {
+      const d = parseLocal(t.date);
+      return d && d.getMonth()===mo && d.getFullYear()===yr &&
+        (t.category==='Loan EMI' || t.category==='Credit Card Bill' || t.category==='Credit Card EMI');
+    });
+    const paidLoansThisMonth = thisMonthPayments
+      .filter(t => t.category==='Loan EMI')
+      .reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+    const paidCCThisMonth = thisMonthPayments
+      .filter(t => t.category==='Credit Card Bill' || t.category==='Credit Card EMI')
+      .reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+    const totalPaidThisMonth = paidLoansThisMonth + paidCCThisMonth;
+
+    // Total planned this month
+    const plannedThisMonth = totalEMI + totalCCEMI;
+
+    // Estimated debt at start of month = current outstanding + what was paid this month
+    const debtNow   = totalOutstanding + totalCCOut;
+    const debtStart = debtNow + totalPaidThisMonth;
+    const reduction = totalPaidThisMonth; // simplified (principal ≈ payment for now)
+
+    // On-track status
+    const onTrack = plannedThisMonth > 0
+      ? totalPaidThisMonth >= plannedThisMonth * 0.95
+      : null;
+    const remaining = Math.max(0, plannedThisMonth - totalPaidThisMonth);
+
+    // 6-month payment history (how much was paid each month)
+    const monthlyPayments = Array.from({length:6}, (_,i) => {
+      const d  = new Date(now.getFullYear(), now.getMonth()-(5-i), 1);
+      const m  = d.getMonth();
+      const y  = d.getFullYear();
+      const lbl = d.toLocaleDateString('en-IN',{month:'short',year:'2-digit'});
+      const paid = transactions
+        .filter(t => {
+          const td = parseLocal(t.date);
+          return td && td.getMonth()===m && td.getFullYear()===y &&
+            (t.category==='Loan EMI' || t.category==='Credit Card Bill' || t.category==='Credit Card EMI');
+        })
+        .reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+      return { label:lbl, paid, planned: plannedThisMonth };
+    });
+
+    // Debt timeline — per loan progress bar
+    const loanProgress = activeDebts.map(d => {
+      const total   = parseFloat(d.totalAmount)||0;
+      const current = parseFloat(d.outstanding)||0;
+      const paid    = total > 0 ? total - current : 0;
+      const pct     = total > 0 ? Math.min(100,(paid/total)*100) : 0;
+      return { ...d, total, current, paid, pct };
+    });
+
+    // CC progress
+    const ccProgress = creditCards.map(c => {
+      const limit   = parseFloat(c.limit)||0;
+      const current = parseFloat(c.outstanding)||0;
+      const util    = limit > 0 ? Math.min(100,(current/limit)*100) : 0;
+      return { ...c, current, util };
+    });
+
+    return {
+      paidLoansThisMonth, paidCCThisMonth, totalPaidThisMonth,
+      plannedThisMonth, debtNow, debtStart, reduction,
+      onTrack, remaining, monthlyPayments, loanProgress, ccProgress,
+    };
+  }, [transactions, totalEMI, totalCCEMI, totalOutstanding, totalCCOut, activeDebts, creditCards]);
 
   // ─── MONEY CIRCLES COMPUTED ──────────────────────────────────────────────
   const circleStats = useMemo(() => {
@@ -2606,6 +2677,172 @@ if (!user) {
               ))}
             </div>
           </div>
+
+          {/* ── DEBT PROGRESS TRACKER ── */}
+          {(totalOutstanding + totalCCOut) > 0 && (
+          <div className="card" style={{marginBottom:12}}>
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>📉 Debt Progress</div>
+                <div style={{fontSize:11,color:C.muted}}>How your debt is reducing over time</div>
+              </div>
+              {debtProgress.onTrack !== null && (
+                <div style={{
+                  padding:"6px 14px",borderRadius:99,
+                  background: debtProgress.onTrack ? `${C.income}18` : `${C.warning}18`,
+                  color: debtProgress.onTrack ? C.income : C.warning,
+                  fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:12,
+                }}>
+                  {debtProgress.onTrack ? "✅ On Track" : "⚠️ Behind Plan"}
+                </div>
+              )}
+            </div>
+
+            {/* This month reduction */}
+            <div style={{
+              padding:"14px 16px",borderRadius:14,marginBottom:14,
+              background:`${C.income}08`,border:`1px solid ${C.income}25`,
+            }}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                {[
+                  {label:"Paid This Month", val:fc(debtProgress.totalPaidThisMonth), color:C.income, icon:"💸"},
+                  {label:"Planned EMIs", val:fc(debtProgress.plannedThisMonth), color:C.loan, icon:"📋"},
+                  {label:"Still to Pay", val:fc(debtProgress.remaining), color:debtProgress.remaining>0?C.warning:C.income, icon:debtProgress.remaining>0?"⏳":"✅"},
+                ].map(item=>(
+                  <div key={item.label} style={{textAlign:"center"}}>
+                    <div style={{fontSize:18,marginBottom:4}}>{item.icon}</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:item.color}}>{item.val}</div>
+                    <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginTop:2}}>{item.label}</div>
+                  </div>
+                ))}
+              </div>
+              {debtProgress.debtStart > 0 && (
+                <div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${C.income}20`,fontSize:11,color:C.muted,textAlign:"center"}}>
+                  Debt this month: <span style={{color:C.expense,fontWeight:700}}>{fc(debtProgress.debtStart)}</span>
+                  {" → "}
+                  <span style={{color:C.income,fontWeight:700}}>{fc(debtProgress.debtNow)}</span>
+                  {debtProgress.reduction>0 && <span style={{color:C.income,fontWeight:700}}> (↓ {fc(debtProgress.reduction)})</span>}
+                </div>
+              )}
+            </div>
+
+            {/* 6-month payment chart */}
+            <div style={{marginBottom:14}}>
+              <div className="lbl" style={{marginBottom:10}}>MONTHLY DEBT PAYMENTS — LAST 6 MONTHS</div>
+              <div style={{display:"flex",gap:4,alignItems:"flex-end",height:80}}>
+                {debtProgress.monthlyPayments.map((m,i)=>{
+                  const maxPaid = Math.max(...debtProgress.monthlyPayments.map(x=>x.paid),1);
+                  const barH = m.paid > 0 ? Math.max(6, (m.paid/maxPaid)*64) : 4;
+                  const isCurrent = i===5;
+                  return(
+                    <div key={m.label} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                      <div style={{fontSize:9,color:m.paid>0?C.income:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,textAlign:"center"}}>
+                        {m.paid>0 ? (m.paid>=1000?`${(m.paid/1000).toFixed(0)}k`:Math.round(m.paid)) : "—"}
+                      </div>
+                      <div style={{
+                        width:"100%",height:barH,
+                        borderRadius:6,
+                        background:m.paid>0
+                          ? isCurrent ? C.income : `${C.income}70`
+                          : C.border,
+                        transition:"height 0.4s",
+                        border:isCurrent?`2px solid ${C.income}`:"none",
+                      }}/>
+                      <div style={{fontSize:9,color:isCurrent?C.text:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:isCurrent?700:400,textAlign:"center"}}>{m.label}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Individual loan progress bars */}
+            {debtProgress.loanProgress.length > 0 && (
+              <div style={{marginBottom:12}}>
+                <div className="lbl" style={{marginBottom:10}}>LOAN REPAYMENT PROGRESS</div>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {debtProgress.loanProgress.map((d,i)=>{
+                    const colors=["#f43f5e","#f59e0b","#38bdf8","#10b981","#a78bfa"];
+                    const pc = colors[i%colors.length];
+                    const hasTotal = d.total > 0;
+                    return(
+                      <div key={d.id}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,flexWrap:"wrap",gap:4}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{width:8,height:8,borderRadius:"50%",background:pc,flexShrink:0}}/>
+                            <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{d.name}</span>
+                            <span style={{fontSize:10,color:C.muted}}>{d.lender}</span>
+                          </div>
+                          <div style={{display:"flex",gap:10,fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                            {hasTotal && <span style={{color:C.income,fontWeight:700}}>Paid {fc(d.paid)}</span>}
+                            <span style={{color:C.expense,fontWeight:700}}>Left {fc(d.current)}</span>
+                          </div>
+                        </div>
+                        {hasTotal ? (
+                          <>
+                            <div className="pbar">
+                              <div className="pfill" style={{width:`${d.pct}%`,background:pc}}/>
+                            </div>
+                            <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted,marginTop:2,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                              <span style={{color:C.income,fontWeight:700}}>{d.pct.toFixed(0)}% repaid</span>
+                              <span>of {fc(d.total)}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>
+                            Set "Original Total ₹" in loan details to see progress bar
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* CC progress */}
+            {debtProgress.ccProgress.filter(c=>c.current>0).length > 0 && (
+              <div>
+                <div className="lbl" style={{marginBottom:10}}>CREDIT CARD OUTSTANDING</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {debtProgress.ccProgress.filter(c=>c.current>0).map(cc=>{
+                    const uc = cc.util>=75?C.expense:cc.util>=40?C.warning:C.income;
+                    return(
+                      <div key={cc.id}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{cc.name} · {cc.bank}</span>
+                          <div style={{display:"flex",gap:8,fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                            <span style={{color:uc,fontWeight:700}}>{fc(cc.current)}</span>
+                            <span style={{color:C.muted}}>({cc.util.toFixed(0)}% used)</span>
+                          </div>
+                        </div>
+                        <div className="pbar">
+                          <div className="pfill" style={{width:`${cc.util}%`,background:uc}}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Total debt summary */}
+            <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:2}}>TOTAL DEBT TODAY</div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:C.expense}}>{fc(debtProgress.debtNow)}</div>
+              </div>
+              {debtFreeMonths !== null && debtFreeMonths > 0 && (
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:2}}>DEBT-FREE IN</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18,color:C.loan}}>
+                    {Math.floor(debtFreeMonths/12)>0?`${Math.floor(debtFreeMonths/12)}y `:""}{debtFreeMonths%12>0?`${debtFreeMonths%12}m`:""}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          )}
 
           {/* Payoff plan */}
           <div className="card" style={{marginBottom:12}}>
