@@ -174,6 +174,10 @@ export default function App() {
   const [budgets, setBudgets]           = useState({});
   const [banks, setBanks]               = useState(["SBI","HDFC","ICICI","Axis","Kotak"]);
   const [salary, setSalary]             = useState({...EMPTY_SAL});
+  // ── Recurring Bills ──
+  const [recurringBills, setRecurringBills] = useState([]);
+  const [showRecurringForm, setShowRecurringForm] = useState(false);
+  const [recurringForm, setRecurringForm] = useState({id:null,name:"",amount:"",dueDay:"1",category:"Utilities",active:true,notes:""});
   const [accounts, setAccounts]         = useState([]);
   const [loaded, setLoaded]             = useState(false);
   const [saving, setSaving]             = useState(false);
@@ -331,6 +335,7 @@ useEffect(() => {
           if (data.accounts)      setAccounts(data.accounts.map(a=>({...a, balance: parseFloat(a.balance)||0})));
           if (data.customCats)    setCustomCats(data.customCats);
           if (data.moneyCircles)  setMoneyCircles(data.moneyCircles);
+          if (data.recurringBills) setRecurringBills(data.recurringBills);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -353,7 +358,7 @@ useEffect(() => {
       const ok = await saveData(user.uid, {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
-        accounts, customCats, moneyCircles, salary,
+        accounts, customCats, moneyCircles, salary, recurringBills,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -362,7 +367,7 @@ useEffect(() => {
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
-      accounts, customCats, moneyCircles, salary, loaded]);
+      accounts, customCats, moneyCircles, salary, recurringBills, loaded]);
 
 
 
@@ -556,6 +561,123 @@ const filterByPeriod = useCallback((txList, period) => {
     const status = ratio < 0.5 ? "safe" : ratio < 0.85 ? "tight" : "risk";
     return { dues, totalDue, balance, status, ratio };
   }, [activeDebts, creditCards, cashLeft, totalAccountBalance, C]);
+
+  // ─── INTEREST COST TRACKER ───────────────────────────────────────────────
+  const interestCost = useMemo(() => {
+    const loanInterest = activeDebts.map(d => {
+      const bal  = parseFloat(d.outstanding)||0;
+      const rate = parseFloat(d.interestRate)||0;
+      const mo   = bal * (rate/100/12);
+      return { name:d.name, lender:d.lender, rate, monthly:mo, outstanding:bal };
+    });
+    const ccInterest = creditCards.map(c => {
+      const bal  = parseFloat(c.outstanding)||0;
+      const rate = parseFloat(c.interestRate)||36;
+      const mo   = bal * (rate/100/12);
+      return { name:c.name, bank:c.bank, rate, monthly:mo, outstanding:bal };
+    });
+    const totalMonthly = [...loanInterest,...ccInterest].reduce((s,x)=>s+x.monthly,0);
+    const totalYearly  = totalMonthly * 12;
+    // Most expensive item
+    const allItems = [...loanInterest,...ccInterest].sort((a,b)=>b.monthly-a.monthly);
+    return { loanInterest, ccInterest, allItems, totalMonthly, totalYearly };
+  }, [activeDebts, creditCards]);
+
+  // ─── SAVINGS GOAL PROGRESS ───────────────────────────────────────────────
+  const savingsGoalProgress = useMemo(() => {
+    return savings.map(g => {
+      const goal    = parseFloat(g.goal)||0;
+      const current = parseFloat(g.current)||0;
+      const pct     = goal > 0 ? Math.min(100,(current/goal)*100) : 0;
+      const remaining = Math.max(0, goal - current);
+      // How many months to reach goal if saving cashLeft * 0.1 each month (rough)
+      const monthlySave = Math.max(cashLeft * 0.1, 1000);
+      const monthsLeft  = remaining > 0 ? Math.ceil(remaining / monthlySave) : 0;
+      return { ...g, goal, current, pct, remaining, monthsLeft, monthlySave };
+    });
+  }, [savings, cashLeft]);
+
+  // ─── DAILY BUDGET CHECK-IN ────────────────────────────────────────────────
+  const dailyBudget = useMemo(() => {
+    const now          = new Date();
+    const daysInMonth  = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    const dayOfMonth   = now.getDate();
+    const daysLeft     = daysInMonth - dayOfMonth + 1; // include today
+    // Monthly budget remaining = (total budgets) - (spent this month outside EMIs)
+    const totalBudgeted = Object.values(budgets).reduce((s,v)=>s+(parseFloat(v)||0),0);
+    const nonEmiExpense = thisMonthTx
+      .filter(t=>t.type==='expense' && t.category!=='Loan EMI' && t.category!=='Credit Card Bill' && t.category!=='Credit Card EMI')
+      .reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+    const budgetRemaining = Math.max(0, (totalBudgeted||cashLeft) - nonEmiExpense);
+    const safeToSpend     = daysLeft > 0 ? Math.floor(budgetRemaining / daysLeft) : 0;
+    // Status
+    const status = safeToSpend > 2000 ? 'comfortable' : safeToSpend > 500 ? 'careful' : 'tight';
+    // EMI status
+    const allEmisPaid = debtProgress?.onTrack !== false;
+    return { safeToSpend, budgetRemaining, daysLeft, dayOfMonth, daysInMonth, status, allEmisPaid, nonEmiExpense, totalBudgeted };
+  }, [budgets, thisMonthTx, cashLeft, debtProgress]);
+
+  // ─── RECURRING BILLS STATUS ──────────────────────────────────────────────
+  const recurringStatus = useMemo(() => {
+    const now = new Date();
+    const todayDate = now.getDate();
+    const mo = now.getMonth(), yr = now.getFullYear();
+    // Check which recurring bills were paid this month
+    return recurringBills.map(bill => {
+      const dueDay = parseInt(bill.dueDay)||1;
+      const daysUntilDue = dueDay >= todayDate ? dueDay - todayDate : (new Date(yr, mo+1, dueDay) - now) / 864e5;
+      const paidThisMonth = transactions.some(t => {
+        const d = parseLocal(t.date);
+        return d && d.getMonth()===mo && d.getFullYear()===yr
+          && t.type==='expense'
+          && ((t.note||'').toLowerCase().includes(bill.name.toLowerCase()) || (t.category===bill.category && Math.abs((parseFloat(t.amount)||0)-(parseFloat(bill.amount)||0)) < 50));
+      });
+      const isOverdue = dueDay < todayDate && !paidThisMonth;
+      const daysLeft  = Math.ceil(daysUntilDue);
+      return { ...bill, dueDay, paidThisMonth, isOverdue, daysLeft };
+    });
+  }, [recurringBills, transactions]);
+
+  // ─── FINANCIAL CALENDAR ───────────────────────────────────────────────────
+  const financialCalendar = useMemo(() => {
+    const now = new Date();
+    const yr  = now.getFullYear();
+    const mo  = now.getMonth();
+    const daysInMonth = new Date(yr, mo+1, 0).getDate();
+    const events = {}; // day → array of events
+    const addEvent = (day, event) => {
+      if (day < 1 || day > daysInMonth) return;
+      if (!events[day]) events[day] = [];
+      events[day].push(event);
+    };
+    // Salary
+    const salDay = parseInt(salary?.creditDay)||0;
+    if (salDay) addEvent(salDay, { type:'salary', label:'💰 Salary', amount:parseFloat(salary?.amount)||0, color:'#00e5a0' });
+    // Loan EMIs
+    activeDebts.forEach(d => {
+      if (!d.dueDate) return;
+      addEvent(new Date(d.dueDate).getDate(), { type:'emi', label:`🏦 ${d.name}`, amount:parseFloat(d.emi)||0, color:'#a78bfa' });
+    });
+    // CC bills
+    creditCards.forEach(c => {
+      if (!c.dueDate) return;
+      addEvent(new Date(c.dueDate).getDate(), { type:'cc', label:`💳 ${c.name}`, amount:parseFloat(c.outstanding)||0, color:'#ff7a45' });
+    });
+    // Recurring bills
+    recurringBills.filter(b=>b.active).forEach(b => {
+      addEvent(parseInt(b.dueDay)||1, { type:'recurring', label:`⚡ ${b.name}`, amount:parseFloat(b.amount)||0, color:'#38bdf8' });
+    });
+    // Transactions this month (actual)
+    transactions.forEach(t => {
+      const d = parseLocal(t.date);
+      if (!d || d.getMonth()!==mo || d.getFullYear()!==yr) return;
+      if (t.type==='transfer') return;
+      // Only add significant txns (> ₹500) to avoid clutter
+      if ((parseFloat(t.amount)||0) < 500) return;
+      addEvent(d.getDate(), { type:t.type, label:`${t.type==='income'?'↑':'↓'} ${t.category}`, amount:parseFloat(t.amount)||0, color:t.type==='income'?'#00e5a0':'#ff4d6d', actual:true });
+    });
+    return { events, daysInMonth, firstDow: new Date(yr,mo,1).getDay(), todayDate: now.getDate(), yr, mo };
+  }, [salary, activeDebts, creditCards, recurringBills, transactions]);
 
   // ─── DEBT PROGRESS TRACKER ───────────────────────────────────────────────
   const debtProgress = useMemo(() => {
@@ -1085,6 +1207,24 @@ const filterByPeriod = useCallback((txList, period) => {
     setMoneyCircles(p => p.map(c => c.id===id ? {...c, status:"returned", returnedDate:todayStr()} : c));
   }
   function deleteCircle(id) { setMoneyCircles(p => p.filter(c => c.id!==id)); }
+  function openEditCircle(c) {
+    setCircleForm({...c, amount:String(c.amount)});
+    setEditCircleId(c.id);
+    setShowCircleForm(true);
+  }
+  // ─── RECURRING BILL ACTIONS ───────────────────────────────────────────────
+  function saveRecurring() {
+    if (!recurringForm.name || !recurringForm.amount) return;
+    if (recurringForm.id) {
+      setRecurringBills(p => p.map(b => b.id===recurringForm.id ? {...recurringForm} : b));
+    } else {
+      setRecurringBills(p => [...p, {...recurringForm, id:Date.now()}]);
+    }
+    setRecurringForm({id:null,name:"",amount:"",dueDay:"1",category:"Utilities",active:true,notes:""});
+    setShowRecurringForm(false);
+  }
+  function deleteRecurring(id) { setRecurringBills(p => p.filter(b=>b.id!==id)); }
+  function toggleRecurring(id) { setRecurringBills(p => p.map(b => b.id===id?{...b,active:!b.active}:b)); }
   function openEditCircle(c) {
     setCircleForm({...c, amount:String(c.amount)});
     setEditCircleId(c.id);
@@ -2017,6 +2157,57 @@ if (!user) {
             )}
           </div>
 
+          {/* ── DAILY CHECK-IN ── */}
+          {(()=>{
+            const s = dailyBudget;
+            const bgColor = s.status==='comfortable'?C.income:s.status==='careful'?C.warning:C.expense;
+            return(
+              <div style={{
+                marginBottom:14,padding:"14px 16px",borderRadius:16,
+                background:`${bgColor}12`,border:`1.5px solid ${bgColor}35`,
+                display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12,
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:14}}>
+                  <div style={{
+                    width:52,height:52,borderRadius:14,
+                    background:`${bgColor}20`,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:26,flexShrink:0,
+                  }}>
+                    {s.status==='comfortable'?'😊':s.status==='careful'?'🤔':'😬'}
+                  </div>
+                  <div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:bgColor,lineHeight:1}}>
+                      {fc(s.safeToSpend)}
+                    </div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text,marginTop:2}}>
+                      Safe to spend today
+                    </div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:1}}>
+                      {fc(s.budgetRemaining)} left · {s.daysLeft} day{s.daysLeft!==1?'s':''} remaining this month
+                    </div>
+                  </div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:5,alignItems:"flex-end"}}>
+                  <div style={{fontSize:11,color:C.muted,display:"flex",gap:4,alignItems:"center"}}>
+                    <span>📋</span>
+                    <span>Budget used: <span style={{fontWeight:700,color:C.text}}>{s.totalBudgeted>0?`${Math.round((s.nonEmiExpense/s.totalBudgeted)*100)}%`:'—'}</span></span>
+                  </div>
+                  <div style={{fontSize:11,color:debtProgress?.onTrack!==false?C.income:C.warning,display:"flex",gap:4,alignItems:"center"}}>
+                    <span>{debtProgress?.onTrack!==false?'✅':'⚠️'}</span>
+                    <span style={{fontWeight:700}}>{debtProgress?.onTrack!==false?'EMIs on track':'EMIs behind'}</span>
+                  </div>
+                  {recurringStatus.filter(r=>r.isOverdue).length>0&&(
+                    <div style={{fontSize:11,color:C.expense,display:"flex",gap:4,alignItems:"center"}}>
+                      <span>🔴</span>
+                      <span style={{fontWeight:700}}>{recurringStatus.filter(r=>r.isOverdue).length} bill{recurringStatus.filter(r=>r.isOverdue).length>1?'s':''} overdue</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ── QUICK ACCESS GRID ── */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
             {[
@@ -2844,6 +3035,103 @@ if (!user) {
           </div>
           )}
 
+          {/* ── INTEREST COST TRACKER ── */}
+          {interestCost.totalMonthly > 0 && (
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🏦 Interest Cost</div>
+                <div style={{fontSize:11,color:C.muted}}>Money going to banks as interest every month</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:C.expense}}>{fc(Math.round(interestCost.totalMonthly))}</div>
+                <div style={{fontSize:10,color:C.muted}}>per month · {fc(Math.round(interestCost.totalYearly))} /year</div>
+              </div>
+            </div>
+            {/* Interest breakdown per loan/CC */}
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+              {interestCost.allItems.filter(x=>x.monthly>0).map((item,i)=>{
+                const pct = interestCost.totalMonthly>0 ? (item.monthly/interestCost.totalMonthly)*100 : 0;
+                const isCC = item.bank !== undefined;
+                const isHighRate = item.rate >= 30;
+                return(
+                  <div key={i}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,flexWrap:"wrap",gap:4}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:14}}>{isCC?'💳':'🏦'}</span>
+                        <div>
+                          <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{item.name}</span>
+                          {isHighRate&&<span style={{marginLeft:6,fontSize:9,background:`${C.expense}20`,color:C.expense,padding:"1px 6px",borderRadius:99,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>HIGH {item.rate}%</span>}
+                        </div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:isHighRate?C.expense:C.warning}}>{fc(Math.round(item.monthly))}/mo</span>
+                        <span style={{fontSize:10,color:C.muted,marginLeft:6}}>{item.rate}% p.a.</span>
+                      </div>
+                    </div>
+                    <div className="pbar">
+                      <div className="pfill" style={{width:`${pct}%`,background:isHighRate?C.expense:C.warning}}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Insight tip */}
+            {interestCost.allItems.length > 0 && (
+              <div style={{padding:"10px 14px",background:`${C.income}08`,borderRadius:12,border:`1px solid ${C.income}25`,fontSize:11,color:C.muted,lineHeight:1.7}}>
+                💡 Paying off <span style={{fontWeight:700,color:C.text}}>{interestCost.allItems[0].name}</span> first saves <span style={{fontWeight:700,color:C.income}}>{fc(Math.round(interestCost.allItems[0].monthly))}/month</span> in interest immediately.
+                {interestCost.totalYearly > 50000 && <span> That's <span style={{fontWeight:700,color:C.expense}}>{fc(Math.round(interestCost.totalYearly))}/year</span> going to banks!</span>}
+              </div>
+            )}
+          </div>
+          )}
+
+          {/* ── SAVINGS GOALS ── */}
+          {savings.length > 0 && (
+          <div className="card" style={{marginBottom:12}}>
+            <div className="stitle" style={{marginBottom:14}}>🎯 Savings Goals</div>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              {savingsGoalProgress.map((g,i)=>{
+                const colors=['#7b4fd4','#00e5a0','#38bdf8','#f59e0b','#f43f5e'];
+                const col = colors[i%colors.length];
+                return(
+                  <div key={g.id||i}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,flexWrap:"wrap",gap:4}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{width:10,height:10,borderRadius:3,background:col,flexShrink:0}}/>
+                        <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{g.name}</span>
+                      </div>
+                      <div style={{display:"flex",gap:8,fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                        <span style={{color:col,fontWeight:700}}>{fc(g.current)}</span>
+                        <span style={{color:C.muted}}>of {fc(g.goal)}</span>
+                      </div>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{position:"relative",marginBottom:5}}>
+                      <div style={{height:10,background:C.border,borderRadius:99,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${g.pct}%`,background:col,borderRadius:99,transition:"width 0.6s"}}/>
+                      </div>
+                      {g.pct>5&&(
+                        <div style={{position:"absolute",left:`${Math.min(g.pct-2,90)}%`,top:0,fontSize:8,color:"#fff",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,lineHeight:"10px",paddingLeft:4}}>{g.pct.toFixed(0)}%</div>
+                      )}
+                    </div>
+                    {g.remaining > 0 ? (
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
+                        <span>₹{fc(g.remaining)} remaining</span>
+                        <span style={{color:col,fontWeight:700}}>
+                          ~{g.monthsLeft} month{g.monthsLeft!==1?'s':''} at {fc(Math.round(g.monthlySave))}/mo
+                        </span>
+                      </div>
+                    ) : (
+                      <div style={{fontSize:11,color:C.income,fontWeight:700}}>🎉 Goal reached!</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          )}
+
           {/* Payoff plan */}
           <div className="card" style={{marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12,flexWrap:"wrap",gap:8}}>
@@ -3173,6 +3461,106 @@ if (!user) {
 
         {/* ════════ INSIGHTS ════════ */}
         {tab==="Insights"&&<>
+          {/* ── FINANCIAL CALENDAR ── */}
+          {(()=>{
+            const fc_cal = financialCalendar;
+            const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+            const DAYS   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+            const blanks = Array(fc_cal.firstDow).fill(null);
+            const allDays = [...blanks, ...Array.from({length:fc_cal.daysInMonth},(_,i)=>i+1)];
+            return(
+              <div className="card" style={{marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div>
+                    <div className="stitle" style={{marginBottom:2}}>📅 Financial Calendar</div>
+                    <div style={{fontSize:11,color:C.muted}}>{MONTHS[fc_cal.mo]} {fc_cal.yr}</div>
+                  </div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {[
+                      {dot:"#00e5a0",label:"Salary"},
+                      {dot:"#a78bfa",label:"EMI"},
+                      {dot:"#ff7a45",label:"CC Bill"},
+                      {dot:"#38bdf8",label:"Bills"},
+                    ].map(l=>(
+                      <div key={l.label} style={{display:"flex",alignItems:"center",gap:4}}>
+                        <div style={{width:8,height:8,borderRadius:"50%",background:l.dot}}/>
+                        <span style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{l.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Day headers */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
+                  {DAYS.map(d=>(
+                    <div key={d} style={{textAlign:"center",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,padding:"2px 0"}}>{d}</div>
+                  ))}
+                </div>
+                {/* Calendar grid */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+                  {allDays.map((day,i)=>{
+                    if (!day) return <div key={`b${i}`}/>;
+                    const events = fc_cal.events[day]||[];
+                    const isToday = day===fc_cal.todayDate;
+                    const hasSalary   = events.some(e=>e.type==='salary');
+                    const hasEmi      = events.some(e=>e.type==='emi');
+                    const hasCC       = events.some(e=>e.type==='cc');
+                    const hasRecurring= events.some(e=>e.type==='recurring');
+                    const hasIncome   = events.some(e=>e.type==='income'&&e.actual);
+                    const hasExpense  = events.some(e=>e.type==='expense'&&e.actual);
+                    const totalAmt    = events.filter(e=>!e.actual).reduce((s,e)=>s+e.amount,0);
+                    return(
+                      <div key={day} style={{
+                        borderRadius:8,padding:"4px 2px",
+                        minHeight:44,
+                        background: isToday?`${C.purple}25`:hasSalary?`#00e5a020`:C.surface,
+                        border:`1px solid ${isToday?C.purple:hasSalary?"#00e5a040":C.border}`,
+                        cursor: events.length>0?'pointer':'default',
+                        position:'relative',
+                      }}
+                      onClick={()=>events.length>0&&setCalSelectedDay(calSelectedDay===day?null:day)}
+                      >
+                        <div style={{textAlign:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:isToday?900:500,fontSize:11,color:isToday?C.purple:C.text,marginBottom:2}}>{day}</div>
+                        {/* Event dots */}
+                        <div style={{display:"flex",flexWrap:"wrap",gap:1,justifyContent:"center"}}>
+                          {hasSalary   && <div style={{width:5,height:5,borderRadius:"50%",background:"#00e5a0"}}/>}
+                          {hasEmi      && <div style={{width:5,height:5,borderRadius:"50%",background:"#a78bfa"}}/>}
+                          {hasCC       && <div style={{width:5,height:5,borderRadius:"50%",background:"#ff7a45"}}/>}
+                          {hasRecurring&& <div style={{width:5,height:5,borderRadius:"50%",background:"#38bdf8"}}/>}
+                          {hasIncome   && <div style={{width:5,height:5,borderRadius:"50%",background:"#00e5a0",opacity:0.6}}/>}
+                          {hasExpense  && <div style={{width:5,height:5,borderRadius:"50%",background:"#ff4d6d",opacity:0.6}}/>}
+                        </div>
+                        {/* Amount label if significant */}
+                        {totalAmt>0&&(
+                          <div style={{textAlign:"center",fontSize:7,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",marginTop:1}}>
+                            {totalAmt>=1000?`${(totalAmt/1000).toFixed(0)}k`:Math.round(totalAmt)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Selected day detail */}
+                {calSelectedDay&&fc_cal.events[calSelectedDay]&&(
+                  <div style={{marginTop:12,padding:"12px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`}}>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,marginBottom:8,color:C.text}}>
+                      {calSelectedDay} {MONTHS[fc_cal.mo]}
+                    </div>
+                    {fc_cal.events[calSelectedDay].map((ev,i)=>(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:i<fc_cal.events[calSelectedDay].length-1?`1px solid ${C.border}`:"none"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{width:8,height:8,borderRadius:"50%",background:ev.color,flexShrink:0}}/>
+                          <span style={{fontSize:12,color:C.text,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>{ev.label}</span>
+                          {ev.actual&&<span style={{fontSize:9,color:C.muted,background:C.border,padding:"1px 5px",borderRadius:99}}>actual</span>}
+                        </div>
+                        <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:ev.color}}>{fc(ev.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* ── SPENDING PERSONALITY ── */}
           {spendingPersonality&&(
             <div className="card" style={{marginBottom:12,borderColor:`${spendingPersonality.color}40`,background:`${spendingPersonality.color}08`}}>
@@ -3703,6 +4091,125 @@ if (!user) {
             </div>
             {effectiveIncome===0?<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>Set monthly income in Plan tab.</div>:(()=>{const minBal=Math.min(...cashFlowForecast.map(d=>d.balance));const endBal=cashFlowForecast[cashFlowForecast.length-1]?.balance||0;const dangerDays=cashFlowForecast.filter(d=>d.balance<0);return(<>{dangerDays.length>0&&<div style={{padding:"8px 12px",background:`${C.expense}10`,border:`1px solid ${C.expense}25`,borderRadius:10,fontSize:11,color:C.expense,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginBottom:10}}>🚨 Balance may go negative starting day {dangerDays[0].day}</div>}<ResponsiveContainer width="100%" height={140}><LineChart data={cashFlowForecast.filter((_,i)=>i%2===0)}><XAxis dataKey="label" tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.muted,fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>`₹${Math.abs(v)>=1000?(v/1000).toFixed(0)+"k":v}`} width={42}/><Tooltip contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontSize:11}} formatter={v=>[fc(v),"Balance"]}/><Line type="monotone" dataKey="balance" stroke={minBal<0?C.expense:C.income} strokeWidth={2} dot={false}/></LineChart></ResponsiveContainer><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:10}}>{[{label:"Now",val:cashLeft,color:cashLeft>=0?C.income:C.expense},{label:"Min (30d)",val:minBal,color:minBal>=0?C.income:C.expense},{label:"Day 30",val:endBal,color:endBal>=0?C.income:C.expense}].map(item=>(<div key={item.label} style={{background:C.surface,borderRadius:10,padding:"9px",textAlign:"center",border:`1px solid ${C.border}`}}><div className="lbl">{item.label}</div><div style={{fontSize:12,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(item.val)}</div></div>))}</div></>);})()}
           </div>
+          {/* ── FINANCIAL CALENDAR ── */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>📅 Financial Calendar</div>
+                <div style={{fontSize:11,color:C.muted}}>
+                  {new Date(financialCalendar.yr, financialCalendar.mo, 1)
+                    .toLocaleDateString("en-IN",{month:"long",year:"numeric"})}
+                </div>
+              </div>
+              {/* Legend */}
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                {[
+                  {color:"#00e5a0",label:"Salary"},
+                  {color:"#a78bfa",label:"EMI"},
+                  {color:"#ff7a45",label:"CC"},
+                  {color:"#38bdf8",label:"Bill"},
+                ].map(l=>(
+                  <div key={l.label} style={{display:"flex",alignItems:"center",gap:3,fontSize:9,color:C.muted}}>
+                    <div style={{width:8,height:8,borderRadius:2,background:l.color,flexShrink:0}}/>
+                    {l.label}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Day grid */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:12}}>
+              {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>(
+                <div key={d} style={{textAlign:"center",fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,paddingBottom:4}}>{d}</div>
+              ))}
+              {Array.from({length:financialCalendar.firstDow},(_,i)=><div key={"e"+i}/>)}
+              {Array.from({length:financialCalendar.daysInMonth},(_,i)=>{
+                const day = i+1;
+                const evts = financialCalendar.events[day]||[];
+                const isToday = day===financialCalendar.todayDate;
+                const isPast  = day<financialCalendar.todayDate;
+                // Pick dot color by priority: salary > emi > cc > recurring > actual expense
+                const dotColor = evts.find(e=>e.type==='salary')?.color
+                  || evts.find(e=>e.type==='emi')?.color
+                  || evts.find(e=>e.type==='cc')?.color
+                  || evts.find(e=>e.type==='recurring')?.color
+                  || evts.find(e=>e.type==='expense')?.color
+                  || null;
+                return(
+                  <div key={day} style={{
+                    textAlign:"center",padding:"5px 2px",borderRadius:8,
+                    fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",
+                    fontWeight:isToday?900:evts.length?700:400,
+                    background:isToday?`${C.purple}25`:evts.length?`${dotColor}15`:"transparent",
+                    border:isToday?`1.5px solid ${C.purple}`:`1px solid transparent`,
+                    color:isToday?C.purple:isPast?C.muted:C.text,
+                    position:"relative",cursor:evts.length?"pointer":"default",
+                    minHeight:28,
+                  }}>
+                    {day}
+                    {dotColor&&(
+                      <div style={{position:"absolute",bottom:2,left:"50%",transform:"translateX(-50%)",width:4,height:4,borderRadius:"50%",background:dotColor}}/>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Event list — only show future + today */}
+            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12}}>
+              <div className="lbl" style={{marginBottom:8}}>UPCOMING THIS MONTH</div>
+              {(()=>{
+                const upcoming = Object.entries(financialCalendar.events)
+                  .filter(([day])=>parseInt(day)>=financialCalendar.todayDate)
+                  .sort((a,b)=>parseInt(a[0])-parseInt(b[0]))
+                  .flatMap(([day,evts])=>
+                    evts.filter(e=>!e.actual).map(e=>({...e, day:parseInt(day)}))
+                  )
+                  .slice(0,8);
+                if (!upcoming.length) return(
+                  <div style={{textAlign:"center",padding:"12px 0",color:C.muted,fontSize:12}}>
+                    No upcoming events — all done for this month! 🎉
+                  </div>
+                );
+                return(
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {upcoming.map((e,i)=>{
+                      const daysAway = e.day - financialCalendar.todayDate;
+                      return(
+                        <div key={i} style={{
+                          display:"flex",alignItems:"center",gap:10,
+                          padding:"8px 10px",borderRadius:10,
+                          background:`${e.color}10`,border:`1px solid ${e.color}25`,
+                        }}>
+                          <div style={{
+                            width:32,height:32,borderRadius:8,
+                            background:`${e.color}20`,
+                            display:"flex",alignItems:"center",justifyContent:"center",
+                            fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,
+                            fontSize:11,color:e.color,flexShrink:0,
+                          }}>
+                            {e.day}
+                          </div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{e.label}</div>
+                            <div style={{fontSize:10,color:C.muted,marginTop:1}}>
+                              {daysAway===0?"Today":daysAway===1?"Tomorrow":`In ${daysAway} days`}
+                            </div>
+                          </div>
+                          {e.amount>0&&(
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:e.type==='salary'?C.income:C.expense,flexShrink:0}}>
+                              {e.type==='salary'?"+":"-"}{fc(e.amount)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
         </>}
 
         {/* ════════ SMART ════════ */}
@@ -3751,6 +4258,79 @@ if (!user) {
               </div>
             )}
           </div>
+          {/* ── RECURRING BILLS ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🔁 Recurring Bills</div>
+                <div style={{fontSize:11,color:C.muted}}>Monthly bills — track & never miss a payment</div>
+              </div>
+              <button className="btn btn-p btn-sm" onClick={()=>{setRecurringForm({id:null,name:"",amount:"",dueDay:"1",category:"Utilities",active:true,notes:""});setShowRecurringForm(true);}}>+ Add Bill</button>
+            </div>
+            {/* Summary strip */}
+            {recurringBills.length>0&&(()=>{
+              const active = recurringStatus.filter(b=>b.active);
+              const paid   = active.filter(b=>b.paidThisMonth);
+              const overdue= active.filter(b=>b.isOverdue);
+              const upcoming=active.filter(b=>!b.paidThisMonth&&!b.isOverdue&&b.daysLeft<=5);
+              const totalMo= active.reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
+              return(
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+                  {[
+                    {label:"Total/month",  val:fc(totalMo),           color:C.accent},
+                    {label:"Paid",         val:`${paid.length}/${active.length}`, color:C.income},
+                    {label:"Overdue",      val:overdue.length,         color:overdue.length>0?C.expense:C.muted},
+                  ].map(s=>(
+                    <div key={s.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:16,color:s.color}}>{s.val}</div>
+                      <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginTop:2}}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            {recurringBills.length===0
+              ? <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>No recurring bills yet. Add your electricity, mobile, Netflix, etc.</div>
+              : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {recurringStatus.map((bill)=>{
+                    const statusColor = bill.paidThisMonth?C.income:bill.isOverdue?C.expense:bill.daysLeft<=3?C.warning:C.muted;
+                    return(
+                      <div key={bill.id} style={{
+                        display:"flex",alignItems:"center",gap:10,
+                        padding:"10px 12px",borderRadius:12,
+                        background:bill.paidThisMonth?`${C.income}08`:bill.isOverdue?`${C.expense}08`:C.surface,
+                        border:`1px solid ${statusColor}30`,
+                        opacity:bill.active?1:0.5,
+                      }}>
+                        <div style={{width:36,height:36,borderRadius:10,background:`${statusColor}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
+                          {bill.paidThisMonth?"✅":bill.isOverdue?"🔴":bill.daysLeft<=3?"⏳":"📄"}
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{bill.name}</div>
+                          <div style={{fontSize:10,color:statusColor,fontWeight:600,marginTop:1}}>
+                            {bill.paidThisMonth?"✅ Paid this month"
+                              :bill.isOverdue?`🔴 Overdue — was due ${bill.dueDay}th`
+                              :bill.daysLeft===0?"Due today!"
+                              :bill.daysLeft===1?"Due tomorrow"
+                              :`Due in ${bill.daysLeft} days (${bill.dueDay}th)`}
+                          </div>
+                          {bill.notes&&<div style={{fontSize:10,color:C.muted,marginTop:1}}>{bill.notes}</div>}
+                        </div>
+                        <div style={{textAlign:"right",flexShrink:0}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:statusColor}}>{fc(parseFloat(bill.amount)||0)}</div>
+                          <div style={{fontSize:9,color:C.muted,marginTop:2,textTransform:"uppercase",letterSpacing:0.5}}>{bill.category}</div>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+                          <button className="btn-ghost" style={{padding:"3px 8px",fontSize:10}} onClick={()=>{setRecurringForm({...bill,id:bill.id});setShowRecurringForm(true);}}>✏️</button>
+                          <button className="btn-ghost" style={{padding:"3px 8px",fontSize:10}} onClick={()=>toggleRecurring(bill.id)}>{bill.active?"⏸":"▶"}</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+            }
+          </div>
+
           <div className="card" style={{marginBottom:14, borderColor: next15Days.status==="risk"?`${C.expense}50`:next15Days.status==="tight"?`${C.warning}40`:C.border}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
               <div>
@@ -4492,6 +5072,110 @@ if (!user) {
               <div style={{display:"flex",gap:9}}>
                 <button className="btn" onClick={()=>{setShowCCForm(false);setEditCCId(null);}} style={{flex:1,background:C.border,color:C.muted}}>Cancel</button>
                 <button className="btn btn-p" onClick={saveCC} style={{flex:2}}>{editCCId?"Save":"Add Card"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recurring Bill Form */}
+      {showRecurringForm&&(
+        <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowRecurringForm(false))}>
+          <div className="sheet">
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>
+              {recurringForm.id?"Edit":"Add"} Recurring Bill
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div className="g2">
+                <div>
+                  <div className="lbl">Bill Name *</div>
+                  <input className="inp" placeholder="e.g. Electricity, Netflix" value={recurringForm.name}
+                    onChange={e=>setRecurringForm(p=>({...p,name:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Amount ₹ *</div>
+                  <input className="inp" type="number" placeholder="e.g. 1200" value={recurringForm.amount}
+                    onChange={e=>setRecurringForm(p=>({...p,amount:e.target.value}))}/>
+                </div>
+              </div>
+              <div className="g2">
+                <div>
+                  <div className="lbl">Due Day (date of month)</div>
+                  <input className="inp" type="number" min="1" max="31" placeholder="e.g. 10" value={recurringForm.dueDay}
+                    onChange={e=>setRecurringForm(p=>({...p,dueDay:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Category</div>
+                  <select className="inp" value={recurringForm.category} onChange={e=>setRecurringForm(p=>({...p,category:e.target.value}))}>
+                    {["Utilities","Subscriptions","Insurance","Mobile","Internet","Rent","EMI","Other"].map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <div className="lbl">Notes (optional)</div>
+                <input className="inp" placeholder="e.g. BESCOM electricity, paid via UPI" value={recurringForm.notes}
+                  onChange={e=>setRecurringForm(p=>({...p,notes:e.target.value}))}/>
+              </div>
+              <div style={{display:"flex",gap:9,marginTop:4}}>
+                <button className="btn" onClick={()=>setShowRecurringForm(false)} style={{flex:1,background:C.border,color:C.muted}}>Cancel</button>
+                <button className="btn btn-p" onClick={saveRecurring} style={{flex:2}}>{recurringForm.id?"Save Changes":"Add Bill"}</button>
+              </div>
+              {recurringForm.id&&(
+                <button className="btn" onClick={()=>{deleteRecurring(recurringForm.id);setShowRecurringForm(false);}} style={{width:"100%",background:`${C.expense}15`,color:C.expense,border:`1px solid ${C.expense}30`}}>Delete Bill</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Recurring Bill Form Modal ── */}
+      {showRecurringForm&&(
+        <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowRecurringForm(false))}>
+          <div className="sheet">
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>
+              {recurringForm.id?"Edit":"Add"} Recurring Bill
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div className="g2">
+                <div>
+                  <div className="lbl">Bill Name *</div>
+                  <input className="inp" placeholder="e.g. Electricity, Netflix" value={recurringForm.name}
+                    onChange={e=>setRecurringForm(p=>({...p,name:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Amount ₹ *</div>
+                  <input className="inp" type="number" placeholder="e.g. 1200" value={recurringForm.amount}
+                    onChange={e=>setRecurringForm(p=>({...p,amount:e.target.value}))}/>
+                </div>
+              </div>
+              <div className="g2">
+                <div>
+                  <div className="lbl">Due Day (date of month)</div>
+                  <input className="inp" type="number" min="1" max="31" placeholder="e.g. 10"
+                    value={recurringForm.dueDay}
+                    onChange={e=>setRecurringForm(p=>({...p,dueDay:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Category</div>
+                  <select className="inp" value={recurringForm.category}
+                    onChange={e=>setRecurringForm(p=>({...p,category:e.target.value}))}>
+                    {["Utilities","Subscriptions","Rent","Insurance","EMI","Other"].map(c=>(
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <div className="lbl">Notes (optional)</div>
+                <input className="inp" placeholder="e.g. Paid via HDFC autopay"
+                  value={recurringForm.notes}
+                  onChange={e=>setRecurringForm(p=>({...p,notes:e.target.value}))}/>
+              </div>
+              <div style={{display:"flex",gap:9,marginTop:4}}>
+                <button className="btn btn-ghost" onClick={()=>setShowRecurringForm(false)} style={{flex:1}}>Cancel</button>
+                <button className="btn btn-p" onClick={saveRecurring} style={{flex:2}}>
+                  {recurringForm.id?"Save Changes":"Add Bill"}
+                </button>
               </div>
             </div>
           </div>
