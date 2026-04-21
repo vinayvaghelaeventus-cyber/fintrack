@@ -612,10 +612,8 @@ const filterByPeriod = useCallback((txList, period) => {
     const safeToSpend     = daysLeft > 0 ? Math.floor(budgetRemaining / daysLeft) : 0;
     // Status
     const status = safeToSpend > 2000 ? 'comfortable' : safeToSpend > 500 ? 'careful' : 'tight';
-    // EMI status
-    const allEmisPaid = debtProgress?.onTrack !== false;
-    return { safeToSpend, budgetRemaining, daysLeft, dayOfMonth, daysInMonth, status, allEmisPaid, nonEmiExpense, totalBudgeted };
-  }, [budgets, thisMonthTx, cashLeft, debtProgress]);
+    return { safeToSpend, budgetRemaining, daysLeft, dayOfMonth, daysInMonth, status, nonEmiExpense, totalBudgeted };
+  }, [budgets, thisMonthTx, cashLeft]);
 
   // ─── RECURRING BILLS STATUS ──────────────────────────────────────────────
   const recurringStatus = useMemo(() => {
@@ -2197,10 +2195,10 @@ if (!user) {
                     <span>{debtProgress?.onTrack!==false?'✅':'⚠️'}</span>
                     <span style={{fontWeight:700}}>{debtProgress?.onTrack!==false?'EMIs on track':'EMIs behind'}</span>
                   </div>
-                  {recurringStatus.filter(r=>r.isOverdue).length>0&&(
+                  {(recurringStatus||[]).filter(r=>r.isOverdue).length>0&&(
                     <div style={{fontSize:11,color:C.expense,display:"flex",gap:4,alignItems:"center"}}>
                       <span>🔴</span>
-                      <span style={{fontWeight:700}}>{recurringStatus.filter(r=>r.isOverdue).length} bill{recurringStatus.filter(r=>r.isOverdue).length>1?'s':''} overdue</span>
+                      <span style={{fontWeight:700}}>{(recurringStatus||[]).filter(r=>r.isOverdue).length} bill{(recurringStatus||[]).filter(r=>r.isOverdue).length>1?'s':''} overdue</span>
                     </div>
                   )}
                 </div>
