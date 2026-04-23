@@ -46,8 +46,10 @@ const EMPTY_CIRCLE = {id:null, person:"", amount:"", purpose:"", borrowedDate:to
 const EMPTY_TX = {type:"expense",amount:"",category:"Food",paymentMode:"UPI",bank:"",note:"",date:todayStr(),time:new Date().toTimeString().slice(0,5),_accountId:"",_toAccountId:""};
 const EMPTY_DEBT = {name:"",lender:"",outstanding:"",totalAmount:"",emi:"",interestRate:"",dueDate:"",emiStartDate:"",tenure:"",notes:""};
 const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementDate:"",dueDate:"",interestRate:"36",notes:""};
+const EMPTY_CC_EMI = {id:null,cardId:"",description:"",amount:"",monthsLeft:"",_totalMonths:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 const EMPTY_ACCOUNT = {id:null, name:"", type:"savings", balance:"", bank:"", color:"#5b8def", icon:"🏦"};
+const EMPTY_INVESTMENT = {id:null,name:"",type:"MF",amount:"",units:"",nav:"",startDate:"",notes:""};
 const ACCOUNT_TYPES = ["savings","current","cash","wallet","fd","other"];
 const ACCOUNT_ICONS = ["🏦","💰","💵","📱","🏧","💼"];
 
@@ -170,6 +172,15 @@ export default function App() {
   const [debts, setDebts]               = useState([]);
   const [creditCards, setCreditCards]   = useState([]);
   const [ccEmis, setCcEmis]             = useState([]);
+  const [showCCEmiForm, setShowCCEmiForm] = useState(false);
+  const [ccEmiForm, setCcEmiForm]       = useState({...EMPTY_CC_EMI});
+  // ── Investments ──
+  const [investments, setInvestments]   = useState([]);
+  const [showInvForm, setShowInvForm]   = useState(false);
+  const [invForm, setInvForm]           = useState({...EMPTY_INVESTMENT});
+  const [editInvId, setEditInvId]       = useState(null);
+  // ── CIBIL ──
+  const [cibilScore, setCibilScore]     = useState("");
   const [savings, setSavings]           = useState([]);
   const [budgets, setBudgets]           = useState({});
   const [banks, setBanks]               = useState(["SBI","HDFC","ICICI","Axis","Kotak"]);
@@ -336,6 +347,9 @@ useEffect(() => {
           if (data.customCats)    setCustomCats(data.customCats);
           if (data.moneyCircles)  setMoneyCircles(data.moneyCircles);
           if (data.recurringBills) setRecurringBills(data.recurringBills);
+          if (data.ccEmis)        setCcEmis(data.ccEmis);
+          if (data.investments)   setInvestments(data.investments);
+          if (data.cibilScore)    setCibilScore(data.cibilScore);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -359,6 +373,7 @@ useEffect(() => {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
         accounts, customCats, moneyCircles, salary, recurringBills,
+        ccEmis, investments, cibilScore,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -367,7 +382,8 @@ useEffect(() => {
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
-      accounts, customCats, moneyCircles, salary, recurringBills, loaded]);
+      accounts, customCats, moneyCircles, salary, recurringBills,
+      ccEmis, investments, cibilScore, loaded]);
 
 
 
@@ -676,6 +692,86 @@ const filterByPeriod = useCallback((txList, period) => {
     });
     return { events, daysInMonth, firstDow: new Date(yr,mo,1).getDay(), todayDate: now.getDate(), yr, mo };
   }, [salary, activeDebts, creditCards, recurringBills, transactions]);
+
+  // ─── INVESTMENT TRACKER ──────────────────────────────────────────────────
+  const investmentStats = useMemo(() => {
+    const totalInvested = investments.reduce((s,inv)=>s+(parseFloat(inv.amount)||0),0);
+    const currentValue  = investments.reduce((s,inv)=>{
+      const units = parseFloat(inv.units)||0;
+      const nav   = parseFloat(inv.nav)||0;
+      const amt   = parseFloat(inv.amount)||0;
+      return s + (units>0&&nav>0 ? units*nav : amt);
+    },0);
+    const gain      = currentValue - totalInvested;
+    const gainPct   = totalInvested>0 ? (gain/totalInvested)*100 : 0;
+    const byType    = {};
+    investments.forEach(inv=>{
+      const t = inv.type||'Other';
+      if(!byType[t]) byType[t]={count:0,invested:0,current:0};
+      byType[t].count++;
+      byType[t].invested += parseFloat(inv.amount)||0;
+      const units=parseFloat(inv.units)||0, nav=parseFloat(inv.nav)||0, amt=parseFloat(inv.amount)||0;
+      byType[t].current  += (units>0&&nav>0 ? units*nav : amt);
+    });
+    return { totalInvested, currentValue, gain, gainPct, byType, count:investments.length };
+  }, [investments]);
+
+  // ─── CIBIL SCORE SIMULATOR ───────────────────────────────────────────────
+  const cibilAnalysis = useMemo(() => {
+    const score = parseInt(cibilScore)||0;
+    if (!score) return null;
+    const label = score>=800?'Excellent':score>=750?'Very Good':score>=700?'Good':score>=650?'Fair':'Poor';
+    const color = score>=800?'#00e5a0':score>=750?'#38bdf8':score>=700?'#f59e0b':score>=650?'#ff7a45':'#ff4d6d';
+
+    // Calculate utilization across all CCs
+    const totalLimit   = creditCards.reduce((s,c)=>s+(parseFloat(c.limit)||0),0);
+    const totalOutCC   = creditCards.reduce((s,c)=>s+(parseFloat(c.outstanding)||0),0);
+    const utilization  = totalLimit>0 ? (totalOutCC/totalLimit)*100 : 0;
+
+    // Overdues this month
+    const now=new Date(), mo=now.getMonth(), yr=now.getFullYear();
+    const overdueCC = creditCards.filter(c=>{
+      if(!c.dueDate) return false;
+      const due=new Date(c.dueDate);
+      return due<now && !(transactions.some(t=>{
+        const d=parseLocal(t.date);
+        return d&&d.getMonth()===mo&&d.getFullYear()===yr&&t.category==='Credit Card Bill'&&(t.note||'').includes(c.name);
+      }));
+    }).length;
+
+    // Build improvement suggestions
+    const suggestions = [];
+
+    if(overdueCC>0)
+      suggestions.push({action:`Pay ${overdueCC} overdue CC bill${overdueCC>1?'s':''}`,impact:'+15 to +25 pts',urgency:'high',reason:'Late payments are the #1 CIBIL killer'});
+
+    if(utilization>30)
+      suggestions.push({action:`Reduce CC utilization to <30% (now ${utilization.toFixed(0)}%)`,impact:'+10 to +20 pts',urgency:'high',reason:'High utilization signals credit stress'});
+
+    if(utilization>75)
+      suggestions.push({action:'Pay down CC outstanding urgently (>75% used)',impact:'+20 to +40 pts',urgency:'critical',reason:'Utilization above 75% severely hurts score'});
+
+    if(ccEmis.length>0)
+      suggestions.push({action:'Close CC EMIs when complete',impact:'+5 to +10 pts',urgency:'low',reason:'Fewer active credit lines improves score over time'});
+
+    if(activeDebts.length>3)
+      suggestions.push({action:'Reduce number of active loans',impact:'+10 to +15 pts',urgency:'medium',reason:'Too many open accounts lowers score'});
+
+    if(score<750)
+      suggestions.push({action:'Pay all EMIs on time for 6+ months',impact:'+30 to +50 pts',urgency:'medium',reason:'Payment history is 35% of your CIBIL score'});
+
+    suggestions.push({action:'Check CIBIL report for errors',impact:'+0 to +100 pts',urgency:'low',reason:'Errors on report are common and easy to fix'});
+
+    // Target score projection
+    const maxGain   = suggestions.reduce((s,sg)=>{
+      const m=sg.impact.match(/\+(\d+)/g);
+      return s+(m?parseInt(m[m.length-1].replace('+','')):0);
+    },0);
+    const projected = Math.min(900, score+maxGain);
+    const monthsTo750 = score<750 ? Math.ceil((750-score)/8) : 0;
+
+    return { score, label, color, utilization, overdueCC, suggestions, projected, monthsTo750 };
+  }, [cibilScore, creditCards, ccEmis, activeDebts, transactions]);
 
   // ─── DEBT PROGRESS TRACKER ───────────────────────────────────────────────
   const debtProgress = useMemo(() => {
@@ -1078,6 +1174,21 @@ const filterByPeriod = useCallback((txList, period) => {
     else { setCreditCards(p=>[...p,{...ccForm,id:Date.now()}]); }
     setCcForm({...EMPTY_CC}); setShowCCForm(false); setEditCCId(null);
   }
+  function saveCCEmi() {
+    if (!ccEmiForm.cardId || !ccEmiForm.amount) return;
+    const entry = {...ccEmiForm, _totalMonths: ccEmiForm._totalMonths||ccEmiForm.monthsLeft};
+    if (ccEmiForm.id) { setCcEmis(p=>p.map(e=>e.id===ccEmiForm.id?entry:e)); }
+    else { setCcEmis(p=>[...p,{...entry,id:Date.now()}]); }
+    setCcEmiForm({...EMPTY_CC_EMI}); setShowCCEmiForm(false);
+  }
+  function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
+  function saveInvestment() {
+    if (!invForm.name||!invForm.amount) return;
+    if (editInvId) { setInvestments(p=>p.map(inv=>inv.id===editInvId?{...invForm,id:editInvId}:inv)); }
+    else { setInvestments(p=>[...p,{...invForm,id:Date.now()}]); }
+    setInvForm({...EMPTY_INVESTMENT}); setShowInvForm(false); setEditInvId(null);
+  }
+  function deleteInvestment(id) { setInvestments(p=>p.filter(inv=>inv.id!==id)); }
   function openEditCC(c) { setCcForm({...c}); setEditCCId(c.id); setShowCCForm(true); }
   function deleteCC(id)  { setCreditCards(p=>p.filter(c=>c.id!==id)); }
   function recordCCPayment(id, amt) {
@@ -3130,6 +3241,182 @@ if (!user) {
           </div>
           )}
 
+          {/* ── INVESTMENT TRACKER ── */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>📈 Investments</div>
+                <div style={{fontSize:11,color:C.muted}}>MF · SIP · Stocks · FD · Gold · PPF</div>
+              </div>
+              <button className="btn btn-p btn-sm" onClick={()=>{setInvForm({...EMPTY_INVESTMENT});setEditInvId(null);setShowInvForm(true);}}>+ Add</button>
+            </div>
+            {/* Summary */}
+            {investments.length>0&&(
+              <>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+                  {[
+                    {label:"Total Invested", val:fc(investmentStats.totalInvested), color:C.accent},
+                    {label:"Current Value",  val:fc(investmentStats.currentValue),  color:investmentStats.gain>=0?C.income:C.expense},
+                    {label:"Gain / Loss",    val:`${investmentStats.gain>=0?"+":""}${fc(Math.round(investmentStats.gain))}`, color:investmentStats.gain>=0?C.income:C.expense},
+                  ].map(s=>(
+                    <div key={s.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:s.color}}>{s.val}</div>
+                      <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginTop:2}}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Gain % badge */}
+                {investmentStats.totalInvested>0&&(
+                  <div style={{marginBottom:12,padding:"8px 14px",borderRadius:10,background:investmentStats.gain>=0?`${C.income}10`:`${C.expense}10`,border:`1px solid ${investmentStats.gain>=0?C.income:C.expense}25`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:12,color:C.muted}}>Overall return</span>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:investmentStats.gain>=0?C.income:C.expense}}>
+                      {investmentStats.gain>=0?"+":""}{investmentStats.gainPct.toFixed(1)}%
+                    </span>
+                  </div>
+                )}
+                {/* By type breakdown */}
+                {Object.entries(investmentStats.byType).length>1&&(
+                  <div style={{marginBottom:12}}>
+                    <div className="lbl" style={{marginBottom:8}}>BY TYPE</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {Object.entries(investmentStats.byType).map(([type,data],i)=>{
+                        const colors=["#7b4fd4","#00e5a0","#38bdf8","#f59e0b","#f43f5e","#10b981"];
+                        const col=colors[i%colors.length];
+                        const pct=investmentStats.totalInvested>0?(data.invested/investmentStats.totalInvested*100):0;
+                        const g=data.current-data.invested;
+                        return(
+                          <div key={type}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,flexWrap:"wrap",gap:4}}>
+                              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                <div style={{width:8,height:8,borderRadius:2,background:col}}/>
+                                <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12}}>{type}</span>
+                                <span style={{fontSize:10,color:C.muted}}>({data.count})</span>
+                              </div>
+                              <div style={{display:"flex",gap:8,fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                                <span style={{color:C.accent,fontWeight:700}}>{fc(data.invested)}</span>
+                                {g!==0&&<span style={{color:g>0?C.income:C.expense,fontWeight:700}}>{g>0?"+":""}{fc(Math.round(g))}</span>}
+                              </div>
+                            </div>
+                            <div className="pbar">
+                              <div className="pfill" style={{width:`${pct}%`,background:col}}/>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {/* Individual investments */}
+                <div className="lbl" style={{marginBottom:8}}>HOLDINGS</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {investments.map(inv=>{
+                    const units=parseFloat(inv.units)||0, nav=parseFloat(inv.nav)||0, amt=parseFloat(inv.amount)||0;
+                    const curr = units>0&&nav>0 ? units*nav : amt;
+                    const g    = curr-amt;
+                    const gPct = amt>0?(g/amt*100):0;
+                    return(
+                      <div key={inv.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,flexWrap:"wrap",gap:8}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{inv.name}</div>
+                          <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                            {inv.type}{units>0?` · ${units} units @ ₹${nav||"?"} NAV`:""}
+                            {inv.startDate?` · Since ${new Date(inv.startDate).toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`:""}</div>
+                        </div>
+                        <div style={{textAlign:"right",flexShrink:0}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.accent}}>{fc(curr)}</div>
+                          {g!==0&&<div style={{fontSize:10,color:g>0?C.income:C.expense,fontWeight:700}}>{g>0?"+":""}{fc(Math.round(g))} ({gPct.toFixed(1)}%)</div>}
+                        </div>
+                        <div style={{display:"flex",gap:4,flexShrink:0}}>
+                          <button className="btn-ghost btn-sm" onClick={()=>{setInvForm({...inv});setEditInvId(inv.id);setShowInvForm(true);}}>✏️</button>
+                          <button className="btn-ghost btn-sm" style={{color:C.expense}} onClick={()=>deleteInvestment(inv.id)}>🗑</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            {investments.length===0&&(
+              <div style={{textAlign:"center",padding:24,color:C.muted,fontSize:12}}>
+                <div style={{fontSize:32,marginBottom:8}}>📈</div>
+                No investments added yet.<br/>Add your mutual funds, SIPs, stocks, FDs, gold, PPF.
+              </div>
+            )}
+          </div>
+
+          {/* ── CIBIL SCORE SIMULATOR ── */}
+          <div className="card" style={{marginBottom:12}}>
+            <div className="stitle" style={{marginBottom:14}}>🎯 CIBIL Score Simulator</div>
+            <div style={{marginBottom:14}}>
+              <div className="lbl" style={{marginBottom:6}}>Your Current CIBIL Score</div>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                <input className="inp" type="number" placeholder="e.g. 720" min="300" max="900"
+                  value={cibilScore} onChange={e=>setCibilScore(e.target.value)}
+                  style={{maxWidth:140,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:18}}/>
+                {cibilAnalysis&&(
+                  <div style={{padding:"6px 16px",borderRadius:99,background:`${cibilAnalysis.color}20`,border:`1px solid ${cibilAnalysis.color}40`}}>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:cibilAnalysis.color}}>{cibilAnalysis.label}</span>
+                  </div>
+                )}
+              </div>
+              {!cibilScore&&<div style={{fontSize:11,color:C.muted,marginTop:4}}>Check your score free at CIBIL.com or via your bank app</div>}
+            </div>
+            {cibilAnalysis&&(
+              <>
+                {/* Score arc display */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",background:`${cibilAnalysis.color}08`,borderRadius:14,border:`1px solid ${cibilAnalysis.color}25`,marginBottom:14,flexWrap:"wrap",gap:10}}>
+                  <div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:36,color:cibilAnalysis.color,lineHeight:1}}>{cibilAnalysis.score}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:4}}>Range: 300 – 900</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:11,color:C.muted,marginBottom:4}}>If you follow all suggestions:</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:20,color:C.income}}>~{cibilAnalysis.projected}</div>
+                    {cibilAnalysis.monthsTo750>0&&<div style={{fontSize:10,color:C.muted}}>750+ in ~{cibilAnalysis.monthsTo750} months</div>}
+                  </div>
+                </div>
+                {/* Score bar */}
+                <div style={{marginBottom:14}}>
+                  <div style={{position:"relative",height:10,background:C.border,borderRadius:99,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${Math.min(100,((cibilAnalysis.score-300)/600)*100)}%`,background:`linear-gradient(90deg, #ff4d6d, #f59e0b, #00e5a0)`,borderRadius:99}}/>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted,marginTop:3,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                    <span>300 Poor</span><span>550 Fair</span><span>700 Good</span><span>800 Excellent</span>
+                  </div>
+                </div>
+                {/* Suggestions */}
+                <div className="lbl" style={{marginBottom:10}}>WHAT WILL IMPROVE YOUR SCORE</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {cibilAnalysis.suggestions.map((s,i)=>{
+                    const urgColor=s.urgency==='critical'?C.expense:s.urgency==='high'?C.warning:s.urgency==='medium'?C.accent:C.muted;
+                    return(
+                      <div key={i} style={{padding:"10px 14px",borderRadius:12,background:`${urgColor}08`,border:`1px solid ${urgColor}25`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6,marginBottom:4}}>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text,flex:1}}>{s.action}</div>
+                          <span style={{padding:"2px 10px",borderRadius:99,background:`${C.income}15`,color:C.income,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:11,flexShrink:0}}>{s.impact}</span>
+                        </div>
+                        <div style={{fontSize:10,color:C.muted}}>{s.reason}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Utilization insight */}
+                {cibilAnalysis.utilization>0&&(
+                  <div style={{marginTop:12,padding:"10px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:11,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>CC Utilization</span>
+                      <span style={{fontSize:12,fontWeight:700,color:cibilAnalysis.utilization>75?C.expense:cibilAnalysis.utilization>30?C.warning:C.income,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{cibilAnalysis.utilization.toFixed(0)}%</span>
+                    </div>
+                    <div className="pbar">
+                      <div className="pfill" style={{width:`${Math.min(100,cibilAnalysis.utilization)}%`,background:cibilAnalysis.utilization>75?C.expense:cibilAnalysis.utilization>30?C.warning:C.income}}/>
+                    </div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:4}}>Target: keep below 30% for best score impact</div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
           {/* Payoff plan */}
           <div className="card" style={{marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12,flexWrap:"wrap",gap:8}}>
@@ -3236,13 +3523,77 @@ if (!user) {
         {tab==="Cards"&&<>
           <div className="g4" style={{marginBottom:12}}>
             {[
-              {label:"Total Outstanding", val:fc(totalCCOut),   color:C.expense},
-              {label:"# Cards",           val:creditCards.length,color:C.accent},
-              {label:"Highest Util",      val:creditCards.length?Math.max(...creditCards.map(c=>((parseFloat(c.outstanding)||0)/(parseFloat(c.limit)||1)*100))).toFixed(0)+"%":"0%",color:C.credit},
-              {label:"Total CC Bill Due", val:fc(totalCCOut),   color:C.warning},
+              {label:"Total Outstanding", val:fc(totalCCOut),      color:C.expense},
+              {label:"Total CC EMIs",     val:fc(totalCCEMI),      color:C.warning},
+              {label:"# Cards",           val:creditCards.length,  color:C.accent},
+              {label:"Highest Util",      val:creditCards.length?Math.max(...creditCards.map(c=>((parseFloat(c.outstanding)||0)/(parseFloat(c.limit)||1)*100))).toFixed(0)+"%":"0%", color:C.credit},
             ].map(item=>(
-              <div key={item.label} className="scard"><div className="lbl">{item.label}</div><div style={{fontSize:17,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div></div>
+              <div key={item.label} className="scard">
+                <div className="lbl">{item.label}</div>
+                <div style={{fontSize:17,fontWeight:700,color:item.color,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{item.val}</div>
+              </div>
             ))}
+          </div>
+
+          {/* ── CC EMI TRACKER ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>📋 Credit Card EMI Tracker</div>
+                <div style={{fontSize:11,color:C.muted}}>EMIs running on your credit cards</div>
+              </div>
+              <button className="btn btn-p btn-sm" onClick={()=>{setCcEmiForm({...EMPTY_CC_EMI});setShowCCEmiForm(true);}}>+ Add EMI</button>
+            </div>
+            {/* Summary strip */}
+            {ccEmis.length>0&&(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+                {[
+                  {label:"Total/month",   val:fc(totalCCEMI),  color:C.warning},
+                  {label:"Active EMIs",   val:ccEmis.length,   color:C.accent},
+                  {label:"Total Remaining", val:fc(ccEmis.reduce((s,e)=>(parseFloat(e.amount)||0)*(parseFloat(e.monthsLeft)||0)+s,0)), color:C.expense},
+                ].map(s=>(
+                  <div key={s.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:s.color}}>{s.val}</div>
+                    <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginTop:2}}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {ccEmis.length===0
+              ? <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>No CC EMIs yet. Add EMIs running on your credit cards (e.g. phone, TV purchase).</div>
+              : ccEmis.map(emi=>{
+                  const card = creditCards.find(c=>String(c.id)===String(emi.cardId));
+                  const totalLeft = (parseFloat(emi.amount)||0)*(parseFloat(emi.monthsLeft)||0);
+                  const totalMo   = parseFloat(emi._totalMonths)||parseFloat(emi.monthsLeft)||1;
+                  const paidMo    = Math.max(0, totalMo - (parseFloat(emi.monthsLeft)||0));
+                  const pct       = Math.min(100,(paidMo/totalMo)*100);
+                  return(
+                    <div key={emi.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px",marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6}}>
+                        <div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{emi.description||"EMI"}</div>
+                          <div style={{fontSize:11,color:C.muted,marginTop:2}}>{card?`${card.name} · ${card.bank}`:"Card not linked"}</div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:15,fontWeight:700,color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif"}}>{fc(parseFloat(emi.amount)||0)}/mo</div>
+                          <div style={{fontSize:10,color:C.muted}}>{emi.monthsLeft} months left</div>
+                        </div>
+                      </div>
+                      <div style={{margin:"8px 0 4px",display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
+                        <span>Paid: <span style={{color:C.income,fontWeight:700}}>{pct.toFixed(0)}%</span></span>
+                        <span>Remaining: <span style={{color:C.expense,fontWeight:700}}>{fc(totalLeft)}</span></span>
+                      </div>
+                      <div className="pbar">
+                        <div className="pfill" style={{width:`${pct}%`,background:C.warning}}/>
+                      </div>
+                      <div style={{display:"flex",gap:6,marginTop:8}}>
+                        <button className="btn-ghost btn-sm" style={{flex:1}} onClick={()=>{setCcEmiForm({...emi});setShowCCEmiForm(true);}}>✏️ Edit</button>
+                        <button className="btn-ghost btn-sm" style={{flex:1,color:C.expense}} onClick={()=>deleteCCEmi(emi.id)}>🗑 Delete</button>
+                      </div>
+                    </div>
+                  );
+                })
+            }
           </div>
 
 
@@ -5174,6 +5525,123 @@ if (!user) {
                 <button className="btn btn-p" onClick={saveRecurring} style={{flex:2}}>
                   {recurringForm.id?"Save Changes":"Add Bill"}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CC EMI Form ── */}
+      {showCCEmiForm&&(
+        <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowCCEmiForm(false),setCcEmiForm({...EMPTY_CC_EMI}))}>
+          <div className="sheet">
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{ccEmiForm.id?"Edit":"Add"} CC EMI</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div>
+                <div className="lbl">Credit Card *</div>
+                <select className="inp" value={ccEmiForm.cardId} onChange={e=>setCcEmiForm(p=>({...p,cardId:e.target.value}))}>
+                  <option value="">-- Select Card --</option>
+                  {creditCards.map(c=><option key={c.id} value={String(c.id)}>{c.name} · {c.bank}</option>)}
+                </select>
+                {creditCards.length===0&&<div style={{fontSize:11,color:C.expense,marginTop:4}}>Add a credit card first.</div>}
+              </div>
+              <div>
+                <div className="lbl">What did you buy?</div>
+                <input className="inp" placeholder="e.g. iPhone 15, Samsung TV" value={ccEmiForm.description}
+                  onChange={e=>setCcEmiForm(p=>({...p,description:e.target.value}))}/>
+              </div>
+              <div className="g2">
+                <div>
+                  <div className="lbl">EMI ₹/month *</div>
+                  <input className="inp" type="number" placeholder="e.g. 3000" value={ccEmiForm.amount}
+                    onChange={e=>setCcEmiForm(p=>({...p,amount:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Months Remaining *</div>
+                  <input className="inp" type="number" placeholder="e.g. 12" value={ccEmiForm.monthsLeft}
+                    onChange={e=>setCcEmiForm(p=>({...p,monthsLeft:e.target.value,_totalMonths:p._totalMonths||e.target.value}))}/>
+                </div>
+              </div>
+              {ccEmiForm.amount&&ccEmiForm.monthsLeft&&(
+                <div style={{padding:"10px 14px",background:`${C.warning}12`,border:`1px solid ${C.warning}25`,borderRadius:10,display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:11,color:C.muted}}>Total remaining</span>
+                  <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,color:C.warning}}>{fc((parseFloat(ccEmiForm.amount)||0)*(parseFloat(ccEmiForm.monthsLeft)||0))}</span>
+                </div>
+              )}
+              <div style={{display:"flex",gap:9,marginTop:4}}>
+                <button className="btn btn-ghost" onClick={()=>{setShowCCEmiForm(false);setCcEmiForm({...EMPTY_CC_EMI});}} style={{flex:1}}>Cancel</button>
+                <button className="btn btn-p" onClick={saveCCEmi} style={{flex:2}}>{ccEmiForm.id?"Save":"Add EMI"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Investment Form ── */}
+      {showInvForm&&(
+        <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowInvForm(false),setInvForm({...EMPTY_INVESTMENT}),setEditInvId(null))}>
+          <div className="sheet">
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editInvId?"Edit":"Add"} Investment</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div className="g2">
+                <div>
+                  <div className="lbl">Name *</div>
+                  <input className="inp" placeholder="e.g. HDFC Midcap Fund" value={invForm.name}
+                    onChange={e=>setInvForm(p=>({...p,name:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Type</div>
+                  <select className="inp" value={invForm.type} onChange={e=>setInvForm(p=>({...p,type:e.target.value}))}>
+                    {["MF","SIP","Stocks","FD","RD","PPF","NPS","Gold","Crypto","Other"].map(t=>(
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="g2">
+                <div>
+                  <div className="lbl">Amount Invested ₹ *</div>
+                  <input className="inp" type="number" placeholder="e.g. 50000" value={invForm.amount}
+                    onChange={e=>setInvForm(p=>({...p,amount:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Start Date</div>
+                  <input className="inp" type="date" value={invForm.startDate}
+                    onChange={e=>setInvForm(p=>({...p,startDate:e.target.value}))}/>
+                </div>
+              </div>
+              <div className="g2">
+                <div>
+                  <div className="lbl">Units (for MF/Stocks)</div>
+                  <input className="inp" type="number" placeholder="e.g. 123.456" value={invForm.units}
+                    onChange={e=>setInvForm(p=>({...p,units:e.target.value}))}/>
+                </div>
+                <div>
+                  <div className="lbl">Current NAV / Price ₹</div>
+                  <input className="inp" type="number" placeholder="e.g. 48.23" value={invForm.nav}
+                    onChange={e=>setInvForm(p=>({...p,nav:e.target.value}))}/>
+                </div>
+              </div>
+              {invForm.units&&invForm.nav&&invForm.amount&&(
+                <div style={{padding:"10px 14px",background:`${C.income}10`,borderRadius:10,border:`1px solid ${C.income}25`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                  <span style={{fontSize:11,color:C.muted}}>Current Value</span>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>
+                    <span style={{color:C.accent}}>{fc((parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0))}</span>
+                    {" · "}
+                    <span style={{color:(parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0)>=(parseFloat(invForm.amount)||0)?C.income:C.expense}}>
+                      {(parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0)>=(parseFloat(invForm.amount)||0)?"+":""}{fc(Math.round(((parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0))-(parseFloat(invForm.amount)||0)))} gain
+                    </span>
+                  </div>
+                </div>
+              )}
+              <div>
+                <div className="lbl">Notes</div>
+                <input className="inp" placeholder="e.g. Monthly SIP ₹5000" value={invForm.notes}
+                  onChange={e=>setInvForm(p=>({...p,notes:e.target.value}))}/>
+              </div>
+              <div style={{display:"flex",gap:9,marginTop:4}}>
+                <button className="btn btn-ghost" onClick={()=>{setShowInvForm(false);setInvForm({...EMPTY_INVESTMENT});setEditInvId(null);}} style={{flex:1}}>Cancel</button>
+                <button className="btn btn-p" onClick={saveInvestment} style={{flex:2}}>{editInvId?"Save":"Add Investment"}</button>
               </div>
             </div>
           </div>
