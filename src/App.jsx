@@ -29,8 +29,8 @@ const LIGHT = {
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const PAYMENT_MODES = ["UPI","Credit Card","Debit Card","Cash","Net Banking","Wallet","EMI","Other"];
 const CATEGORIES = {
-  income:  ["Salary","Freelance","Investment","Gift","Rental","Bonus","Other Income"],
-  expense: ["Housing","Food","Transport","Entertainment","Health","Shopping","Utilities","Education","Loan EMI","Credit Card EMI","Credit Card Bill","Insurance","Travel","Medical","Groceries","Other"],
+  income:  ["Salary","Freelance","Side Income","Investment","Gift","Rental","Bonus","Other Income"],
+  expense: ["Housing","Food","Transport","Entertainment","Health","Shopping","Utilities","Education","Loan EMI","Credit Card EMI","Credit Card Bill","Insurance","Travel","Medical","Groceries","Family","Other"],
 };
 const CAT_COLORS = ["#38bdf8","#10b981","#f59e0b","#6366f1","#f43f5e","#a78bfa","#34d399","#fb923c","#e879f9","#22d3ee","#84cc16","#f472b6","#60a5fa","#fbbf24","#6ee7b7","#c084fc"];
 const MOBILE_TABS = [
@@ -196,6 +196,7 @@ export default function App() {
 
   // ── Plan ──
   const [monthlyIncome, setMonthlyIncome] = useState("");
+  const [familyCap, setFamilyCap]         = useState(""); // monthly family contribution limit
   const [extraFund, setExtraFund]         = useState("");
   const [strategy, setStrategy]           = useState("avalanche");
   const [emergencyFund, setEmergencyFund] = useState("");
@@ -236,6 +237,7 @@ export default function App() {
           if(data.salary)        setSalary(data.salary);
           if(data.monthlyIncome) setMonthlyIncome(data.monthlyIncome);
           if(data.extraFund)     setExtraFund(data.extraFund);
+          if(data.familyCap)     setFamilyCap(data.familyCap);
           if(data.strategy)      setStrategy(data.strategy);
           if(data.emergencyFund) setEmergencyFund(data.emergencyFund);
           if(data.accounts)      setAccounts(data.accounts);
@@ -340,6 +342,7 @@ useEffect(() => {
           if (data.salary)        setSalary(data.salary);
           if (data.monthlyIncome) setMonthlyIncome(data.monthlyIncome);
           if (data.extraFund)     setExtraFund(data.extraFund);
+          if (data.familyCap)     setFamilyCap(data.familyCap);
           if (data.strategy)      setStrategy(data.strategy);
           if (data.emergencyFund) setEmergencyFund(data.emergencyFund);
           if (data.darkMode!==undefined) setDarkMode(data.darkMode);
@@ -373,7 +376,7 @@ useEffect(() => {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
         accounts, customCats, moneyCircles, salary, recurringBills,
-        ccEmis, investments, cibilScore,
+        ccEmis, investments, cibilScore, familyCap,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -383,7 +386,7 @@ useEffect(() => {
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
       accounts, customCats, moneyCircles, salary, recurringBills,
-      ccEmis, investments, cibilScore, loaded]);
+      ccEmis, investments, cibilScore, familyCap, loaded]);
 
 
 
@@ -692,6 +695,74 @@ const filterByPeriod = useCallback((txList, period) => {
     });
     return { events, daysInMonth, firstDow: new Date(yr,mo,1).getDay(), todayDate: now.getDate(), yr, mo };
   }, [salary, activeDebts, creditCards, recurringBills, transactions]);
+
+  // ─── LOAN-TO-INCOME RATIO ────────────────────────────────────────────────
+  const loanToIncome = useMemo(() => {
+    const inc = effectiveIncome || 0;
+    if (!inc) return null;
+    const ratio  = (totalEMI + totalCCEMI) / inc * 100;
+    const status = ratio>=60?'critical':ratio>=50?'danger':ratio>=40?'warning':'safe';
+    const color  = ratio>=60?'#ff4d6d':ratio>=50?'#ff7a45':ratio>=40?'#f59e0b':'#00e5a0';
+    const label  = ratio>=60?'Critical — loan overload':ratio>=50?'Danger — too high':ratio>=40?'Warning — above RBI 40% limit':'Safe ✓';
+    return { ratio, status, color, label, totalEMI:totalEMI+totalCCEMI, inc };
+  }, [effectiveIncome, totalEMI, totalCCEMI]);
+
+  // ─── FAMILY CAP STATUS ───────────────────────────────────────────────────
+  const familyCapStatus = useMemo(() => {
+    const cap = parseFloat(familyCap)||0;
+    const now = new Date();
+    const mo=now.getMonth(), yr=now.getFullYear();
+    const spent = transactions
+      .filter(t=>{const d=parseLocal(t.date);return d&&d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='expense'&&t.category==='Family';})
+      .reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+    const pct=cap>0?Math.min(100,(spent/cap)*100):0;
+    return {cap,spent,pct,over:cap>0&&spent>cap,remaining:Math.max(0,cap-spent)};
+  }, [familyCap, transactions]);
+
+  // ─── SIDE INCOME TRACKER ─────────────────────────────────────────────────
+  const sideIncomeStats = useMemo(() => {
+    const sideCats = ['Freelance','Side Income','Bonus','Other Income','Gift','Rental'];
+    const now = new Date();
+    const monthly = Array.from({length:6},(_,i)=>{
+      const d=new Date(now.getFullYear(),now.getMonth()-(5-i),1);
+      const mo=d.getMonth(),yr=d.getFullYear();
+      const lbl=d.toLocaleDateString('en-IN',{month:'short',year:'2-digit'});
+      const amt=transactions.filter(t=>{const td=parseLocal(t.date);return td&&td.getMonth()===mo&&td.getFullYear()===yr&&t.type==='income'&&sideCats.includes(t.category);}).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+      return {label:lbl,amount:amt};
+    });
+    const total=monthly.reduce((s,m)=>s+m.amount,0);
+    return {monthly,total,avg:total/6,thisMonth:monthly[5].amount,best:Math.max(...monthly.map(m=>m.amount))};
+  }, [transactions]);
+
+  // ─── DEBT PAYOFF TIMELINE ────────────────────────────────────────────────
+  const debtPayoffTimeline = useMemo(() => {
+    if (!activeDebts.length) return null;
+    const timelines = activeDebts.map(debt=>{
+      const bal=parseFloat(debt.outstanding)||0, emi=parseFloat(debt.emi)||0, rate=parseFloat(debt.interestRate)||0;
+      if (!bal||!emi) return null;
+      const mr=rate/100/12;
+      let rem=bal, months=0;
+      while(rem>1&&months<360){const int=rem*mr;rem=Math.max(0,rem-(emi-int));months++;}
+      const closeDate=new Date();closeDate.setMonth(closeDate.getMonth()+months);
+      return {id:debt.id,name:debt.name,lender:debt.lender||'',outstanding:bal,emi,rate,months,closeDate,monthlyInterest:bal*mr};
+    }).filter(Boolean).sort((a,b)=>a.months-b.months);
+
+    // Free EMI snowball projection
+    let cumFreed=0;
+    const projection = timelines.map((t,i)=>{
+      cumFreed += t.emi;
+      const closeDate=new Date(); closeDate.setMonth(closeDate.getMonth()+t.months);
+      return {order:i+1,name:t.name,lender:t.lender,closesInMonths:t.months,closeDate,freedEmi:t.emi,cumulativeFreed:cumFreed,label:closeDate.toLocaleDateString('en-IN',{month:'short',year:'numeric'})};
+    });
+
+    const totalInterestLeft = timelines.reduce((s,t)=>{
+      const mr=t.rate/100/12; let bal=t.outstanding,ti=0;
+      for(let m=0;m<t.months;m++){const int=bal*mr;ti+=int;bal=Math.max(0,bal-(t.emi-int));}
+      return s+ti;
+    },0);
+
+    return {timelines,projection,totalInterestLeft};
+  }, [activeDebts]);
 
   // ─── INVESTMENT TRACKER ──────────────────────────────────────────────────
   const investmentStats = useMemo(() => {
@@ -2317,6 +2388,51 @@ if (!user) {
             );
           })()}
 
+          {/* ── LOAN-TO-INCOME RATIO ── */}
+          {loanToIncome&&(
+            <div style={{marginBottom:14,padding:"12px 16px",borderRadius:14,background:`${loanToIncome.color}10`,border:`1.5px solid ${loanToIncome.color}35`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:11,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:0.8}}>EMI-to-Income Ratio</div>
+                  <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                    <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:26,color:loanToIncome.color}}>{loanToIncome.ratio.toFixed(0)}%</span>
+                    <span style={{fontSize:11,color:loanToIncome.color,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{loanToIncome.label}</span>
+                  </div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>₹{fc(loanToIncome.totalEMI)}/mo EMIs on ₹{fc(loanToIncome.inc)} income · RBI safe limit: 40%</div>
+                </div>
+                <div style={{minWidth:100}}>
+                  <div style={{height:8,background:C.border,borderRadius:99,overflow:"hidden",marginBottom:4}}>
+                    <div style={{height:"100%",width:`${Math.min(100,loanToIncome.ratio)}%`,background:`linear-gradient(90deg,#00e5a0,#f59e0b,#ff4d6d)`,borderRadius:99}}/>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:C.muted}}>
+                    <span>0%</span><span>40%</span><span>100%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── FAMILY CONTRIBUTION ALERT ── */}
+          {familyCapStatus.cap>0&&(
+            <div style={{marginBottom:14,padding:"12px 16px",borderRadius:14,background:familyCapStatus.over?`${C.expense}10`:`${C.accent}08`,border:`1.5px solid ${familyCapStatus.over?C.expense:C.accent}35`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:4}}>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>
+                  👨‍👩‍👧 Family Contribution {familyCapStatus.over?'⚠️ Over Limit':'This Month'}
+                </div>
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:familyCapStatus.over?C.expense:C.text}}>
+                  {fc(familyCapStatus.spent)} <span style={{fontSize:10,color:C.muted,fontWeight:400}}>of {fc(familyCapStatus.cap)}</span>
+                </div>
+              </div>
+              <div style={{height:6,background:C.border,borderRadius:99,overflow:"hidden",marginBottom:4}}>
+                <div style={{height:"100%",width:`${familyCapStatus.pct}%`,background:familyCapStatus.over?C.expense:C.accent,borderRadius:99}}/>
+              </div>
+              {familyCapStatus.over
+                ? <div style={{fontSize:10,color:C.expense,fontWeight:700}}>Over by {fc(familyCapStatus.spent-familyCapStatus.cap)} this month</div>
+                : <div style={{fontSize:10,color:C.muted}}>{fc(familyCapStatus.remaining)} remaining this month</div>
+              }
+            </div>
+          )}
+
           {/* ── QUICK ACCESS GRID ── */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
             {[
@@ -3414,6 +3530,132 @@ if (!user) {
                   </div>
                 )}
               </>
+            )}
+          </div>
+
+          {/* ── DEBT PAYOFF TIMELINE ── */}
+          {debtPayoffTimeline&&debtPayoffTimeline.timelines.length>0&&(
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🗓 Debt Payoff Timeline</div>
+                <div style={{fontSize:11,color:C.muted}}>Exact month each loan closes at current EMI</div>
+              </div>
+              {debtPayoffTimeline.totalInterestLeft>0&&(
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:10,color:C.muted}}>Interest yet to pay</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:C.expense}}>{fc(Math.round(debtPayoffTimeline.totalInterestLeft))}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Timeline row per loan */}
+            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+              {debtPayoffTimeline.timelines.map((t,i)=>{
+                const colors=["#f43f5e","#f59e0b","#38bdf8","#10b981","#a78bfa","#fb923c"];
+                const col=colors[i%colors.length];
+                const yrs=Math.floor(t.months/12), mos=t.months%12;
+                return(
+                  <div key={t.id} style={{padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${col}30`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{width:10,height:10,borderRadius:3,background:col,flexShrink:0}}/>
+                        <div>
+                          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{t.name}</div>
+                          <div style={{fontSize:10,color:C.muted}}>{t.lender} · ₹{fc(t.outstanding)} outstanding</div>
+                        </div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:14,color:col}}>
+                          {t.label || t.closeDate.toLocaleDateString('en-IN',{month:'short',year:'numeric'})}
+                        </div>
+                        <div style={{fontSize:10,color:C.muted}}>{yrs>0?`${yrs}y `:''}{mos>0?`${mos}m`:''} left</div>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <div style={{fontSize:10,background:`${col}12`,color:col,padding:"3px 10px",borderRadius:99,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                        EMI: {fc(t.emi)}/mo
+                      </div>
+                      {t.rate>0&&<div style={{fontSize:10,background:`${C.expense}10`,color:C.expense,padding:"3px 10px",borderRadius:99,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                        Interest: {fc(Math.round(t.monthlyInterest))}/mo
+                      </div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Free EMI Projection — snowball */}
+            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+              <div className="lbl" style={{marginBottom:10}}>🔓 FREE EMI PROJECTION — SNOWBALL EFFECT</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:12,lineHeight:1.7}}>
+                As each loan closes, that EMI cash is freed. Here's how much extra money you'll have each month:
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {debtPayoffTimeline.projection.map((p,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:12,background:i===0?`${C.income}08`:C.surface,border:`1px solid ${i===0?C.income:C.border}`}}>
+                    <div style={{width:28,height:28,borderRadius:99,background:i===0?`${C.income}20`:`${C.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:12,color:i===0?C.income:C.accent,flexShrink:0}}>
+                      {p.order}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{p.name} closes</div>
+                      <div style={{fontSize:10,color:C.muted}}>{p.label} · {p.closesInMonths} months</div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:14,color:C.income}}>+{fc(p.freedEmi)}/mo</div>
+                      <div style={{fontSize:10,color:C.muted}}>Total freed: {fc(p.cumulativeFreed)}/mo</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {debtPayoffTimeline.projection.length>0&&(
+                <div style={{marginTop:12,padding:"12px 14px",background:`${C.income}10`,borderRadius:12,border:`1px solid ${C.income}25`,fontSize:11,color:C.muted,lineHeight:1.8}}>
+                  🎉 When all loans close → <span style={{fontWeight:700,color:C.income,fontSize:13}}>{fc(debtPayoffTimeline.projection[debtPayoffTimeline.projection.length-1]?.cumulativeFreed||0)}/month</span> freed up for savings & investments
+                </div>
+              )}
+            </div>
+          </div>
+          )}
+
+          {/* ── SIDE INCOME TRACKER (Plan) ── */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{marginBottom:12}}>
+              <div className="stitle" style={{marginBottom:2}}>💼 Side Income Tracker</div>
+              <div style={{fontSize:11,color:C.muted}}>Freelance · Bonus · Rentals · Other Income</div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+              {[
+                {label:"This Month",  val:fc(sideIncomeStats.thisMonth), color:sideIncomeStats.thisMonth>0?C.income:C.muted},
+                {label:"Monthly Avg", val:fc(Math.round(sideIncomeStats.avg)), color:C.accent},
+                {label:"Best Month",  val:fc(sideIncomeStats.best), color:C.loan},
+              ].map(s=>(
+                <div key={s.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:s.color}}>{s.val}</div>
+                  <div style={{fontSize:9,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginTop:2}}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            {/* 6-month bar chart */}
+            <div style={{display:"flex",gap:4,alignItems:"flex-end",height:72,marginBottom:8}}>
+              {sideIncomeStats.monthly.map((m,i)=>{
+                const maxAmt=Math.max(...sideIncomeStats.monthly.map(x=>x.amount),1);
+                const barH=m.amount>0?Math.max(6,(m.amount/maxAmt)*58):4;
+                const isCur=i===5;
+                return(
+                  <div key={m.label} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                    <div style={{fontSize:9,color:m.amount>0?C.income:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,textAlign:"center"}}>
+                      {m.amount>0?(m.amount>=1000?`${(m.amount/1000).toFixed(0)}k`:Math.round(m.amount)):'—'}
+                    </div>
+                    <div style={{width:"100%",height:barH,borderRadius:6,background:m.amount>0?(isCur?C.income:`${C.income}60`):C.border,border:isCur?`2px solid ${C.income}`:"none"}}/>
+                    <div style={{fontSize:9,color:isCur?C.text:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:isCur?700:400}}>{m.label}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {sideIncomeStats.avg>0&&(
+              <div style={{padding:"10px 14px",background:`${C.income}08`,borderRadius:10,border:`1px solid ${C.income}20`,fontSize:11,color:C.muted,lineHeight:1.7}}>
+                💡 Growing side income to <span style={{color:C.income,fontWeight:700}}>₹5,000/month</span> consistently would pay off one extra EMI every year.
+              </div>
             )}
           </div>
 
@@ -4729,7 +4971,30 @@ if (!user) {
             }
           </div>
 
-          {/* ── Account Register ── */}
+          {/* ── FAMILY CONTRIBUTION CAP ── */}
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{marginBottom:12}}>
+              <div className="stitle" style={{marginBottom:2}}>👨‍👩‍👧 Family Contribution Cap</div>
+              <div style={{fontSize:11,color:C.muted}}>Set a monthly limit to track and control family spending</div>
+            </div>
+            <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:140}}>
+                <div className="lbl">Monthly Limit ₹</div>
+                <input className="inp" type="number" placeholder="e.g. 20000"
+                  value={familyCap} onChange={e=>setFamilyCap(e.target.value)}/>
+              </div>
+              {familyCapStatus.cap>0&&(
+                <div style={{flex:1,minWidth:140,padding:"10px 14px",background:familyCapStatus.over?`${C.expense}10`:`${C.income}08`,borderRadius:12,border:`1px solid ${familyCapStatus.over?C.expense:C.income}25`}}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:2}}>This month</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:16,color:familyCapStatus.over?C.expense:C.income}}>{fc(familyCapStatus.spent)}</div>
+                  <div style={{fontSize:10,color:C.muted}}>{familyCapStatus.over?`Over by ${fc(familyCapStatus.spent-familyCapStatus.cap)}`:`${fc(familyCapStatus.remaining)} remaining`}</div>
+                </div>
+              )}
+            </div>
+            <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.6}}>
+              💡 Add family expenses with category <span style={{fontWeight:700,color:C.text}}>"Family"</span> to track against this limit.
+            </div>
+          </div>
           <div className="card" style={{marginBottom:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div>
