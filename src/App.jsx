@@ -35,11 +35,12 @@ const CATEGORIES = {
 const CAT_COLORS = ["#38bdf8","#10b981","#f59e0b","#6366f1","#f43f5e","#a78bfa","#34d399","#fb923c","#e879f9","#22d3ee","#84cc16","#f472b6","#60a5fa","#fbbf24","#6ee7b7","#c084fc"];
 const MOBILE_TABS = [
   {id:"Dashboard",    icon:"🏠", label:"Home"},
-  {id:"Budget",       icon:"🎯", label:"Budget"},
-  {id:"Cards",        icon:"💳", label:"Cards"},
+  {id:"Transactions", icon:"💸", label:"Money"},
   {id:"Plan",         icon:"📊", label:"Plan"},
+  {id:"Insights",     icon:"📈", label:"Insights"},
+  {id:"More",         icon:"⋯",  label:"More"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart","Circles"];
+const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart","Circles","More"];
 const CIRCLE_PURPOSES = ["Bill Payment","Rent","Medical","Groceries","EMI","Utility Bill","Travel","Emergency","Other"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const EMPTY_CIRCLE = {id:null, person:"", amount:"", purpose:"", borrowedDate:todayStr(), returnDate:"", type:"borrowed", status:"pending", notes:""};
@@ -275,6 +276,8 @@ export default function App() {
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calSelectedDay, setCalSelectedDay] = useState(null);
   const [showSmartBudget, setShowSmartBudget] = useState(true);
+  const [showMoreDashboard, setShowMoreDashboard] = useState(false);
+  const [planExpanded, setPlanExpanded]           = useState({debt:true, interest:false, savings:false, investments:false, cibil:false, timeline:true, sideincome:false});
   // ── PWA ──
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
@@ -2389,7 +2392,7 @@ if (!user) {
           })()}
 
           {/* ── LOAN-TO-INCOME RATIO ── */}
-          {loanToIncome&&(
+          {tab==="Dashboard"&&loanToIncome&&(
             <div style={{marginBottom:14,padding:"12px 16px",borderRadius:14,background:`${loanToIncome.color}10`,border:`1.5px solid ${loanToIncome.color}35`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                 <div>
@@ -3263,16 +3266,19 @@ if (!user) {
           {/* ── INTEREST COST TRACKER ── */}
           {interestCost.totalMonthly > 0 && (
           <div className="card" style={{marginBottom:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setPlanExpanded(p=>({...p,interest:!p.interest}))}>
               <div>
                 <div className="stitle" style={{marginBottom:2}}>🏦 Interest Cost</div>
-                <div style={{fontSize:11,color:C.muted}}>Money going to banks as interest every month</div>
+                <div style={{fontSize:11,color:C.muted}}>Money going to banks as interest</div>
               </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:22,color:C.expense}}>{fc(Math.round(interestCost.totalMonthly))}</div>
-                <div style={{fontSize:10,color:C.muted}}>per month · {fc(Math.round(interestCost.totalYearly))} /year</div>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18,color:C.expense}}>{fc(Math.round(interestCost.totalMonthly))}/mo</div>
+                </div>
+                <span style={{fontSize:18,color:C.muted}}>{planExpanded.interest?"▲":"▼"}</span>
               </div>
             </div>
+            {planExpanded.interest&&(<>
             {/* Interest breakdown per loan/CC */}
             <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
               {interestCost.allItems.filter(x=>x.monthly>0).map((item,i)=>{
@@ -3308,14 +3314,21 @@ if (!user) {
                 {interestCost.totalYearly > 50000 && <span> That's <span style={{fontWeight:700,color:C.expense}}>{fc(Math.round(interestCost.totalYearly))}/year</span> going to banks!</span>}
               </div>
             )}
+            </>)} {/* end planExpanded.interest */}
           </div>
           )}
 
           {/* ── SAVINGS GOALS ── */}
           {savings.length > 0 && (
           <div className="card" style={{marginBottom:12}}>
-            <div className="stitle" style={{marginBottom:14}}>🎯 Savings Goals</div>
-            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setPlanExpanded(p=>({...p,savings:!p.savings}))}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🎯 Savings Goals</div>
+                <div style={{fontSize:11,color:C.muted}}>{savings.length} goal{savings.length!==1?'s':''} · avg {savingsGoalProgress.length?Math.round(savingsGoalProgress.reduce((s,g)=>s+g.pct,0)/savingsGoalProgress.length):0}% done</div>
+              </div>
+              <span style={{fontSize:18,color:C.muted}}>{planExpanded.savings?"▲":"▼"}</span>
+            </div>
+            {planExpanded.savings&&<div style={{marginTop:14,display:"flex",flexDirection:"column",gap:14}}>
               {savingsGoalProgress.map((g,i)=>{
                 const colors=['#7b4fd4','#00e5a0','#38bdf8','#f59e0b','#f43f5e'];
                 const col = colors[i%colors.length];
@@ -3353,19 +3366,23 @@ if (!user) {
                   </div>
                 );
               })}
-            </div>
+            </div>}
           </div>
           )}
 
           {/* ── INVESTMENT TRACKER ── */}
           <div className="card" style={{marginBottom:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setPlanExpanded(p=>({...p,investments:!p.investments}))}>
               <div>
                 <div className="stitle" style={{marginBottom:2}}>📈 Investments</div>
-                <div style={{fontSize:11,color:C.muted}}>MF · SIP · Stocks · FD · Gold · PPF</div>
+                <div style={{fontSize:11,color:C.muted}}>{investments.length} holding{investments.length!==1?'s':''}{investmentStats.totalInvested>0?` · ${fc(Math.round(investmentStats.currentValue))} value`:''}</div>
               </div>
-              <button className="btn btn-p btn-sm" onClick={()=>{setInvForm({...EMPTY_INVESTMENT});setEditInvId(null);setShowInvForm(true);}}>+ Add</button>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <button className="btn btn-p btn-sm" onClick={e=>{e.stopPropagation();setInvForm({...EMPTY_INVESTMENT});setEditInvId(null);setShowInvForm(true);}}>+ Add</button>
+                <span style={{fontSize:18,color:C.muted}}>{planExpanded.investments?"▲":"▼"}</span>
+              </div>
             </div>
+            {planExpanded.investments&&<>
             {/* Summary */}
             {investments.length>0&&(
               <>
@@ -3458,11 +3475,22 @@ if (!user) {
                 No investments added yet.<br/>Add your mutual funds, SIPs, stocks, FDs, gold, PPF.
               </div>
             )}
+            </>}
           </div>
 
           {/* ── CIBIL SCORE SIMULATOR ── */}
           <div className="card" style={{marginBottom:12}}>
-            <div className="stitle" style={{marginBottom:14}}>🎯 CIBIL Score Simulator</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setPlanExpanded(p=>({...p,cibil:!p.cibil}))}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>🎯 CIBIL Score Simulator</div>
+                <div style={{fontSize:11,color:C.muted}}>
+                  {cibilAnalysis ? `Score: ${cibilAnalysis.score} · ${cibilAnalysis.label}` : 'Enter your score to get suggestions'}
+                </div>
+              </div>
+              {cibilAnalysis&&<div style={{padding:"4px 12px",borderRadius:99,background:`${cibilAnalysis.color}20`,color:cibilAnalysis.color,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,marginRight:8}}>{cibilAnalysis.score}</div>}
+              <span style={{fontSize:18,color:C.muted}}>{planExpanded.cibil?"▲":"▼"}</span>
+            </div>
+            {planExpanded.cibil&&<div style={{marginTop:14}}>
             <div style={{marginBottom:14}}>
               <div className="lbl" style={{marginBottom:6}}>Your Current CIBIL Score</div>
               <div style={{display:"flex",gap:10,alignItems:"center"}}>
@@ -3531,6 +3559,7 @@ if (!user) {
                 )}
               </>
             )}
+            </div>} {/* end planExpanded.cibil */}
           </div>
 
           {/* ── DEBT PAYOFF TIMELINE ── */}
@@ -3619,10 +3648,14 @@ if (!user) {
 
           {/* ── SIDE INCOME TRACKER (Plan) ── */}
           <div className="card" style={{marginBottom:12}}>
-            <div style={{marginBottom:12}}>
-              <div className="stitle" style={{marginBottom:2}}>💼 Side Income Tracker</div>
-              <div style={{fontSize:11,color:C.muted}}>Freelance · Bonus · Rentals · Other Income</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:planExpanded.sideincome?12:0}} onClick={()=>setPlanExpanded(p=>({...p,sideincome:!p.sideincome}))}>
+              <div>
+                <div className="stitle" style={{marginBottom:2}}>💼 Side Income Tracker</div>
+                <div style={{fontSize:11,color:C.muted}}>This month: {fc(sideIncomeStats.thisMonth)} · Avg: {fc(Math.round(sideIncomeStats.avg))}/mo</div>
+              </div>
+              <span style={{fontSize:18,color:C.muted}}>{planExpanded.sideincome?"▲":"▼"}</span>
             </div>
+            {planExpanded.sideincome&&<>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
               {[
                 {label:"This Month",  val:fc(sideIncomeStats.thisMonth), color:sideIncomeStats.thisMonth>0?C.income:C.muted},
@@ -3657,6 +3690,7 @@ if (!user) {
                 💡 Growing side income to <span style={{color:C.income,fontWeight:700}}>₹5,000/month</span> consistently would pay off one extra EMI every year.
               </div>
             )}
+            </>} {/* end planExpanded.sideincome */}
           </div>
 
           {/* Payoff plan */}
@@ -5310,7 +5344,62 @@ if (!user) {
 
         </>}
 
-        {/* ── Money Circles Modal ── */}
+        {/* ════════ MORE ════════ */}
+        {tab==="More"&&<>
+          {/* ── MORE MENU GRID ── */}
+          <div style={{marginBottom:16}}>
+            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,color:C.text,marginBottom:4}}>More</div>
+            <div style={{fontSize:12,color:C.muted}}>All features in one place</div>
+          </div>
+
+          {/* Section grid */}
+          {[
+            {icon:"💳",label:"Credit Cards",   sub:"Cards, CC EMIs, utilization",  tab:"Cards"},
+            {icon:"🎯",label:"Budget",          sub:"Monthly limits & tracking",    tab:"Budget"},
+            {icon:"⚙️",label:"Smart Settings",  sub:"Salary, recurring bills, accounts", tab:"Smart"},
+            {icon:"🔵",label:"Money Circles",   sub:"Borrow & lend tracking",       tab:"Circles"},
+            {icon:"💸",label:"Transactions",    sub:"All income & expenses",        tab:"Transactions"},
+            {icon:"📈",label:"Insights",        sub:"Charts, calendar, trends",     tab:"Insights"},
+            {icon:"📊",label:"Plan",            sub:"Debt, goals, investments",     tab:"Plan"},
+          ].map(item=>(
+            <div key={item.tab} className="card" style={{marginBottom:10,cursor:"pointer",padding:"14px 16px"}}
+              onClick={()=>navigateTo(item.tab)}>
+              <div style={{display:"flex",alignItems:"center",gap:14}}>
+                <div style={{width:44,height:44,borderRadius:13,background:`${C.purple}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{item.icon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:C.text,marginBottom:2}}>{item.label}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{item.sub}</div>
+                </div>
+                <div style={{fontSize:18,color:C.muted,flexShrink:0}}>›</div>
+              </div>
+            </div>
+          ))}
+
+          {/* Quick stats strip */}
+          <div style={{marginTop:4,padding:"14px 16px",background:C.surface,borderRadius:16,border:`1px solid ${C.border}`}}>
+            <div className="lbl" style={{marginBottom:10}}>AT A GLANCE</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+              {[
+                {label:"Active Loans",    val:activeDebts.length,                  icon:"🏦"},
+                {label:"Credit Cards",    val:creditCards.length,                  icon:"💳"},
+                {label:"Savings Goals",   val:savings.length,                      icon:"🎯"},
+                {label:"Investments",     val:investments.length,                  icon:"📈"},
+                {label:"Recurring Bills", val:recurringBills.filter(b=>b.active).length, icon:"🔁"},
+                {label:"Money Circles",   val:moneyCircles.filter(c=>!c.returned).length, icon:"🔵"},
+              ].map(s=>(
+                <div key={s.label} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:C.card,borderRadius:10,border:`1px solid ${C.border}`}}>
+                  <span style={{fontSize:18}}>{s.icon}</span>
+                  <div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:16,color:C.text,lineHeight:1}}>{s.val}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:1}}>{s.label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>}
+
+        {/* ── Circle Form Modal ── */}
         {showCircleForm&&(
           <div className="modal" onClick={e=>e.target===e.currentTarget&&(setShowCircleForm(false),setEditCircleId(null))}>
             <div className="sheet">
