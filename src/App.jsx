@@ -37,7 +37,6 @@ const MOBILE_TABS = [
   {id:"Dashboard",    icon:"🏠", label:"Home"},
   {id:"Transactions", icon:"💸", label:"Money"},
   {id:"Plan",         icon:"📊", label:"Plan"},
-  {id:"Insights",     icon:"📈", label:"Insights"},
   {id:"More",         icon:"⋯",  label:"More"},
 ];
 const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart","Circles","More"];
@@ -1687,32 +1686,48 @@ const filterByPeriod = useCallback((txList, period) => {
     /* ── Bottom Nav — Fintastics style ── */
     .bnav{
       position:fixed;bottom:0;left:0;right:0;
-      background:${C.purple};
+      background:${darkMode?"#1a1328":"#ffffff"};
       display:flex;z-index:100;align-items:center;
+      padding:0 4px;
       padding-bottom:env(safe-area-inset-bottom,0px);
-      box-shadow: 0 -4px 24px rgba(123,79,212,0.35);
+      box-shadow:0 -1px 0 ${C.border}, 0 -8px 32px rgba(0,0,0,0.08);
+      height:60px;
     }
     .bn{
       display:flex;flex-direction:column;align-items:center;justify-content:center;
-      padding:12px 4px 10px;
+      padding:8px 4px 6px;
       font-family:'Cabinet Grotesk',sans-serif;font-weight:700;font-size:9px;
-      color:rgba(255,255,255,0.6);cursor:pointer;border:none;
-      background:transparent;gap:3px;flex:1;
-      transition:color 0.15s;letter-spacing:0.3px;
+      color:${C.muted};cursor:pointer;border:none;
+      background:transparent;gap:2px;flex:1;
+      transition:color 0.15s, transform 0.15s;letter-spacing:0.3px;
+      position:relative;
     }
-    .bn.act{color:#fff;}
-    .bn.act span:first-child{filter: drop-shadow(0 0 8px rgba(255,255,255,0.6));}
-    /* Centre FAB in nav */
+    .bn.act{color:${C.purple};}
+    .bn.act span:first-child{
+      transform:scale(1.1);
+      filter:drop-shadow(0 2px 6px ${C.purple}60);
+    }
+    .bn.act::after{
+      content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);
+      width:20px;height:2.5px;border-radius:99px;background:${C.purple};
+    }
+    /* Centre FAB */
     .bn-fab{
-      width:52px;height:52px;border-radius:50%;
-      background:#fff;border:none;cursor:pointer;
-      font-size:24px;color:${C.purple};font-weight:900;
+      width:54px;height:54px;border-radius:18px;
+      background:${C.purple};border:none;cursor:pointer;
+      font-size:26px;color:#fff;font-weight:300;
       display:flex;align-items:center;justify-content:center;
-      box-shadow:0 4px 18px rgba(0,0,0,0.25);
-      flex-shrink:0;margin:0 4px;margin-top:-10px;
-      transition:transform 0.18s;
+      box-shadow:0 4px 20px ${C.purple}55, 0 2px 8px rgba(0,0,0,0.2);
+      flex-shrink:0;
+      transition:transform 0.18s, box-shadow 0.18s;
+      position:relative;
     }
-    .bn-fab:active{transform:scale(0.92);}
+    .bn-fab:active{transform:scale(0.88);box-shadow:0 2px 8px ${C.purple}30;}
+    .bn-fab::before{
+      content:'';position:absolute;inset:-1px;border-radius:19px;
+      background:linear-gradient(135deg,rgba(255,255,255,0.25),transparent);
+      pointer-events:none;
+    }
 
     /* ── FAB (desktop / fallback) ── */
     .fab{
@@ -1850,7 +1865,7 @@ const filterByPeriod = useCallback((txList, period) => {
     @keyframes ripple-anim{to{transform:scale(4);opacity:0;}}
     .sheet{animation:sheetUp 0.32s cubic-bezier(0.4,0,0.2,1) forwards;}
     @keyframes sheetUp{from{transform:translateY(100%);opacity:0.6;}to{transform:translateY(0);opacity:1;}}
-    .bn-fab:active,.fab:active{transform:scale(0.88)!important;box-shadow:0 2px 8px rgba(0,0,0,0.3)!important;}
+    .bn-fab:active,.fab:active{transform:scale(0.88)!important;}
     .row:active{background:${C.surface};border-radius:12px;}
     .scard:active{transform:scale(0.97);box-shadow:0 1px 4px rgba(0,0,0,0.15);}
     .ripple-btn{overflow:hidden;position:relative;}
@@ -5492,14 +5507,20 @@ if (!user) {
       <nav className="bnav">
         {MOBILE_TABS.slice(0,2).map(t=>(
           <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>navigateTo(t.id)}>
-            <span style={{fontSize:18}}>{t.icon}</span>{t.label}
+            <span style={{fontSize:20}}>{t.icon}</span>
+            <span>{t.label}</span>
           </button>
         ))}
-        {/* Centre FAB */}
-        <button className="bn-fab" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>+</button>
+        {/* Centre FAB — perfectly centered between 2 left and 2 right */}
+        <div style={{flex:"0 0 72px",display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
+          <button className="bn-fab" onClick={()=>{setTxForm({...EMPTY_TX});setEditTxId(null);setShowTxForm(true);}}>
+            <span style={{fontSize:26,lineHeight:1,color:"inherit",fontWeight:900}}>+</span>
+          </button>
+        </div>
         {MOBILE_TABS.slice(2).map(t=>(
           <button key={t.id} className={`bn ${tab===t.id?"act":""}`} onClick={()=>navigateTo(t.id)}>
-            <span style={{fontSize:18}}>{t.icon}</span>{t.label}
+            <span style={{fontSize:20}}>{t.icon}</span>
+            <span>{t.label}</span>
           </button>
         ))}
       </nav>
