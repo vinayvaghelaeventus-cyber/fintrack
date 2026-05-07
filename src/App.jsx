@@ -1191,15 +1191,50 @@ const filterByPeriod = useCallback((txList, period) => {
   function openEditTx(t) { setTxForm({...t, _toAccountId: t._toAccountId||""}); setEditTxId(t.id); setShowTxForm(true); }
   function deleteTx(id) {
     const tx = transactions.find(t => t.id === id);
-    if (tx?.type === "transfer") {
-      // Reverse the transfer
+    if (!tx) return;
+
+    if (tx.type === "transfer") {
+      // Reverse both sides of the transfer
       setAccounts(p => p.map(a => {
         if (String(a.id) === String(tx._accountId))   return {...a, balance: (parseFloat(a.balance)||0) + tx.amount};
         if (String(a.id) === String(tx._toAccountId)) return {...a, balance: Math.max(0,(parseFloat(a.balance)||0) - tx.amount)};
         return a;
       }));
+    } else if (tx.type === "expense") {
+      // Reverse account balance deduction
+      if (tx._accountId && tx.paymentMode !== "Credit Card") {
+        setAccounts(p => p.map(a =>
+          String(a.id) === String(tx._accountId)
+            ? {...a, balance: (parseFloat(a.balance)||0) + tx.amount}
+            : a
+        ));
+      }
+      // Reverse CC outstanding increase (if paid by CC)
+      if (tx.paymentMode === "Credit Card" && tx.bank) {
+        setCreditCards(p => p.map(c =>
+          c.name === tx.bank
+            ? {...c, outstanding: Math.max(0, (parseFloat(c.outstanding)||0) - tx.amount)}
+            : c
+        ));
+      }
+      // Reverse CC bill payment (restores outstanding)
+      if (tx.category === "Credit Card Bill" && tx.bank) {
+        setCreditCards(p => p.map(c =>
+          (c.bank === tx.bank || c.name === tx.bank)
+            ? {...c, outstanding: (parseFloat(c.outstanding)||0) + tx.amount}
+            : c
+        ));
+      }
+    } else if (tx.type === "income" && tx._accountId) {
+      // Reverse account balance credit
+      setAccounts(p => p.map(a =>
+        String(a.id) === String(tx._accountId)
+          ? {...a, balance: Math.max(0, (parseFloat(a.balance)||0) - tx.amount)}
+          : a
+      ));
     }
-    setTransactions(p=>p.filter(t=>t.id!==id));
+
+    setTransactions(p => p.filter(t => t.id !== id));
   }
 
   function saveDebt() {
@@ -2161,12 +2196,12 @@ if (!user) {
           <div style={{width:34,height:34,background:`linear-gradient(135deg, ${C.purple}, ${C.purpleLight})`,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:16,boxShadow:`0 4px 12px ${C.purple}35`}}>₹</div>
           <span style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:17,letterSpacing:"-0.3px"}}>FinTrack</span>
           {health.score>0&&<span className="tag" style={{background:health.color+"20",color:health.color,fontSize:10}}>{health.grade} · {health.score}/100</span>}
-          {overdueCount>0&&<span className="pulse tag" style={{background:`${C.expense}15`,color:C.expense,cursor:"pointer"}} onClick={()=>setTab("Cards")}>⚠ {overdueCount} overdue</span>}
+          {overdueCount>0&&<span className="pulse tag" style={{background:`${C.expense}15`,color:C.expense,cursor:"pointer"}} onClick={()=>navigateTo("Cards")}>⚠ {overdueCount} overdue</span>}
           <span style={{display:"flex",alignItems:"center"}}><span className="sync-dot"/><span style={{fontSize:10,color:C.muted,fontFamily:"'JetBrains Mono',monospace"}}>{saving?"saving…":lastSaved?`saved ${lastSaved.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}`:""}</span></span>
         </div>
         <div style={{display:"flex",gap:2}}>
           {ALL_TABS.map(t=>(
-            <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>setTab(t)}>
+            <button key={t} className={`dtab-btn ${tab===t?"act":""}`} onClick={()=>navigateTo(t)}>
               {t==="Plan"?"🎯 Plan":t==="Cards"?"💳 Cards":t==="Insights"?"🔍 Insights":t==="Smart"?"⚡ Smart":t==="Budget"?"🎯 Budget":t==="Circles"?"💸 Circles":t}
             </button>
           ))}
@@ -2285,7 +2320,7 @@ if (!user) {
                   </>
                 )}
               </div>
-              <button onClick={()=>setTab("Smart")} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:99,padding:"5px 12px",cursor:"pointer",fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>Accounts →</button>
+              <button onClick={()=>navigateTo("Smart")} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:99,padding:"5px 12px",cursor:"pointer",fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>Accounts →</button>
             </div>
 
             {/* Balance numbers */}
@@ -2465,7 +2500,7 @@ if (!user) {
               {icon:"⬇",label:"Export",    action:exportTransactions},
             ].map(item=>(
               <button key={item.label}
-                onClick={()=>item.action?item.action():setTab(item.tab)}
+                onClick={()=>item.action?item.action():navigateTo(item.tab)}
                 style={{
                   display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
                   gap:4,padding:"10px 4px",borderRadius:14,
@@ -2498,7 +2533,7 @@ if (!user) {
               <div className="card" style={{marginBottom:14,borderColor:`${statusColor}35`}}>
                 <div className="sec-hdr">
                   <div className="sec-hdr-title">💳 Loans & CC Bills</div>
-                  <button className="sec-hdr-more" onClick={()=>setTab("Plan")}>Manage →</button>
+                  <button className="sec-hdr-more" onClick={()=>navigateTo("Plan")}>Manage →</button>
                 </div>
 
                 {/* Grand total + remaining */}
@@ -2600,7 +2635,7 @@ if (!user) {
                           </div>
                         );
                       })}
-                      {activeDebts.length>3&&<div style={{fontSize:11,color:C.purple,textAlign:"center",cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginTop:4}} onClick={()=>setTab("Plan")}>+{activeDebts.length-3} more loans →</div>}
+                      {activeDebts.length>3&&<div style={{fontSize:11,color:C.purple,textAlign:"center",cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginTop:4}} onClick={()=>navigateTo("Plan")}>+{activeDebts.length-3} more loans →</div>}
                     </div>
                   </div>
                 )}
@@ -2646,7 +2681,7 @@ if (!user) {
                         );
                       })}
                       {creditCards.filter(c=>parseFloat(c.outstanding)>0).length>3&&
-                        <div style={{fontSize:11,color:C.purple,textAlign:"center",cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginTop:4}} onClick={()=>setTab("Cards")}>+{creditCards.filter(c=>parseFloat(c.outstanding)>0).length-3} more cards →</div>}
+                        <div style={{fontSize:11,color:C.purple,textAlign:"center",cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,marginTop:4}} onClick={()=>navigateTo("Cards")}>+{creditCards.filter(c=>parseFloat(c.outstanding)>0).length-3} more cards →</div>}
                     </div>
                   </div>
                 )}
@@ -2664,7 +2699,7 @@ if (!user) {
                   </div>
                 )}
 
-                <button className="btn btn-p btn-sm" style={{width:"100%",marginTop:12}} onClick={()=>setTab("Plan")}>
+                <button className="btn btn-p btn-sm" style={{width:"100%",marginTop:12}} onClick={()=>navigateTo("Plan")}>
                   📊 Manage Loans & Payoff Plan →
                 </button>
               </div>
@@ -2701,7 +2736,7 @@ if (!user) {
           <div className="card" style={{marginBottom:14}}>
             <div className="sec-hdr">
               <div className="sec-hdr-title">📊 Spending Overview</div>
-              <button className="sec-hdr-more" onClick={()=>setTab("Insights")}>Details →</button>
+              <button className="sec-hdr-more" onClick={()=>navigateTo("Insights")}>Details →</button>
             </div>
             {/* 4 stat boxes */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
@@ -2763,7 +2798,7 @@ if (!user) {
           <div className="card" style={{marginBottom:14}}>
             <div className="sec-hdr">
               <div className="sec-hdr-title">🧾 Recent Transactions</div>
-              <button className="sec-hdr-more" onClick={()=>setTab("Transactions")}>View All →</button>
+              <button className="sec-hdr-more" onClick={()=>navigateTo("Transactions")}>View All →</button>
             </div>
             {transactions.length===0
               ? <div style={{textAlign:"center",padding:"24px 0",color:C.muted,fontSize:12}}>
@@ -2794,13 +2829,13 @@ if (!user) {
           <div className="card" style={{marginBottom:14}}>
             <div className="sec-hdr">
               <div className="sec-hdr-title">🎯 Budget Overview</div>
-              <button className="sec-hdr-more" onClick={()=>setTab("Budget")}>Manage →</button>
+              <button className="sec-hdr-more" onClick={()=>navigateTo("Budget")}>Manage →</button>
             </div>
             {Object.keys(budgets).length===0
               ? <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:12}}>
                   <div style={{fontSize:28,marginBottom:6}}>📊</div>
                   No budgets set.<br/>
-                  <span style={{color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Budget")}>Set monthly limits →</span>
+                  <span style={{color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>navigateTo("Budget")}>Set monthly limits →</span>
                 </div>
               : <div style={{display:"flex",flexDirection:"column",gap:10}}>
                   {allCategories.expense
@@ -2830,7 +2865,7 @@ if (!user) {
                     })
                   }
                   {Object.keys(budgets).length>5&&(
-                    <div style={{textAlign:"center",fontSize:11,color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Budget")}>
+                    <div style={{textAlign:"center",fontSize:11,color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>navigateTo("Budget")}>
                       +{Object.keys(budgets).length-5} more budgets →
                     </div>
                   )}
@@ -2842,13 +2877,13 @@ if (!user) {
           <div className="card" style={{marginBottom:14}}>
             <div className="sec-hdr">
               <div className="sec-hdr-title">🏦 All Accounts</div>
-              <button className="sec-hdr-more" onClick={()=>setTab("Smart")}>Manage →</button>
+              <button className="sec-hdr-more" onClick={()=>navigateTo("Smart")}>Manage →</button>
             </div>
             {accounts.length===0
               ? <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:12}}>
                   <div style={{fontSize:28,marginBottom:6}}>🏦</div>
                   No accounts added yet.<br/>
-                  <span style={{color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Smart")}>+ Add account →</span>
+                  <span style={{color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>navigateTo("Smart")}>+ Add account →</span>
                 </div>
               : <>
                   <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
@@ -2905,11 +2940,11 @@ if (!user) {
           <div className="card" style={{marginBottom:14}}>
             <div className="sec-hdr">
               <div className="sec-hdr-title">🔔 Dues & Reminders</div>
-              <button className="sec-hdr-more" onClick={()=>setTab("Cards")}>View All →</button>
+              <button className="sec-hdr-more" onClick={()=>navigateTo("Cards")}>View All →</button>
             </div>
             {/* Cash Gap Alert */}
             {cashGap.hasCashGap&&(
-              <div onClick={()=>setTab("Circles")} style={{
+              <div onClick={()=>navigateTo("Circles")} style={{
                 marginBottom:12,padding:"12px 14px",borderRadius:12,cursor:"pointer",
                 background:`${C.warning}12`,border:`1px solid ${C.warning}40`,
               }}>
@@ -2923,7 +2958,7 @@ if (!user) {
             )}
             {/* Money Circles summary if any pending */}
             {circleStats.totalOwed>0&&(
-              <div onClick={()=>setTab("Circles")} style={{
+              <div onClick={()=>navigateTo("Circles")} style={{
                 marginBottom:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",
                 background:`${C.expense}08`,border:`1px solid ${C.expense}25`,
                 display:"flex",justifyContent:"space-between",alignItems:"center",
@@ -2936,7 +2971,7 @@ if (!user) {
               </div>
             )}
             {circleStats.totalToGet>0&&(
-              <div onClick={()=>setTab("Circles")} style={{
+              <div onClick={()=>navigateTo("Circles")} style={{
                 marginBottom:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",
                 background:`${C.income}08`,border:`1px solid ${C.income}25`,
                 display:"flex",justifyContent:"space-between",alignItems:"center",
@@ -3029,7 +3064,7 @@ if (!user) {
                     );
                   })}
                   {upcomingDues.length>6&&(
-                    <div style={{textAlign:"center",fontSize:11,color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>setTab("Cards")}>
+                    <div style={{textAlign:"center",fontSize:11,color:C.purple,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}} onClick={()=>navigateTo("Cards")}>
                       +{upcomingDues.length-6} more dues →
                     </div>
                   )}
