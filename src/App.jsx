@@ -772,40 +772,58 @@ const filterByPeriod = useCallback((txList, period) => {
     const now = new Date();
     const todayDate = now.getDate();
     const mo = now.getMonth(), yr = now.getFullYear();
-    const todayStr2 = `${yr}-${String(mo+1).padStart(2,'0')}-${String(todayDate).padStart(2,'0')}`;
+    const thisMonthPrefix = `${yr}-${String(mo+1).padStart(2,'0')}`;
 
     return investments
       .filter(inv => inv.isSIP && inv.sipActive && inv.sipAmount && inv.sipDay)
       .map(inv => {
-        const sipDay   = parseInt(inv.sipDay) || 1;
-        const sipAmt   = parseFloat(inv.sipAmount) || 0;
+        const sipDay = parseInt(inv.sipDay) || 1;
+        const sipAmt = parseFloat(inv.sipAmount) || 0;
         const lastDate = inv.lastSIPDate || '';
 
-        // Check if already processed this month
-        const alreadyDone = lastDate.startsWith(`${yr}-${String(mo+1).padStart(2,'0')}`);
+        // Already processed this calendar month?
+        const alreadyDone = lastDate.startsWith(thisMonthPrefix);
 
-        // Days until/since SIP date
-        const daysUntil = sipDay - todayDate;
-        const isToday   = sipDay === todayDate;
-        const isOverdue = sipDay < todayDate && !alreadyDone;
-        const isDue     = isToday && !alreadyDone;
-        const isUpcoming = daysUntil > 0 && daysUntil <= 5;
+        // Calculate next SIP date
+        let nextSIPDate;
+        if (!alreadyDone && sipDay >= todayDate) {
+          // SIP day is today or future this month
+          nextSIPDate = new Date(yr, mo, sipDay);
+        } else if (!alreadyDone && sipDay < todayDate) {
+          // SIP day already passed this month and not done → overdue (this month)
+          nextSIPDate = new Date(yr, mo, sipDay);
+        } else {
+          // Already done this month → next SIP is next month
+          nextSIPDate = new Date(yr, mo + 1, sipDay);
+        }
+
+        // Days difference from today
+        const todayMidnight = new Date(yr, mo, todayDate);
+        const msPerDay = 864e5;
+        const daysUntil = Math.round((nextSIPDate - todayMidnight) / msPerDay);
+
+        const isToday   = daysUntil === 0 && !alreadyDone;
+        const isOverdue = daysUntil < 0 && !alreadyDone;
+        const isDue     = isToday;
+        // Show upcoming reminder 5 days before (only if not already done this month)
+        const isUpcoming = daysUntil > 0 && daysUntil <= 5 && !alreadyDone;
+        // Days shown to user (always positive, meaningful)
+        const daysDisplay = Math.abs(daysUntil);
 
         const account = accounts.find(a => String(a.id) === String(inv.sipAccountId));
 
         return {
           ...inv, sipDay, sipAmt,
           alreadyDone, isToday, isOverdue, isDue, isUpcoming,
-          daysUntil, account, todayStr2,
+          daysUntil, daysDisplay, nextSIPDate, account,
         };
       })
-      .sort((a,b) => {
-        // Sort: overdue first, then today, then upcoming, then done
+      .sort((a, b) => {
         if (a.isOverdue && !b.isOverdue) return -1;
         if (!a.isOverdue && b.isOverdue) return 1;
         if (a.isDue && !b.isDue) return -1;
         if (!a.isDue && b.isDue) return 1;
-        return a.sipDay - b.sipDay;
+        return a.daysUntil - b.daysUntil;
       });
   }, [investments, accounts]);
 
@@ -2529,11 +2547,11 @@ if (!user) {
           })()}
 
           {/* ── SIP REMINDER ── */}
-          {sipStatus.filter(s=>s.isOverdue||s.isDue||s.isUpcoming).length>0&&(
+          {sipStatus.length>0&&(
             <div style={{marginBottom:14}}>
-              {sipStatus.filter(s=>s.isOverdue||s.isDue||s.isUpcoming).map(sip=>{
+              {sipStatus.filter(s=>s.isOverdue||s.isDue||s.isUpcoming||s.alreadyDone).map(sip=>{
                 const isUrgent = sip.isOverdue||sip.isDue;
-                const col = sip.isOverdue?C.expense:sip.isDue?C.income:C.accent;
+                const col = sip.isOverdue?C.expense:sip.isDue?C.income:sip.alreadyDone?C.income:C.accent;
                 return(
                   <div key={sip.id} style={{
                     padding:"12px 14px",borderRadius:14,marginBottom:8,
@@ -2545,7 +2563,14 @@ if (!user) {
                       <div style={{minWidth:0}}>
                         <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.text}}>{sip.name} SIP</div>
                         <div style={{fontSize:10,color:col,fontWeight:700,marginTop:1}}>
-                          {sip.isOverdue?`⚠️ Overdue — was due ${sip.sipDay}th`:sip.isDue?`🔔 Due today (${sip.sipDay}th)`:`📅 Due in ${sip.daysUntil} days (${sip.sipDay}th)`}
+                          {sip.isOverdue
+                            ? `⚠️ Overdue — was due ${sip.sipDay}th this month`
+                            : sip.isDue
+                            ? `🔔 Due today! (${sip.sipDay}th)`
+                            : sip.alreadyDone
+                            ? `✅ Done this month · Next: ${sip.nextSIPDate?.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}`
+                            : `📅 Due in ${sip.daysDisplay} day${sip.daysDisplay!==1?'s':''} (${sip.sipDay}th)`
+                          }
                         </div>
                         {sip.account&&<div style={{fontSize:9,color:C.muted,marginTop:1}}>from {sip.account.name} · {fc(parseFloat(sip.account.balance)||0)} available</div>}
                       </div>
@@ -6143,9 +6168,10 @@ if (!user) {
               </div>
               <div className="g2">
                 <div>
-                  <div className="lbl">Amount Invested ₹ *</div>
-                  <input className="inp" type="number" placeholder="e.g. 50000" value={invForm.amount}
+                  <div className="lbl">Total Invested So Far ₹ *</div>
+                  <input className="inp" type="number" placeholder="e.g. 60000" value={invForm.amount}
                     onChange={e=>setInvForm(p=>({...p,amount:e.target.value}))}/>
+                  <div style={{fontSize:10,color:C.muted,marginTop:3}}>Enter your cumulative total, not monthly amount</div>
                 </div>
                 <div>
                   <div className="lbl">Start Date</div>
