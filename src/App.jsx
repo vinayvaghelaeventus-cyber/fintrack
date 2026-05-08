@@ -49,7 +49,8 @@ const EMPTY_CC   = {name:"",bank:"",limit:"",outstanding:"",minDue:"",statementD
 const EMPTY_CC_EMI = {id:null,cardId:"",description:"",amount:"",monthsLeft:"",_totalMonths:""};
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 const EMPTY_ACCOUNT = {id:null, name:"", type:"savings", balance:"", bank:"", color:"#5b8def", icon:"🏦"};
-const EMPTY_INVESTMENT = {id:null,name:"",type:"MF",amount:"",units:"",nav:"",startDate:"",notes:""};
+const EMPTY_INVESTMENT = {id:null,name:"",type:"MF",amount:"",units:"",nav:"",startDate:"",notes:"",
+  isSIP:false,sipAmount:"",sipDay:"",sipAccountId:"",sipActive:true,lastSIPDate:""};
 const ACCOUNT_TYPES = ["savings","current","cash","wallet","fd","other"];
 const ACCOUNT_ICONS = ["🏦","💰","💵","📱","🏧","💼"];
 
@@ -766,6 +767,48 @@ const filterByPeriod = useCallback((txList, period) => {
     return {timelines,projection,totalInterestLeft};
   }, [activeDebts]);
 
+  // ─── SIP STATUS TRACKER ──────────────────────────────────────────────────
+  const sipStatus = useMemo(() => {
+    const now = new Date();
+    const todayDate = now.getDate();
+    const mo = now.getMonth(), yr = now.getFullYear();
+    const todayStr2 = `${yr}-${String(mo+1).padStart(2,'0')}-${String(todayDate).padStart(2,'0')}`;
+
+    return investments
+      .filter(inv => inv.isSIP && inv.sipActive && inv.sipAmount && inv.sipDay)
+      .map(inv => {
+        const sipDay   = parseInt(inv.sipDay) || 1;
+        const sipAmt   = parseFloat(inv.sipAmount) || 0;
+        const lastDate = inv.lastSIPDate || '';
+
+        // Check if already processed this month
+        const alreadyDone = lastDate.startsWith(`${yr}-${String(mo+1).padStart(2,'0')}`);
+
+        // Days until/since SIP date
+        const daysUntil = sipDay - todayDate;
+        const isToday   = sipDay === todayDate;
+        const isOverdue = sipDay < todayDate && !alreadyDone;
+        const isDue     = isToday && !alreadyDone;
+        const isUpcoming = daysUntil > 0 && daysUntil <= 5;
+
+        const account = accounts.find(a => String(a.id) === String(inv.sipAccountId));
+
+        return {
+          ...inv, sipDay, sipAmt,
+          alreadyDone, isToday, isOverdue, isDue, isUpcoming,
+          daysUntil, account, todayStr2,
+        };
+      })
+      .sort((a,b) => {
+        // Sort: overdue first, then today, then upcoming, then done
+        if (a.isOverdue && !b.isOverdue) return -1;
+        if (!a.isOverdue && b.isOverdue) return 1;
+        if (a.isDue && !b.isDue) return -1;
+        if (!a.isDue && b.isDue) return 1;
+        return a.sipDay - b.sipDay;
+      });
+  }, [investments, accounts]);
+
   // ─── INVESTMENT TRACKER ──────────────────────────────────────────────────
   const investmentStats = useMemo(() => {
     const totalInvested = investments.reduce((s,inv)=>s+(parseFloat(inv.amount)||0),0);
@@ -1297,6 +1340,50 @@ const filterByPeriod = useCallback((txList, period) => {
     setInvForm({...EMPTY_INVESTMENT}); setShowInvForm(false); setEditInvId(null);
   }
   function deleteInvestment(id) { setInvestments(p=>p.filter(inv=>inv.id!==id)); }
+
+  function processSIP(inv) {
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const sipAmt = parseFloat(inv.sipAmount) || 0;
+    if (!sipAmt) return;
+
+    // 1. Record expense transaction
+    const tx = {
+      ...EMPTY_TX,
+      id: Date.now(),
+      type: "expense",
+      amount: sipAmt,
+      category: "Investment",
+      paymentMode: inv.account ? "Bank Transfer" : "UPI",
+      bank: inv.account?.name || "",
+      _accountId: inv.sipAccountId || "",
+      note: `SIP: ${inv.name}`,
+      date: dateStr,
+      time: now.toTimeString().slice(0,5),
+    };
+    setTransactions(p => [tx, ...p]);
+
+    // 2. Deduct from account
+    if (inv.sipAccountId) {
+      setAccounts(p => p.map(a =>
+        String(a.id) === String(inv.sipAccountId)
+          ? {...a, balance: Math.max(0, (parseFloat(a.balance)||0) - sipAmt)}
+          : a
+      ));
+    }
+
+    // 3. Update investment total amount + lastSIPDate
+    setInvestments(p => p.map(i =>
+      i.id === inv.id
+        ? {...i,
+            amount: String((parseFloat(i.amount)||0) + sipAmt),
+            lastSIPDate: dateStr,
+          }
+        : i
+    ));
+
+    alert(`✅ SIP processed!\n₹${sipAmt.toLocaleString('en-IN')} deducted from ${inv.account?.name || 'account'}\nAdded to ${inv.name}`);
+  }
   function openEditCC(c) { setCcForm({...c}); setEditCCId(c.id); setShowCCForm(true); }
   function deleteCC(id)  { setCreditCards(p=>p.filter(c=>c.id!==id)); }
   function recordCCPayment(id, amt) {
@@ -2441,6 +2528,50 @@ if (!user) {
             );
           })()}
 
+          {/* ── SIP REMINDER ── */}
+          {sipStatus.filter(s=>s.isOverdue||s.isDue||s.isUpcoming).length>0&&(
+            <div style={{marginBottom:14}}>
+              {sipStatus.filter(s=>s.isOverdue||s.isDue||s.isUpcoming).map(sip=>{
+                const isUrgent = sip.isOverdue||sip.isDue;
+                const col = sip.isOverdue?C.expense:sip.isDue?C.income:C.accent;
+                return(
+                  <div key={sip.id} style={{
+                    padding:"12px 14px",borderRadius:14,marginBottom:8,
+                    background:`${col}10`,border:`1.5px solid ${col}35`,
+                    display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",
+                  }}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
+                      <div style={{width:38,height:38,borderRadius:11,background:`${col}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>📈</div>
+                      <div style={{minWidth:0}}>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.text}}>{sip.name} SIP</div>
+                        <div style={{fontSize:10,color:col,fontWeight:700,marginTop:1}}>
+                          {sip.isOverdue?`⚠️ Overdue — was due ${sip.sipDay}th`:sip.isDue?`🔔 Due today (${sip.sipDay}th)`:`📅 Due in ${sip.daysUntil} days (${sip.sipDay}th)`}
+                        </div>
+                        {sip.account&&<div style={{fontSize:9,color:C.muted,marginTop:1}}>from {sip.account.name} · {fc(parseFloat(sip.account.balance)||0)} available</div>}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:15,color:col}}>{fc(sip.sipAmt)}</div>
+                        <div style={{fontSize:9,color:C.muted}}>/month</div>
+                      </div>
+                      {isUrgent&&(
+                        <button className="btn btn-p btn-sm" style={{flexShrink:0,background:col,borderColor:col}}
+                          onClick={()=>{
+                            if(window.confirm(`Process ₹${sip.sipAmt.toLocaleString('en-IN')} SIP for ${sip.name}?\nThis will deduct from ${sip.account?.name||'your account'} and record the investment.`)){
+                              processSIP(sip);
+                            }
+                          }}>
+                          ✓ Process
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* ── LOAN-TO-INCOME RATIO ── */}
           {tab==="Dashboard"&&loanToIncome&&(
             <div style={{marginBottom:14,padding:"12px 16px",borderRadius:14,background:`${loanToIncome.color}10`,border:`1.5px solid ${loanToIncome.color}35`}}>
@@ -3501,9 +3632,11 @@ if (!user) {
                       <div key={inv.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,flexWrap:"wrap",gap:8}}>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{inv.name}</div>
-                          <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                          <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",alignItems:"center",gap:6}}>
                             {inv.type}{units>0?` · ${units} units @ ₹${nav||"?"} NAV`:""}
-                            {inv.startDate?` · Since ${new Date(inv.startDate).toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`:""}</div>
+                            {inv.startDate?` · Since ${new Date(inv.startDate).toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`:""} 
+                            {inv.isSIP&&inv.sipActive&&<span style={{background:`${C.income}18`,color:C.income,padding:"1px 7px",borderRadius:99,fontSize:9,fontWeight:700,fontFamily:"'Cabinet Grotesk',sans-serif"}}>🔁 SIP ₹{parseFloat(inv.sipAmount||0).toLocaleString('en-IN')}/{String(inv.sipDay||'')}th</span>}
+                          </div>
                         </div>
                         <div style={{textAlign:"right",flexShrink:0}}>
                           <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.accent}}>{fc(curr)}</div>
@@ -6048,6 +6181,62 @@ if (!user) {
                 <div className="lbl">Notes</div>
                 <input className="inp" placeholder="e.g. Monthly SIP ₹5000" value={invForm.notes}
                   onChange={e=>setInvForm(p=>({...p,notes:e.target.value}))}/>
+              </div>
+
+              {/* ── SIP Setup ── */}
+              <div style={{background:C.surface,borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:invForm.isSIP?12:0}}>
+                  <div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>🔁 Set up as SIP</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>Auto-remind & one-tap process monthly</div>
+                  </div>
+                  <div style={{
+                    width:44,height:24,borderRadius:99,
+                    background:invForm.isSIP?C.income:C.border,
+                    cursor:"pointer",position:"relative",transition:"background 0.2s",
+                    flexShrink:0,
+                  }} onClick={()=>setInvForm(p=>({...p,isSIP:!p.isSIP}))}>
+                    <div style={{
+                      position:"absolute",top:3,left:invForm.isSIP?22:3,
+                      width:18,height:18,borderRadius:"50%",background:"#fff",
+                      transition:"left 0.2s",boxShadow:"0 1px 4px rgba(0,0,0,0.2)"
+                    }}/>
+                  </div>
+                </div>
+                {invForm.isSIP&&(
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    <div className="g2">
+                      <div>
+                        <div className="lbl">SIP Amount ₹/month *</div>
+                        <input className="inp" type="number" placeholder="e.g. 5000"
+                          value={invForm.sipAmount}
+                          onChange={e=>setInvForm(p=>({...p,sipAmount:e.target.value}))}/>
+                      </div>
+                      <div>
+                        <div className="lbl">Deduction Date</div>
+                        <input className="inp" type="number" min="1" max="31" placeholder="e.g. 5"
+                          value={invForm.sipDay}
+                          onChange={e=>setInvForm(p=>({...p,sipDay:e.target.value}))}/>
+                        <div style={{fontSize:10,color:C.muted,marginTop:3}}>
+                          {invForm.sipDay?`Every ${invForm.sipDay}${['st','nd','rd'][invForm.sipDay-1]||'th'} of month`:'Which date?'}
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="lbl">Deduct From Account</div>
+                      <select className="inp" value={invForm.sipAccountId}
+                        onChange={e=>setInvForm(p=>({...p,sipAccountId:e.target.value}))}>
+                        <option value="">Select account</option>
+                        {accounts.map(a=><option key={a.id} value={String(a.id)}>{a.icon||"🏦"} {a.name} · {fc(parseFloat(a.balance)||0)}</option>)}
+                      </select>
+                    </div>
+                    {invForm.sipAmount&&invForm.sipDay&&(
+                      <div style={{padding:"8px 12px",background:`${C.income}10`,borderRadius:10,fontSize:11,color:C.muted,lineHeight:1.7}}>
+                        📅 You'll get a reminder on the <strong>{invForm.sipDay}th</strong> every month. One tap to process ₹{parseFloat(invForm.sipAmount).toLocaleString('en-IN')} and deduct from your account automatically.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{display:"flex",gap:9,marginTop:4}}>
                 <button className="btn btn-ghost" onClick={()=>{setShowInvForm(false);setInvForm({...EMPTY_INVESTMENT});setEditInvId(null);}} style={{flex:1}}>Cancel</button>
