@@ -50,7 +50,7 @@ const EMPTY_CC_EMI = {id:null,cardId:"",description:"",amount:"",monthsLeft:"",_
 const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 const EMPTY_ACCOUNT = {id:null, name:"", type:"savings", balance:"", bank:"", color:"#5b8def", icon:"🏦"};
 const EMPTY_INVESTMENT = {id:null,name:"",type:"MF",amount:"",units:"",nav:"",startDate:"",notes:"",
-  isSIP:false,sipAmount:"",sipDay:"",sipAccountId:"",sipActive:true,lastSIPDate:""};
+  isSIP:false,sipAmount:"",sipDay:"",sipStartDate:"",sipAccountId:"",sipActive:true,lastSIPDate:""};
 const ACCOUNT_TYPES = ["savings","current","cash","wallet","fd","other"];
 const ACCOUNT_ICONS = ["🏦","💰","💵","📱","🏧","💼"];
 
@@ -768,6 +768,31 @@ const filterByPeriod = useCallback((txList, period) => {
   }, [activeDebts]);
 
   // ─── SIP STATUS TRACKER ──────────────────────────────────────────────────
+
+  // Helper: calculate total invested for a SIP from its start date to today
+  function getSIPTotalInvested(inv) {
+    if (!inv.isSIP || !inv.sipAmount || !inv.sipStartDate) {
+      return parseFloat(inv.amount) || 0; // fallback to manual amount for non-SIP
+    }
+    const sipAmt   = parseFloat(inv.sipAmount) || 0;
+    const start    = new Date(inv.sipStartDate);
+    const now      = new Date();
+    const sipDay   = parseInt(inv.sipDay) || 1;
+
+    // Count how many SIP instalments have been deducted up to today
+    let count = 0;
+    let d = new Date(start.getFullYear(), start.getMonth(), sipDay);
+    // If start date is after the sipDay of that month, first SIP is next month
+    if (start.getDate() > sipDay) {
+      d = new Date(start.getFullYear(), start.getMonth() + 1, sipDay);
+    }
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    while (d <= today) {
+      count++;
+      d = new Date(d.getFullYear(), d.getMonth() + 1, sipDay);
+    }
+    return count * sipAmt;
+  }
   const sipStatus = useMemo(() => {
     const now = new Date();
     const todayDate = now.getDate();
@@ -829,23 +854,24 @@ const filterByPeriod = useCallback((txList, period) => {
 
   // ─── INVESTMENT TRACKER ──────────────────────────────────────────────────
   const investmentStats = useMemo(() => {
-    const totalInvested = investments.reduce((s,inv)=>s+(parseFloat(inv.amount)||0),0);
-    const currentValue  = investments.reduce((s,inv)=>{
-      const units = parseFloat(inv.units)||0;
-      const nav   = parseFloat(inv.nav)||0;
-      const amt   = parseFloat(inv.amount)||0;
-      return s + (units>0&&nav>0 ? units*nav : amt);
-    },0);
-    const gain      = currentValue - totalInvested;
-    const gainPct   = totalInvested>0 ? (gain/totalInvested)*100 : 0;
-    const byType    = {};
-    investments.forEach(inv=>{
-      const t = inv.type||'Other';
-      if(!byType[t]) byType[t]={count:0,invested:0,current:0};
+    const totalInvested = investments.reduce((s,inv) => s + getSIPTotalInvested(inv), 0);
+    const currentValue  = investments.reduce((s,inv) => {
+      const units  = parseFloat(inv.units) || 0;
+      const nav    = parseFloat(inv.nav)   || 0;
+      const invested = getSIPTotalInvested(inv);
+      return s + (units>0 && nav>0 ? units*nav : invested);
+    }, 0);
+    const gain    = currentValue - totalInvested;
+    const gainPct = totalInvested > 0 ? (gain/totalInvested)*100 : 0;
+    const byType  = {};
+    investments.forEach(inv => {
+      const t       = inv.type || 'Other';
+      const invested = getSIPTotalInvested(inv);
+      const units   = parseFloat(inv.units)||0, nav=parseFloat(inv.nav)||0;
+      if (!byType[t]) byType[t] = {count:0,invested:0,current:0};
       byType[t].count++;
-      byType[t].invested += parseFloat(inv.amount)||0;
-      const units=parseFloat(inv.units)||0, nav=parseFloat(inv.nav)||0, amt=parseFloat(inv.amount)||0;
-      byType[t].current  += (units>0&&nav>0 ? units*nav : amt);
+      byType[t].invested += invested;
+      byType[t].current  += (units>0&&nav>0 ? units*nav : invested);
     });
     return { totalInvested, currentValue, gain, gainPct, byType, count:investments.length };
   }, [investments]);
@@ -1390,17 +1416,12 @@ const filterByPeriod = useCallback((txList, period) => {
       ));
     }
 
-    // 3. Update investment total amount + lastSIPDate
+    // 3. Mark this month as done — total invested is auto-calculated from sipStartDate
     setInvestments(p => p.map(i =>
-      i.id === inv.id
-        ? {...i,
-            amount: String((parseFloat(i.amount)||0) + sipAmt),
-            lastSIPDate: dateStr,
-          }
-        : i
+      i.id === inv.id ? {...i, lastSIPDate: dateStr} : i
     ));
 
-    alert(`✅ SIP processed!\n₹${sipAmt.toLocaleString('en-IN')} deducted from ${inv.account?.name || 'account'}\nAdded to ${inv.name}`);
+    alert(`✅ SIP processed!\n₹${sipAmt.toLocaleString('en-IN')} deducted from ${inv.account?.name || 'account'}\nTotal invested in ${inv.name}: ₹${(getSIPTotalInvested({...inv, lastSIPDate: dateStr})).toLocaleString('en-IN')}`);
   }
   function openEditCC(c) { setCcForm({...c}); setEditCCId(c.id); setShowCCForm(true); }
   function deleteCC(id)  { setCreditCards(p=>p.filter(c=>c.id!==id)); }
@@ -3649,22 +3670,35 @@ if (!user) {
                 <div className="lbl" style={{marginBottom:8}}>HOLDINGS</div>
                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
                   {investments.map(inv=>{
-                    const units=parseFloat(inv.units)||0, nav=parseFloat(inv.nav)||0, amt=parseFloat(inv.amount)||0;
-                    const curr = units>0&&nav>0 ? units*nav : amt;
-                    const g    = curr-amt;
-                    const gPct = amt>0?(g/amt*100):0;
+                    const units=parseFloat(inv.units)||0, nav=parseFloat(inv.nav)||0;
+                    const invested = getSIPTotalInvested(inv);
+                    const curr = units>0&&nav>0 ? units*nav : invested;
+                    const g    = curr-invested;
+                    const gPct = invested>0?(g/invested*100):0;
                     return(
                       <div key={inv.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,flexWrap:"wrap",gap:8}}>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{inv.name}</div>
-                          <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                             {inv.type}{units>0?` · ${units} units @ ₹${nav||"?"} NAV`:""}
                             {inv.startDate?` · Since ${new Date(inv.startDate).toLocaleDateString("en-IN",{month:"short",year:"numeric"})}`:""} 
-                            {inv.isSIP&&inv.sipActive&&<span style={{background:`${C.income}18`,color:C.income,padding:"1px 7px",borderRadius:99,fontSize:9,fontWeight:700,fontFamily:"'Cabinet Grotesk',sans-serif"}}>🔁 SIP ₹{parseFloat(inv.sipAmount||0).toLocaleString('en-IN')}/{String(inv.sipDay||'')}th</span>}
+                            {inv.isSIP&&inv.sipActive&&<span style={{background:`${C.income}18`,color:C.income,padding:"1px 7px",borderRadius:99,fontSize:9,fontWeight:700,fontFamily:"'Cabinet Grotesk',sans-serif"}}>🔁 SIP ₹{parseFloat(inv.sipAmount||0).toLocaleString('en-IN')}/{inv.sipDay}th</span>}
                           </div>
+                          {inv.isSIP&&inv.sipStartDate&&(
+                            <div style={{fontSize:10,color:C.accent,marginTop:3,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                              {(()=>{
+                                const sipDay=parseInt(inv.sipDay)||1;
+                                let count=0,d=new Date(new Date(inv.sipStartDate).getFullYear(),new Date(inv.sipStartDate).getMonth(),sipDay);
+                                const today=new Date(); const td=new Date(today.getFullYear(),today.getMonth(),today.getDate());
+                                while(d<=td){count++;d=new Date(d.getFullYear(),d.getMonth()+1,sipDay);}
+                                return `${count} instalments · auto-calculated`;
+                              })()}
+                            </div>
+                          )}
                         </div>
                         <div style={{textAlign:"right",flexShrink:0}}>
                           <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:14,color:C.accent}}>{fc(curr)}</div>
+                          <div style={{fontSize:10,color:C.muted}}>invested: {fc(Math.round(invested))}</div>
                           {g!==0&&<div style={{fontSize:10,color:g>0?C.income:C.expense,fontWeight:700}}>{g>0?"+":""}{fc(Math.round(g))} ({gPct.toFixed(1)}%)</div>}
                         </div>
                         <div style={{display:"flex",gap:4,flexShrink:0}}>
@@ -6168,10 +6202,12 @@ if (!user) {
               </div>
               <div className="g2">
                 <div>
-                  <div className="lbl">Total Invested So Far ₹ *</div>
-                  <input className="inp" type="number" placeholder="e.g. 60000" value={invForm.amount}
-                    onChange={e=>setInvForm(p=>({...p,amount:e.target.value}))}/>
-                  <div style={{fontSize:10,color:C.muted,marginTop:3}}>Enter your cumulative total, not monthly amount</div>
+                  <div className="lbl">Type</div>
+                  <select className="inp" value={invForm.type} onChange={e=>setInvForm(p=>({...p,type:e.target.value}))}>
+                    {["MF","SIP","Stocks","FD","RD","PPF","NPS","Gold","Crypto","Other"].map(t=>(
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <div className="lbl">Start Date</div>
@@ -6179,6 +6215,16 @@ if (!user) {
                     onChange={e=>setInvForm(p=>({...p,startDate:e.target.value}))}/>
                 </div>
               </div>
+
+              {/* Amount — only for non-SIP investments */}
+              {!invForm.isSIP&&(
+                <div>
+                  <div className="lbl">Amount Invested ₹ *</div>
+                  <input className="inp" type="number" placeholder="e.g. 50000" value={invForm.amount}
+                    onChange={e=>setInvForm(p=>({...p,amount:e.target.value}))}/>
+                  <div style={{fontSize:10,color:C.muted,marginTop:3}}>Total amount invested so far</div>
+                </div>
+              )}
               <div className="g2">
                 <div>
                   <div className="lbl">Units (for MF/Stocks)</div>
@@ -6249,6 +6295,25 @@ if (!user) {
                       </div>
                     </div>
                     <div>
+                      <div className="lbl">SIP Start Date *</div>
+                      <input className="inp" type="month"
+                        value={invForm.sipStartDate}
+                        onChange={e=>setInvForm(p=>({...p,sipStartDate:e.target.value+'-01'}))}/>
+                      <div style={{fontSize:10,color:C.muted,marginTop:3}}>
+                        {invForm.sipStartDate&&invForm.sipAmount?(()=>{
+                          const start = new Date(invForm.sipStartDate);
+                          const now   = new Date();
+                          const sipDay = parseInt(invForm.sipDay)||1;
+                          let count=0, d=new Date(start.getFullYear(),start.getMonth(),sipDay);
+                          if(start.getDate()>sipDay) d=new Date(start.getFullYear(),start.getMonth()+1,sipDay);
+                          const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+                          while(d<=today){count++;d=new Date(d.getFullYear(),d.getMonth()+1,sipDay);}
+                          const total=(count*(parseFloat(invForm.sipAmount)||0));
+                          return `${count} instalments completed → ₹${total.toLocaleString('en-IN')} total invested`;
+                        })():'Enter start date to auto-calculate total'}
+                      </div>
+                    </div>
+                    <div>
                       <div className="lbl">Deduct From Account</div>
                       <select className="inp" value={invForm.sipAccountId}
                         onChange={e=>setInvForm(p=>({...p,sipAccountId:e.target.value}))}>
@@ -6256,9 +6321,10 @@ if (!user) {
                         {accounts.map(a=><option key={a.id} value={String(a.id)}>{a.icon||"🏦"} {a.name} · {fc(parseFloat(a.balance)||0)}</option>)}
                       </select>
                     </div>
-                    {invForm.sipAmount&&invForm.sipDay&&(
-                      <div style={{padding:"8px 12px",background:`${C.income}10`,borderRadius:10,fontSize:11,color:C.muted,lineHeight:1.7}}>
-                        📅 You'll get a reminder on the <strong>{invForm.sipDay}th</strong> every month. One tap to process ₹{parseFloat(invForm.sipAmount).toLocaleString('en-IN')} and deduct from your account automatically.
+                    {invForm.sipAmount&&invForm.sipDay&&invForm.sipStartDate&&(
+                      <div style={{padding:"10px 14px",background:`${C.income}10`,borderRadius:10,border:`1px solid ${C.income}25`,fontSize:11,color:C.muted,lineHeight:1.8}}>
+                        ✅ App will <strong>auto-calculate</strong> your total invested from the start date.<br/>
+                        📅 Reminder on <strong>{invForm.sipDay}th</strong> every month to process ₹{parseFloat(invForm.sipAmount||0).toLocaleString('en-IN')} with one tap.
                       </div>
                     )}
                   </div>
