@@ -1378,7 +1378,11 @@ const filterByPeriod = useCallback((txList, period) => {
   }
   function deleteCCEmi(id) { setCcEmis(p=>p.filter(e=>e.id!==id)); }
   function saveInvestment() {
-    if (!invForm.name||!invForm.amount) return;
+    if (!invForm.name) return;
+    // SIP investments don't need manual amount — calculated from sipStartDate
+    if (!invForm.isSIP && !invForm.amount) return;
+    // SIP must have sipAmount and sipStartDate
+    if (invForm.isSIP && (!invForm.sipAmount || !invForm.sipStartDate)) return;
     if (editInvId) { setInvestments(p=>p.map(inv=>inv.id===editInvId?{...invForm,id:editInvId}:inv)); }
     else { setInvestments(p=>[...p,{...invForm,id:Date.now()}]); }
     setInvForm({...EMPTY_INVESTMENT}); setShowInvForm(false); setEditInvId(null);
@@ -2568,11 +2572,11 @@ if (!user) {
           })()}
 
           {/* ── SIP REMINDER ── */}
-          {sipStatus.length>0&&(
+          {sipStatus.filter(s=>s.isOverdue||s.isDue||s.isUpcoming).length>0&&(
             <div style={{marginBottom:14}}>
-              {sipStatus.filter(s=>s.isOverdue||s.isDue||s.isUpcoming||s.alreadyDone).map(sip=>{
+              {sipStatus.filter(s=>s.isOverdue||s.isDue||s.isUpcoming).map(sip=>{
                 const isUrgent = sip.isOverdue||sip.isDue;
-                const col = sip.isOverdue?C.expense:sip.isDue?C.income:sip.alreadyDone?C.income:C.accent;
+                const col = sip.isOverdue?C.expense:sip.isDue?C.income:C.accent;
                 return(
                   <div key={sip.id} style={{
                     padding:"12px 14px",borderRadius:14,marginBottom:8,
@@ -2603,11 +2607,7 @@ if (!user) {
                       </div>
                       {isUrgent&&(
                         <button className="btn btn-p btn-sm" style={{flexShrink:0,background:col,borderColor:col}}
-                          onClick={()=>{
-                            if(window.confirm(`Process ₹${sip.sipAmt.toLocaleString('en-IN')} SIP for ${sip.name}?\nThis will deduct from ${sip.account?.name||'your account'} and record the investment.`)){
-                              processSIP(sip);
-                            }
-                          }}>
+                          onClick={()=>processSIP(sip)}>
                           ✓ Process
                         </button>
                       )}
@@ -6185,20 +6185,10 @@ if (!user) {
           <div className="sheet">
             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:14}}>{editInvId?"Edit":"Add"} Investment</div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div className="g2">
-                <div>
-                  <div className="lbl">Name *</div>
-                  <input className="inp" placeholder="e.g. HDFC Midcap Fund" value={invForm.name}
-                    onChange={e=>setInvForm(p=>({...p,name:e.target.value}))}/>
-                </div>
-                <div>
-                  <div className="lbl">Type</div>
-                  <select className="inp" value={invForm.type} onChange={e=>setInvForm(p=>({...p,type:e.target.value}))}>
-                    {["MF","SIP","Stocks","FD","RD","PPF","NPS","Gold","Crypto","Other"].map(t=>(
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
+              <div>
+                <div className="lbl">Fund / Investment Name *</div>
+                <input className="inp" placeholder="e.g. HDFC Midcap Fund, SBI Gold ETF" value={invForm.name}
+                  onChange={e=>setInvForm(p=>({...p,name:e.target.value}))}/>
               </div>
               <div className="g2">
                 <div>
@@ -6237,14 +6227,14 @@ if (!user) {
                     onChange={e=>setInvForm(p=>({...p,nav:e.target.value}))}/>
                 </div>
               </div>
-              {invForm.units&&invForm.nav&&invForm.amount&&(
+              {invForm.units&&invForm.nav&&(invForm.amount||invForm.isSIP)&&(
                 <div style={{padding:"10px 14px",background:`${C.income}10`,borderRadius:10,border:`1px solid ${C.income}25`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                   <span style={{fontSize:11,color:C.muted}}>Current Value</span>
                   <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13}}>
                     <span style={{color:C.accent}}>{fc((parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0))}</span>
                     {" · "}
-                    <span style={{color:(parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0)>=(parseFloat(invForm.amount)||0)?C.income:C.expense}}>
-                      {(parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0)>=(parseFloat(invForm.amount)||0)?"+":""}{fc(Math.round(((parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0))-(parseFloat(invForm.amount)||0)))} gain
+                    <span style={{color:(parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0)>=getSIPTotalInvested(invForm)?C.income:C.expense}}>
+                      {(parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0)>=getSIPTotalInvested(invForm)?"+":""}{fc(Math.round(((parseFloat(invForm.units)||0)*(parseFloat(invForm.nav)||0))-getSIPTotalInvested(invForm)))} gain
                     </span>
                   </div>
                 </div>
@@ -6295,9 +6285,9 @@ if (!user) {
                       </div>
                     </div>
                     <div>
-                      <div className="lbl">SIP Start Date *</div>
+                      <div className="lbl">SIP Start Month *</div>
                       <input className="inp" type="month"
-                        value={invForm.sipStartDate}
+                        value={invForm.sipStartDate ? invForm.sipStartDate.slice(0,7) : ''}
                         onChange={e=>setInvForm(p=>({...p,sipStartDate:e.target.value+'-01'}))}/>
                       <div style={{fontSize:10,color:C.muted,marginTop:3}}>
                         {invForm.sipStartDate&&invForm.sipAmount?(()=>{
