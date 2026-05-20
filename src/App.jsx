@@ -39,7 +39,7 @@ const MOBILE_TABS = [
   {id:"Plan",         icon:"📊", label:"Plan"},
   {id:"More",         icon:"⋯",  label:"More"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart","Circles","More"];
+const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart","Circles","More","Trips"];
 const CIRCLE_PURPOSES = ["Bill Payment","Rent","Medical","Groceries","EMI","Utility Bill","Travel","Emergency","Other"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const EMPTY_CIRCLE = {id:null, person:"", amount:"", purpose:"", borrowedDate:todayStr(), returnDate:"", type:"borrowed", status:"pending", notes:""};
@@ -51,6 +51,9 @@ const EMPTY_SAL  = {amount:"",bank:"",creditDay:"1",active:true};
 const EMPTY_ACCOUNT = {id:null, name:"", type:"savings", balance:"", bank:"", color:"#5b8def", icon:"🏦"};
 const EMPTY_INVESTMENT = {id:null,name:"",type:"MF",amount:"",units:"",nav:"",startDate:"",notes:"",
   isSIP:false,sipAmount:"",sipDay:"",sipStartDate:"",sipAccountId:"",sipActive:true,lastSIPDate:""};
+const EMPTY_TRIP = {id:null,name:"",destination:"",startDate:"",endDate:"",budget:"",members:[],status:"active",createdAt:""};
+const EMPTY_TRIP_EXPENSE = {id:null,tripId:"",amount:"",category:"Food",paidBy:"",date:"",note:"",splitType:"equal",splits:{}};
+const TRIP_EXPENSE_CATS = ["Food","Transport","Hotel","Activity","Shopping","Entertainment","Fuel","Other"];
 const ACCOUNT_TYPES = ["savings","current","cash","wallet","fd","other"];
 const ACCOUNT_ICONS = ["🏦","💰","💵","📱","🏧","💼"];
 
@@ -177,6 +180,19 @@ export default function App() {
   const [ccEmiForm, setCcEmiForm]       = useState({...EMPTY_CC_EMI});
   // ── Investments ──
   const [investments, setInvestments]   = useState([]);
+  // ── Trip Expense Tracker ──
+  const [trips, setTrips]               = useState([]);
+  const [tripExpenses, setTripExpenses] = useState([]);
+  const [tripSettlements, setTripSettlements] = useState([]);
+  // Trip UI state
+  const [activeTripId, setActiveTripId] = useState(null);
+  const [tripView, setTripView]         = useState("list"); // list | detail | settlement | addExpense | addTrip
+  const [tripForm, setTripForm]         = useState({...EMPTY_TRIP});
+  const [tripExpForm, setTripExpForm]   = useState({...EMPTY_TRIP_EXPENSE});
+  const [editTripExpId, setEditTripExpId] = useState(null);
+  const [tripFilter, setTripFilter]     = useState("all"); // all | food | transport | hotel | ...
+  const [closeTripAccountId, setCloseTripAccountId] = useState("");
+  const [showCloseTripModal, setShowCloseTripModal] = useState(false);
   const [showInvForm, setShowInvForm]   = useState(false);
   const [invForm, setInvForm]           = useState({...EMPTY_INVESTMENT});
   const [editInvId, setEditInvId]       = useState(null);
@@ -356,6 +372,9 @@ useEffect(() => {
           if (data.ccEmis)        setCcEmis(data.ccEmis);
           if (data.investments)   setInvestments(data.investments);
           if (data.cibilScore)    setCibilScore(data.cibilScore);
+          if (data.trips)         setTrips(data.trips);
+          if (data.tripExpenses)  setTripExpenses(data.tripExpenses);
+          if (data.tripSettlements) setTripSettlements(data.tripSettlements);
         }
         setFbStatus("ok");
       } catch (e) {
@@ -380,6 +399,7 @@ useEffect(() => {
         monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
         accounts, customCats, moneyCircles, salary, recurringBills,
         ccEmis, investments, cibilScore, familyCap,
+        trips, tripExpenses, tripSettlements,
         lastUpdated: new Date().toISOString(),
       });
       setSaving(false);
@@ -389,7 +409,8 @@ useEffect(() => {
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
       monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
       accounts, customCats, moneyCircles, salary, recurringBills,
-      ccEmis, investments, cibilScore, familyCap, loaded]);
+      ccEmis, investments, cibilScore, familyCap,
+      trips, tripExpenses, tripSettlements, loaded]);
 
 
 
@@ -1388,6 +1409,156 @@ const filterByPeriod = useCallback((txList, period) => {
     setInvForm({...EMPTY_INVESTMENT}); setShowInvForm(false); setEditInvId(null);
   }
   function deleteInvestment(id) { setInvestments(p=>p.filter(inv=>inv.id!==id)); }
+
+  // ─── TRIP FUNCTIONS ───────────────────────────────────────────────────────
+
+  function saveTrip() {
+    if (!tripForm.name || tripForm.members.length < 1) return;
+    const trip = {...tripForm, id: tripForm.id||Date.now(), createdAt: tripForm.createdAt||new Date().toISOString()};
+    if (tripForm.id) { setTrips(p=>p.map(t=>t.id===tripForm.id?trip:t)); }
+    else { setTrips(p=>[trip,...p]); }
+    setTripForm({...EMPTY_TRIP});
+    setTripView("list");
+  }
+
+  function deleteTrip(id) {
+    setTrips(p=>p.filter(t=>t.id!==id));
+    setTripExpenses(p=>p.filter(e=>e.tripId!==id));
+    setTripSettlements(p=>p.filter(s=>s.tripId!==id));
+    setActiveTripId(null);
+    setTripView("list");
+  }
+
+  function archiveTrip(id) {
+    setTrips(p=>p.map(t=>t.id===id?{...t,status:"archived"}:t));
+  }
+
+  function saveTripExpense() {
+    if (!tripExpForm.amount||!tripExpForm.paidBy||!activeTripId) return;
+    const trip = trips.find(t=>t.id===activeTripId);
+    if (!trip) return;
+    const amt = parseFloat(tripExpForm.amount)||0;
+    // Build splits based on splitType
+    let splits = {};
+    const members = trip.members;
+    if (tripExpForm.splitType==="equal") {
+      const share = amt/members.length;
+      members.forEach(m=>splits[m]=parseFloat(share.toFixed(2)));
+    } else if (tripExpForm.splitType==="exclude") {
+      // splits already set via form (excluded members have 0)
+      splits = tripExpForm.splits;
+      const included = members.filter(m=>(splits[m]||0)>0);
+      if (included.length===0) { members.forEach(m=>splits[m]=parseFloat((amt/members.length).toFixed(2))); }
+      else {
+        const share = amt/included.length;
+        included.forEach(m=>splits[m]=parseFloat(share.toFixed(2)));
+        members.filter(m=>!included.includes(m)).forEach(m=>splits[m]=0);
+      }
+    } else if (tripExpForm.splitType==="custom_amount"||tripExpForm.splitType==="custom_pct") {
+      splits = tripExpForm.splits;
+      if (tripExpForm.splitType==="custom_pct") {
+        members.forEach(m=>splits[m]=parseFloat(((splits[m]||0)/100*amt).toFixed(2)));
+      }
+    } else if (tripExpForm.splitType==="one_person") {
+      members.forEach(m=>splits[m]=0);
+      splits[tripExpForm.splitCoveredBy||tripExpForm.paidBy]=amt;
+    }
+    const exp = {...tripExpForm, id:tripExpForm.id||Date.now(), tripId:activeTripId, amount:amt, splits};
+    if (editTripExpId) { setTripExpenses(p=>p.map(e=>e.id===editTripExpId?exp:e)); setEditTripExpId(null); }
+    else { setTripExpenses(p=>[...p,exp]); }
+    // Recompute settlements
+    recomputeSettlements(activeTripId, [...tripExpenses.filter(e=>e.id!==editTripExpId), ...(editTripExpId?[]:[exp])], trip.members);
+    setTripExpForm({...EMPTY_TRIP_EXPENSE, tripId:activeTripId, paidBy:trip.members[0]||""});
+    setTripView("detail");
+  }
+
+  function deleteTripExpense(id) {
+    const trip = trips.find(t=>t.id===activeTripId);
+    const newExps = tripExpenses.filter(e=>e.id!==id);
+    setTripExpenses(newExps);
+    if (trip) recomputeSettlements(activeTripId, newExps.filter(e=>e.tripId===activeTripId), trip.members);
+  }
+
+  function recomputeSettlements(tripId, expenses, members) {
+    // Calculate net balance per member
+    const balance = {};
+    members.forEach(m=>balance[m]=0);
+    expenses.filter(e=>e.tripId===tripId).forEach(exp=>{
+      // Paid by gets credit
+      balance[exp.paidBy] = (balance[exp.paidBy]||0) + exp.amount;
+      // Each member gets debited their share
+      Object.entries(exp.splits||{}).forEach(([m,share])=>{
+        balance[m] = (balance[m]||0) - share;
+      });
+    });
+
+    // Minimum transfers algorithm (greedy)
+    const creditors = [], debtors = [];
+    Object.entries(balance).forEach(([m,b])=>{
+      if (b>0.01) creditors.push({m,b});
+      else if (b<-0.01) debtors.push({m,b:-b});
+    });
+    creditors.sort((a,b)=>b.b-a.b);
+    debtors.sort((a,b)=>b.b-a.b);
+
+    const newSettlements = [];
+    let ci=0, di=0;
+    while (ci<creditors.length && di<debtors.length) {
+      const c=creditors[ci], d=debtors[di];
+      const amount = Math.min(c.b, d.b);
+      if (amount>0.01) {
+        // Check if prior partial payment exists
+        const existing = tripSettlements.find(s=>s.tripId===tripId&&s.fromMember===d.m&&s.toMember===c.m);
+        newSettlements.push({
+          id: existing?.id||`${tripId}_${d.m}_${c.m}`,
+          tripId, fromMember:d.m, toMember:c.m,
+          totalOwed: parseFloat(amount.toFixed(2)),
+          amountPaid: existing?.settled ? parseFloat(amount.toFixed(2)) : (existing?.amountPaid||0),
+          settled: existing?.settled||false,
+        });
+      }
+      c.b -= amount; d.b -= amount;
+      if (c.b<0.01) ci++; if (d.b<0.01) di++;
+    }
+    setTripSettlements(p=>[...p.filter(s=>s.tripId!==tripId), ...newSettlements]);
+  }
+
+  function markSettled(settlementId) {
+    setTripSettlements(p=>p.map(s=>s.id===settlementId?{...s,settled:true,amountPaid:s.totalOwed}:s));
+  }
+
+  function partialSettle(settlementId, amount) {
+    const amt = parseFloat(amount)||0;
+    if (amt<=0) return;
+    setTripSettlements(p=>p.map(s=>s.id===settlementId?{...s,amountPaid:Math.min(s.totalOwed,s.amountPaid+amt),settled:(s.amountPaid+amt)>=s.totalOwed}:s));
+  }
+
+  function closeTrip(tripId, accountId) {
+    const trip = trips.find(t=>t.id===tripId);
+    if (!trip) return;
+    const myName = trip.members[0]; // first member is assumed to be you (Vinay)
+    const myExpenses = tripExpenses.filter(e=>e.tripId===tripId);
+    // My share = sum of my splits across all expenses
+    const myShare = myExpenses.reduce((s,e)=>(e.splits&&e.splits[myName]!=null?s+(parseFloat(e.splits[myName])||0):s),0);
+    if (myShare<=0) { archiveTrip(tripId); return; }
+    // Add transaction
+    const now = new Date();
+    const dateStr=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const tx = {...EMPTY_TX, id:Date.now(), type:"expense", amount:myShare, category:"Travel",
+      paymentMode:"Bank Transfer", _accountId:accountId,
+      note:`${trip.name} — My Share`, date:dateStr, time:now.toTimeString().slice(0,5)};
+    setTransactions(p=>[tx,...p]);
+    // Deduct from account
+    if (accountId) {
+      setAccounts(p=>p.map(a=>String(a.id)===String(accountId)?{...a,balance:Math.max(0,(parseFloat(a.balance)||0)-myShare)}:a));
+    }
+    // Archive trip
+    setTrips(p=>p.map(t=>t.id===tripId?{...t,status:"archived",closedAt:dateStr,myShare}:t));
+    setShowCloseTripModal(false);
+    setCloseTripAccountId("");
+    setActiveTripId(null);
+    setTripView("list");
+  }
 
   function processSIP(inv) {
     const now = new Date();
@@ -5398,6 +5569,501 @@ if (!user) {
 
         </>}
 
+        {/* ════════ TRIPS ════════ */}
+        {tab==="Trips"&&<>
+          {(()=>{
+            const activeTrip = trips.find(t=>t.id===activeTripId);
+            const tripExps   = tripExpenses.filter(e=>e.tripId===activeTripId);
+            const tripSetts  = tripSettlements.filter(s=>s.tripId===activeTripId);
+
+            // ── TRIP LIST VIEW ──
+            if (tripView==="list") return(
+              <>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:20,color:C.text}}>🧳 Trip Expenses</div>
+                    <div style={{fontSize:11,color:C.muted}}>Split bills with friends & family</div>
+                  </div>
+                  <button className="btn btn-p" onClick={()=>{setTripForm({...EMPTY_TRIP,members:["Vinay"]});setTripView("addTrip");}}>+ New Trip</button>
+                </div>
+                {trips.length===0&&(
+                  <div className="card" style={{textAlign:"center",padding:40}}>
+                    <div style={{fontSize:48,marginBottom:12}}>🧳</div>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:16,color:C.text,marginBottom:6}}>No trips yet</div>
+                    <div style={{fontSize:12,color:C.muted,marginBottom:16}}>Create a trip to start splitting expenses with friends</div>
+                    <button className="btn btn-p" onClick={()=>{setTripForm({...EMPTY_TRIP,members:["Vinay"]});setTripView("addTrip");}}>+ Create First Trip</button>
+                  </div>
+                )}
+                {trips.filter(t=>t.status==="active").length>0&&(
+                  <div style={{marginBottom:14}}>
+                    <div className="lbl" style={{marginBottom:8}}>ACTIVE TRIPS</div>
+                    {trips.filter(t=>t.status==="active").map(trip=>{
+                      const exps=tripExpenses.filter(e=>e.tripId===trip.id);
+                      const total=exps.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+                      const budget=parseFloat(trip.budget)||0;
+                      const pct=budget>0?Math.min(100,(total/budget)*100):0;
+                      const pending=tripSettlements.filter(s=>s.tripId===trip.id&&!s.settled);
+                      return(
+                        <div key={trip.id} className="card" style={{marginBottom:10,cursor:"pointer",padding:"14px 16px"}}
+                          onClick={()=>{setActiveTripId(trip.id);setTripView("detail");}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,flexWrap:"wrap",gap:6}}>
+                            <div>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:C.text}}>{trip.name}</div>
+                              <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                                {trip.destination&&`📍 ${trip.destination} · `}{trip.members.length} members
+                                {trip.startDate&&` · ${new Date(trip.startDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}`}
+                              </div>
+                            </div>
+                            <div style={{textAlign:"right"}}>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:C.accent}}>{fc(total)}</div>
+                              {budget>0&&<div style={{fontSize:10,color:C.muted}}>of {fc(budget)}</div>}
+                            </div>
+                          </div>
+                          {budget>0&&<div className="pbar" style={{marginBottom:8}}><div className="pfill" style={{width:`${pct}%`,background:pct>90?C.expense:C.accent}}/></div>}
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                              {trip.members.slice(0,4).map(m=>(
+                                <span key={m} style={{fontSize:10,background:C.surface,border:`1px solid ${C.border}`,padding:"2px 8px",borderRadius:99,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,color:C.text}}>{m}</span>
+                              ))}
+                              {trip.members.length>4&&<span style={{fontSize:10,color:C.muted}}>+{trip.members.length-4}</span>}
+                            </div>
+                            {pending.length>0&&<span style={{fontSize:10,color:C.warning,fontWeight:700}}>⏳ {pending.length} pending</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {trips.filter(t=>t.status==="archived").length>0&&(
+                  <div>
+                    <div className="lbl" style={{marginBottom:8}}>PAST TRIPS</div>
+                    {trips.filter(t=>t.status==="archived").map(trip=>{
+                      const total=tripExpenses.filter(e=>e.tripId===trip.id).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+                      return(
+                        <div key={trip.id} style={{padding:"12px 14px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,marginBottom:8,cursor:"pointer",opacity:0.8}}
+                          onClick={()=>{setActiveTripId(trip.id);setTripView("detail");}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <div>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{trip.name}</div>
+                              <div style={{fontSize:10,color:C.muted}}>{trip.members.length} members{trip.closedAt?` · Closed ${new Date(trip.closedAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"2-digit"})}`:""}</div>
+                            </div>
+                            <div style={{textAlign:"right"}}>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.muted}}>{fc(total)}</div>
+                              {trip.myShare>0&&<div style={{fontSize:10,color:C.income}}>My share: {fc(trip.myShare)}</div>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            );
+
+            // ── ADD / EDIT TRIP ──
+            if (tripView==="addTrip") return(
+              <div className="card">
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:16}}>
+                  {tripForm.id?"Edit Trip":"New Trip"}
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  <div>
+                    <div className="lbl">Trip Name *</div>
+                    <input className="inp" placeholder="e.g. Goa 2026, Diwali Trip" value={tripForm.name}
+                      onChange={e=>setTripForm(p=>({...p,name:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <div className="lbl">Destination</div>
+                    <input className="inp" placeholder="e.g. Goa, Manali, Dubai" value={tripForm.destination}
+                      onChange={e=>setTripForm(p=>({...p,destination:e.target.value}))}/>
+                  </div>
+                  <div className="g2">
+                    <div><div className="lbl">Start Date</div><input className="inp" type="date" value={tripForm.startDate} onChange={e=>setTripForm(p=>({...p,startDate:e.target.value}))}/></div>
+                    <div><div className="lbl">End Date</div><input className="inp" type="date" value={tripForm.endDate} onChange={e=>setTripForm(p=>({...p,endDate:e.target.value}))}/></div>
+                  </div>
+                  <div>
+                    <div className="lbl">Total Budget ₹</div>
+                    <input className="inp" type="number" placeholder="e.g. 15000" value={tripForm.budget}
+                      onChange={e=>setTripForm(p=>({...p,budget:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <div className="lbl" style={{marginBottom:8}}>Members * (first = you)</div>
+                    {tripForm.members.map((m,i)=>(
+                      <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                        <input className="inp" style={{flex:1}} placeholder={i===0?"Your name (e.g. Vinay)":"Friend's name"} value={m}
+                          onChange={e=>{const arr=[...tripForm.members];arr[i]=e.target.value;setTripForm(p=>({...p,members:arr}));}}/>
+                        {i>0&&<button className="btn-ghost btn-sm" style={{color:C.expense,flexShrink:0}} onClick={()=>setTripForm(p=>({...p,members:p.members.filter((_,j)=>j!==i)}))}>✕</button>}
+                      </div>
+                    ))}
+                    <button className="btn btn-ghost btn-sm" onClick={()=>setTripForm(p=>({...p,members:[...p.members,""]}))}>+ Add Member</button>
+                  </div>
+                  <div style={{display:"flex",gap:10,marginTop:8}}>
+                    <button className="btn btn-ghost" style={{flex:1}} onClick={()=>{setTripView("list");setTripForm({...EMPTY_TRIP});}}>Cancel</button>
+                    <button className="btn btn-p" style={{flex:2}} onClick={saveTrip}>{tripForm.id?"Save Changes":"Create Trip"}</button>
+                  </div>
+                </div>
+              </div>
+            );
+
+            // ── TRIP DETAIL ──
+            if (tripView==="detail"&&activeTrip) {
+              const totalSpent=tripExps.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+              const budget=parseFloat(activeTrip.budget)||0;
+              const budgetPct=budget>0?Math.min(100,(totalSpent/budget)*100):0;
+              const memberStats={};
+              activeTrip.members.forEach(m=>{memberStats[m]={paid:0,owed:0};});
+              tripExps.forEach(exp=>{
+                if(memberStats[exp.paidBy]) memberStats[exp.paidBy].paid+=(parseFloat(exp.amount)||0);
+                Object.entries(exp.splits||{}).forEach(([m,share])=>{if(memberStats[m]) memberStats[m].owed+=(parseFloat(share)||0);});
+              });
+              const catTotals={};
+              tripExps.forEach(e=>{catTotals[e.category]=(catTotals[e.category]||0)+(parseFloat(e.amount)||0);});
+              const pendingSetts=tripSetts.filter(s=>!s.settled);
+              return(
+                <>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                    <button className="btn-ghost btn-sm" onClick={()=>{setTripView("list");setActiveTripId(null);}}>← Back</button>
+                    <div style={{flex:1}}>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18,color:C.text}}>{activeTrip.name}</div>
+                      <div style={{fontSize:11,color:C.muted}}>{activeTrip.destination&&`📍 ${activeTrip.destination} · `}{activeTrip.members.length} members{activeTrip.status==="archived"&&" · ✅ Closed"}</div>
+                    </div>
+                    <button className="btn-ghost btn-sm" onClick={()=>{setTripForm({...activeTrip});setTripView("addTrip");}}>✏️</button>
+                  </div>
+                  {budget>0&&(
+                    <div className="card" style={{marginBottom:10,padding:"12px 16px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                        <span style={{fontSize:12,color:C.muted,fontWeight:700}}>Budget</span>
+                        <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,color:budgetPct>90?C.expense:C.text}}>{fc(totalSpent)} of {fc(budget)} ({budgetPct.toFixed(0)}%)</span>
+                      </div>
+                      <div className="pbar"><div className="pfill" style={{width:`${budgetPct}%`,background:budgetPct>90?C.expense:C.income}}/></div>
+                    </div>
+                  )}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+                    {[
+                      {label:"Total Spent",val:fc(totalSpent),color:C.expense},
+                      {label:"Expenses",val:tripExps.length,color:C.accent},
+                      {label:"Pending",val:pendingSetts.length,color:pendingSetts.length>0?C.warning:C.income},
+                    ].map(s=>(
+                      <div key={s.label} style={{background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                        <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:15,color:s.color}}>{s.val}</div>
+                        <div style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginTop:2}}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {activeTrip.status==="active"&&(
+                    <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                      <button className="btn btn-p" style={{flex:2}} onClick={()=>{setTripExpForm({...EMPTY_TRIP_EXPENSE,tripId:activeTripId,date:new Date().toISOString().slice(0,10),paidBy:activeTrip.members[0]||"",splits:{}});setEditTripExpId(null);setTripView("addExpense");}}>+ Add Expense</button>
+                      <button className="btn btn-ghost" style={{flex:1}} onClick={()=>setTripView("settlement")}>⚖️ Settle</button>
+                    </div>
+                  )}
+                  {activeTrip.status==="active"&&(
+                    <button className="btn btn-ghost" style={{width:"100%",marginBottom:10,color:C.income,borderColor:C.income}} onClick={()=>setShowCloseTripModal(true)}>✅ Close Trip & Add to My Expenses</button>
+                  )}
+                  {/* Per Member Summary */}
+                  <div className="card" style={{marginBottom:10}}>
+                    <div className="stitle" style={{marginBottom:12}}>👥 Per Member</div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+                        <thead>
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            {["Member","Paid","Share","Balance"].map(h=>(
+                              <th key={h} style={{padding:"6px 8px",textAlign:h==="Member"?"left":"right",color:C.muted,fontWeight:700,fontSize:10,textTransform:"uppercase"}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeTrip.members.map(m=>{
+                            const st=memberStats[m]||{paid:0,owed:0};
+                            const bal=st.paid-st.owed;
+                            return(
+                              <tr key={m} style={{borderBottom:`1px solid ${C.border}20`}}>
+                                <td style={{padding:"8px",fontWeight:700,color:C.text}}>{m}</td>
+                                <td style={{padding:"8px",textAlign:"right",color:C.accent}}>{fc(st.paid)}</td>
+                                <td style={{padding:"8px",textAlign:"right",color:C.muted}}>{fc(Math.round(st.owed*100)/100)}</td>
+                                <td style={{padding:"8px",textAlign:"right",fontWeight:700,color:bal>=0?C.income:C.expense}}>{bal>=0?"+":""}{fc(Math.round(bal*100)/100)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  {/* Category breakdown */}
+                  {Object.keys(catTotals).length>0&&(
+                    <div className="card" style={{marginBottom:10}}>
+                      <div className="stitle" style={{marginBottom:12}}>📊 By Category</div>
+                      {Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).map(([cat,amt])=>{
+                        const pct=totalSpent>0?(amt/totalSpent*100):0;
+                        return(
+                          <div key={cat} style={{marginBottom:8}}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:12}}>
+                              <span style={{fontWeight:700,color:C.text}}>{cat}</span>
+                              <span style={{color:C.accent,fontWeight:700}}>{fc(amt)} ({pct.toFixed(0)}%)</span>
+                            </div>
+                            <div className="pbar"><div className="pfill" style={{width:`${pct}%`,background:C.accent}}/></div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* Expense list */}
+                  <div className="card" style={{marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+                      <div className="stitle">🧾 Expenses</div>
+                      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                        {["all",...TRIP_EXPENSE_CATS].map(f=>(
+                          <button key={f} onClick={()=>setTripFilter(f)} style={{fontSize:9,padding:"3px 8px",borderRadius:99,border:`1px solid ${tripFilter===f?C.purple:C.border}`,background:tripFilter===f?`${C.purple}15`:"transparent",color:tripFilter===f?C.purple:C.muted,cursor:"pointer",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,textTransform:"capitalize"}}>{f}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {tripExps.filter(e=>tripFilter==="all"||e.category===tripFilter).length===0
+                      ?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>No expenses yet. Tap "+ Add Expense" above.</div>
+                      :tripExps.filter(e=>tripFilter==="all"||e.category===tripFilter).sort((a,b)=>new Date(b.date)-new Date(a.date)).map(exp=>(
+                        <div key={exp.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"10px 0",borderBottom:`1px solid ${C.border}20`,gap:8}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:12,color:C.text}}>{exp.category}{exp.note?` — ${exp.note}`:""}</div>
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              Paid by <span style={{fontWeight:700,color:C.accent}}>{exp.paidBy}</span>
+                              {" · "}{exp.splitType==="equal"?"Equal":exp.splitType==="one_person"?"One covers":exp.splitType==="exclude"?"Custom members":exp.splitType==="custom_amount"?"Custom ₹":"Custom %"}
+                              {" · "}{new Date(exp.date).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}
+                            </div>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                            <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:13,color:C.expense}}>{fc(parseFloat(exp.amount)||0)}</div>
+                            {activeTrip.status==="active"&&<>
+                              <button className="btn-ghost btn-sm" onClick={()=>{setTripExpForm({...exp,splits:{...exp.splits},_excluded:[]});setEditTripExpId(exp.id);setTripView("addExpense");}}>✏️</button>
+                              <button className="btn-ghost btn-sm" style={{color:C.expense}} onClick={()=>deleteTripExpense(exp.id)}>🗑</button>
+                            </>}
+                          </div>
+                        </div>
+                      ))
+                    }
+                  </div>
+                  {activeTrip.status==="active"&&(
+                    <div style={{display:"flex",gap:8,marginBottom:12}}>
+                      <button className="btn-ghost" style={{flex:1,color:C.expense,borderColor:`${C.expense}40`}} onClick={()=>{if(window.confirm("Delete this trip and all its expenses?")) deleteTrip(activeTripId);}}>🗑 Delete</button>
+                      <button className="btn-ghost" style={{flex:1}} onClick={()=>archiveTrip(activeTripId)}>📦 Archive</button>
+                    </div>
+                  )}
+                </>
+              );
+            }
+
+            // ── ADD/EDIT EXPENSE ──
+            if (tripView==="addExpense"&&activeTrip) {
+              const members=activeTrip.members;
+              return(
+                <div className="card">
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                    <button className="btn-ghost btn-sm" onClick={()=>{setTripView("detail");setEditTripExpId(null);}}>← Back</button>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:16,color:C.text}}>{editTripExpId?"Edit":"Add"} Expense</div>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                    <div className="g2">
+                      <div>
+                        <div className="lbl">Amount ₹ *</div>
+                        <input className="inp" type="number" placeholder="0.00" value={tripExpForm.amount}
+                          onChange={e=>setTripExpForm(p=>({...p,amount:e.target.value}))} style={{fontSize:20,fontWeight:800,color:C.expense}}/>
+                      </div>
+                      <div>
+                        <div className="lbl">Date</div>
+                        <input className="inp" type="date" value={tripExpForm.date} onChange={e=>setTripExpForm(p=>({...p,date:e.target.value}))}/>
+                      </div>
+                    </div>
+                    <div className="g2">
+                      <div>
+                        <div className="lbl">Category</div>
+                        <select className="inp" value={tripExpForm.category} onChange={e=>setTripExpForm(p=>({...p,category:e.target.value}))}>
+                          {TRIP_EXPENSE_CATS.map(c=><option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div className="lbl">Paid By</div>
+                        <select className="inp" value={tripExpForm.paidBy} onChange={e=>setTripExpForm(p=>({...p,paidBy:e.target.value}))}>
+                          {members.map(m=><option key={m} value={m}>{m}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="lbl">Note (optional)</div>
+                      <input className="inp" placeholder="e.g. Beach dinner, Hotel checkout" value={tripExpForm.note}
+                        onChange={e=>setTripExpForm(p=>({...p,note:e.target.value}))}/>
+                    </div>
+                    {/* Split type buttons */}
+                    <div>
+                      <div className="lbl" style={{marginBottom:8}}>How to Split?</div>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+                        {[
+                          {key:"equal",label:"⚖️ Equal"},
+                          {key:"exclude",label:"👥 Select Members"},
+                          {key:"custom_amount",label:"₹ Custom ₹"},
+                          {key:"custom_pct",label:"% Custom %"},
+                          {key:"one_person",label:"👤 One Person"},
+                        ].map(opt=>(
+                          <button key={opt.key} onClick={()=>{const s={};members.forEach(m=>s[m]=0);setTripExpForm(p=>({...p,splitType:opt.key,splits:s,splitCoveredBy:members[0],_excluded:[]}));}}
+                            style={{padding:"6px 12px",borderRadius:99,border:`1.5px solid ${tripExpForm.splitType===opt.key?C.purple:C.border}`,background:tripExpForm.splitType===opt.key?`${C.purple}15`:"transparent",color:tripExpForm.splitType===opt.key?C.purple:C.muted,cursor:"pointer",fontSize:11,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Equal preview */}
+                      {tripExpForm.splitType==="equal"&&tripExpForm.amount&&(
+                        <div style={{padding:"10px 14px",background:C.surface,borderRadius:10,fontSize:11,color:C.muted}}>
+                          Each person pays: <span style={{fontWeight:700,color:C.text}}>{fc((parseFloat(tripExpForm.amount)||0)/members.length)}</span>
+                          <div style={{marginTop:4,display:"flex",gap:6,flexWrap:"wrap"}}>{members.map(m=><span key={m} style={{background:C.border,padding:"2px 8px",borderRadius:99,fontSize:10}}>{m}</span>)}</div>
+                        </div>
+                      )}
+                      {/* Exclude members */}
+                      {tripExpForm.splitType==="exclude"&&(
+                        <div style={{padding:"10px 14px",background:C.surface,borderRadius:10}}>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Include in this expense:</div>
+                          {members.map(m=>{
+                            const excl=(tripExpForm._excluded||[]).includes(m);
+                            return(
+                              <div key={m} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,cursor:"pointer"}}
+                                onClick={()=>{
+                                  const ex=tripExpForm._excluded||[];
+                                  const newEx=excl?ex.filter(x=>x!==m):[...ex,m];
+                                  const s={};members.filter(x=>!newEx.includes(x)).forEach(x=>s[x]=1);members.filter(x=>newEx.includes(x)).forEach(x=>s[x]=0);
+                                  setTripExpForm(p=>({...p,_excluded:newEx,splits:s}));
+                                }}>
+                                <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${excl?C.border:C.purple}`,background:excl?"transparent":`${C.purple}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,flexShrink:0}}>{!excl&&"✓"}</div>
+                                <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,color:excl?C.muted:C.text}}>{m}</span>
+                              </div>
+                            );
+                          })}
+                          {tripExpForm.amount&&(()=>{const inc=members.filter(m=>!(tripExpForm._excluded||[]).includes(m));return inc.length>0&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>{fc(parseFloat(tripExpForm.amount)||0)} ÷ {inc.length} = {fc((parseFloat(tripExpForm.amount)||0)/inc.length)} each</div>;})()}
+                        </div>
+                      )}
+                      {/* Custom amount */}
+                      {tripExpForm.splitType==="custom_amount"&&(
+                        <div style={{padding:"10px 14px",background:C.surface,borderRadius:10}}>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Enter exact amount each person owes:</div>
+                          {members.map(m=>(
+                            <div key={m} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                              <span style={{fontSize:12,fontWeight:700,color:C.text,minWidth:70}}>{m}</span>
+                              <input className="inp" type="number" placeholder="0" style={{flex:1}} value={tripExpForm.splits[m]||""}
+                                onChange={e=>{const s={...tripExpForm.splits};s[m]=e.target.value;setTripExpForm(p=>({...p,splits:s}));}}/>
+                            </div>
+                          ))}
+                          {(()=>{const tot=Object.values(tripExpForm.splits).reduce((s,v)=>s+(parseFloat(v)||0),0);const diff=(parseFloat(tripExpForm.amount)||0)-tot;return<div style={{fontSize:10,color:Math.abs(diff)<0.01?C.income:C.expense,fontWeight:700}}>Total: {fc(tot)} {Math.abs(diff)<0.01?"✅":`(${fc(Math.round(diff*100)/100)} ${diff>0?"remaining":"over"})`}</div>;})()}
+                        </div>
+                      )}
+                      {/* Custom % */}
+                      {tripExpForm.splitType==="custom_pct"&&(
+                        <div style={{padding:"10px 14px",background:C.surface,borderRadius:10}}>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Enter % share for each person:</div>
+                          {members.map(m=>(
+                            <div key={m} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                              <span style={{fontSize:12,fontWeight:700,color:C.text,minWidth:70}}>{m}</span>
+                              <input className="inp" type="number" placeholder="0" style={{flex:1}} value={tripExpForm.splits[m]||""}
+                                onChange={e=>{const s={...tripExpForm.splits};s[m]=e.target.value;setTripExpForm(p=>({...p,splits:s}));}}/>
+                              <span style={{fontSize:11,color:C.muted}}>%</span>
+                              {tripExpForm.amount&&tripExpForm.splits[m]&&<span style={{fontSize:10,color:C.accent,minWidth:50}}>{fc((parseFloat(tripExpForm.splits[m])||0)/100*(parseFloat(tripExpForm.amount)||0))}</span>}
+                            </div>
+                          ))}
+                          {(()=>{const tot=Object.values(tripExpForm.splits).reduce((s,v)=>s+(parseFloat(v)||0),0);return<div style={{fontSize:10,color:Math.abs(tot-100)<0.1?C.income:C.expense,fontWeight:700}}>Total: {tot.toFixed(0)}% {Math.abs(tot-100)<0.1?"✅":"(must be 100%)"}</div>;})()}
+                        </div>
+                      )}
+                      {/* One person covers */}
+                      {tripExpForm.splitType==="one_person"&&(
+                        <div style={{padding:"10px 14px",background:C.surface,borderRadius:10}}>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Who covers this fully?</div>
+                          <select className="inp" value={tripExpForm.splitCoveredBy||members[0]} onChange={e=>setTripExpForm(p=>({...p,splitCoveredBy:e.target.value}))}>
+                            {members.map(m=><option key={m} value={m}>{m}</option>)}
+                          </select>
+                          <div style={{fontSize:10,color:C.muted,marginTop:6}}>This person owes the full ₹{parseFloat(tripExpForm.amount||0).toLocaleString("en-IN")}. Others owe ₹0.</div>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{display:"flex",gap:10,marginTop:4}}>
+                      <button className="btn btn-ghost" style={{flex:1}} onClick={()=>{setTripView("detail");setEditTripExpId(null);}}>Cancel</button>
+                      <button className="btn btn-p" style={{flex:2}} onClick={saveTripExpense}>{editTripExpId?"Save":"Add Expense"}</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            // ── SETTLEMENT VIEW ──
+            if (tripView==="settlement"&&activeTrip) {
+              const pendingSetts=tripSetts.filter(s=>!s.settled);
+              const doneSetts=tripSetts.filter(s=>s.settled);
+              const totalSpent=tripExps.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+              const genMsg=()=>{
+                const lines2=[`🧳 ${activeTrip.name} — Settle Up\n`];
+                tripSetts.filter(s=>!s.settled).forEach(s=>{const r=s.totalOwed-s.amountPaid;if(r>0.01) lines2.push(`${s.fromMember} → ${s.toMember}: ${fc(r)}`);});
+                lines2.push(`\nTotal trip: ${fc(totalSpent)}`);
+                lines2.push(`\nPay via GPay/PhonePe/UPI`);
+                return lines2.join("\n");
+              };
+              return(
+                <>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                    <button className="btn-ghost btn-sm" onClick={()=>setTripView("detail")}>← Back</button>
+                    <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,color:C.text}}>💸 Settlement — {activeTrip.name}</div>
+                  </div>
+                  {tripSetts.length===0&&(
+                    <div className="card" style={{textAlign:"center",padding:30}}>
+                      <div style={{fontSize:32,marginBottom:8}}>🎉</div>
+                      <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,color:C.text}}>All settled!</div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:4}}>Add expenses to see who owes what.</div>
+                    </div>
+                  )}
+                  {pendingSetts.length>0&&(
+                    <div className="card" style={{marginBottom:12}}>
+                      <div className="stitle" style={{marginBottom:12}}>⏳ Pending ({pendingSetts.length})</div>
+                      {pendingSetts.map(s=>{
+                        const remaining=s.totalOwed-s.amountPaid;
+                        return(
+                          <div key={s.id} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}20`}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,flexWrap:"wrap",gap:6}}>
+                              <div>
+                                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:14}}>
+                                  <span style={{color:C.expense}}>{s.fromMember}</span><span style={{color:C.muted}}> → </span><span style={{color:C.income}}>{s.toMember}</span>
+                                </div>
+                                {s.amountPaid>0&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>Paid {fc(s.amountPaid)} · Remaining {fc(Math.round(remaining*100)/100)}</div>}
+                              </div>
+                              <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:18,color:C.expense}}>{fc(Math.round(remaining*100)/100)}</div>
+                            </div>
+                            {s.amountPaid>0&&<div className="pbar" style={{marginBottom:8}}><div className="pfill" style={{width:`${Math.min(100,(s.amountPaid/s.totalOwed)*100)}%`,background:C.warning}}/></div>}
+                            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                              <button className="btn btn-p btn-sm" onClick={()=>markSettled(s.id)}>✅ Fully Settled</button>
+                              <button className="btn btn-ghost btn-sm" onClick={()=>{
+                                const amt=prompt(`Partial payment from ${s.fromMember}:\n(Remaining: ${fc(Math.round(remaining*100)/100)})`);
+                                if(amt&&!isNaN(amt)&&parseFloat(amt)>0) partialSettle(s.id,parseFloat(amt));
+                              }}>💰 Partial</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {doneSetts.length>0&&(
+                    <div className="card" style={{marginBottom:12,opacity:0.8}}>
+                      <div className="stitle" style={{marginBottom:10}}>✅ Settled ({doneSetts.length})</div>
+                      {doneSetts.map(s=>(
+                        <div key={s.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}20`}}>
+                          <span style={{fontSize:12,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{s.fromMember} → {s.toMember}</span>
+                          <span style={{fontSize:12,color:C.income,fontWeight:700}}>{fc(s.totalOwed)} ✓</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {tripSetts.length>0&&(
+                    <button className="btn btn-ghost" style={{width:"100%"}} onClick={()=>{
+                      const msg=genMsg();
+                      if(navigator.share){navigator.share({text:msg});}
+                      else{navigator.clipboard.writeText(msg).then(()=>alert("✅ Copied! Paste in WhatsApp."));}
+                    }}>📲 Share Settlement Message</button>
+                  )}
+                </>
+              );
+            }
+            return null;
+          })()}
+        </>}
+
         {tab==="Circles"&&<>
 
           {/* Cash Gap Warning Banner */}
@@ -5596,6 +6262,7 @@ if (!user) {
 
           {/* Section grid */}
           {[
+            {icon:"🧳",label:"Trip Expenses",   sub:"Split bills & settle with friends",tab:"Trips"},
             {icon:"💳",label:"Credit Cards",   sub:"Cards, CC EMIs, utilization",  tab:"Cards"},
             {icon:"🎯",label:"Budget",          sub:"Monthly limits & tracking",    tab:"Budget"},
             {icon:"⚙️",label:"Smart Settings",  sub:"Salary, recurring bills, accounts", tab:"Smart"},
@@ -5640,6 +6307,41 @@ if (!user) {
             </div>
           </div>
         </>}
+
+        {/* ── Close Trip Modal ── */}
+        {showCloseTripModal&&(()=>{
+          const trip=trips.find(t=>t.id===activeTripId);
+          if(!trip) return null;
+          const myName=trip.members[0];
+          const myShare=tripExpenses.filter(e=>e.tripId===activeTripId)
+            .reduce((s,e)=>s+(e.splits&&e.splits[myName]!=null?parseFloat(e.splits[myName])||0:0),0);
+          return(
+            <div className="modal" onClick={e=>e.target===e.currentTarget&&setShowCloseTripModal(false)}>
+              <div className="sheet">
+                <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:6}}>✅ Close Trip</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:16}}>Adds your personal share to FinTrack expenses and archives the trip.</div>
+                <div style={{padding:"14px 16px",background:`${C.income}10`,borderRadius:12,border:`1px solid ${C.income}25`,marginBottom:16}}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Your share ({myName})</div>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:24,color:C.income}}>{fc(Math.round(myShare*100)/100)}</div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:4}}>Will be added as a Travel expense in your transactions</div>
+                </div>
+                <div style={{marginBottom:16}}>
+                  <div className="lbl">Deduct from which account?</div>
+                  <select className="inp" value={closeTripAccountId} onChange={e=>setCloseTripAccountId(e.target.value)}>
+                    <option value="">-- Select Account (optional) --</option>
+                    {accounts.map(a=><option key={a.id} value={String(a.id)}>{a.icon||"🏦"} {a.name} · {fc(parseFloat(a.balance)||0)}</option>)}
+                  </select>
+                </div>
+                <div style={{display:"flex",gap:10}}>
+                  <button className="btn btn-ghost" style={{flex:1}} onClick={()=>setShowCloseTripModal(false)}>Cancel</button>
+                  <button className="btn btn-p" style={{flex:2}} onClick={()=>closeTrip(activeTripId,closeTripAccountId)}>
+                    Close &amp; Add ₹{Math.round(myShare).toLocaleString("en-IN")} to Expenses
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Circle Form Modal ── */}
         {showCircleForm&&(
