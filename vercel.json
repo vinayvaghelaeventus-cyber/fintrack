@@ -16,16 +16,16 @@
         { "key": "Content-Type", "value": "application/manifest+json" },
         { "key": "Cache-Control", "value": "public, max-age=86400" }
       ]
+    },
+    {
+      "source": "/(.*\\.png|.*\\.svg|.*\\.ico)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800, immutable" }
+      ]
     }
   ],
-  "rewrites": [
-    { "source": "/sw.js",          "destination": "/sw.js" },
-    { "source": "/manifest.json",  "destination": "/manifest.json" },
-    { "source": "/robots.txt",     "destination": "/robots.txt" },
-    { "source": "/icon-192.png",   "destination": "/icon-192.png" },
-    { "source": "/icon-512.png",   "destination": "/icon-512.png" },
-    { "source": "/icon.svg",       "destination": "/icon.svg" },
-    { "source": "/apple-touch-icon.png", "destination": "/apple-touch-icon.png" },
-    { "source": "/(.*)",           "destination": "/index.html" }
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
