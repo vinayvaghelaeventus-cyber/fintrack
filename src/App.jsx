@@ -20,7 +20,7 @@ const DARK  = {
 const LIGHT = {
   income:"#00a870", expense:"#e8294a", savings:"#5b4fd4",
   bg:"#f2f2f8", card:"#ffffff", border:"#e4e4f0", text:"#0d0f1e",
-  muted:"#8890b0", accent:"#7b4fd4", warning:"#e89a00", loan:"#7c5fd4",
+  muted:"#5e6789", accent:"#7b4fd4", warning:"#e89a00", loan:"#7c5fd4",
   credit:"#e85a20", surface:"#f8f8ff", inputBg:"#f0f0fa",
   glass:"rgba(255,255,255,0.92)", glow:"rgba(123,79,212,0.08)",
   purple:"#7b4fd4", purpleLight:"#9b6af7", purpleDim:"rgba(123,79,212,0.10)"
@@ -1804,7 +1804,7 @@ const filterByPeriod = useCallback((txList, period) => {
   }
 
   const css=`
-    @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap&font-display=swap');
 
     :root {
       --bg: ${C.bg}; --card: ${C.card}; --border: ${C.border}; --text: ${C.text};
@@ -2531,14 +2531,14 @@ if (!user) {
           <div style={{width:34,height:34,background:"rgba(255,255,255,0.18)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:16}}>₹</div>
           <div>
             <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:900,fontSize:16,color:"#fff",letterSpacing:"-0.3px",lineHeight:1.1}}>FinTrack</div>
-            <div style={{fontSize:9,color:"rgba(255,255,255,0.65)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:600}}>
+            <div style={{fontSize:9,color:"rgba(255,255,255,0.92)",fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
               {new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})} &nbsp;
               <span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:saving?"#ffb547":fbStatus==="ok"?"#00e5a0":"#ff4d6d",verticalAlign:"middle"}}/>
             </div>
           </div>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          {health.score>0&&<span style={{background:"rgba(255,255,255,0.18)",color:"#fff",padding:"3px 10px",borderRadius:99,fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{health.grade} {health.score}</span>}
+          {health.score>0&&<span style={{background:"rgba(255,255,255,0.30)",color:"#fff",padding:"3px 10px",borderRadius:99,fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>{health.grade} {health.score}</span>}
           {overdueCount>0&&<span className="pulse" style={{background:"rgba(255,77,109,0.35)",color:"#fff",padding:"3px 8px",borderRadius:99,fontSize:10,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>⚠ {overdueCount}</span>}
           <button onClick={()=>setDarkMode(p=>!p)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:99,width:30,height:30,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center"}}>{darkMode?"☀":"🌙"}</button>
           <button onClick={()=>setShowMenu(true)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:99,width:30,height:30,cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>☰</button>
@@ -2556,7 +2556,7 @@ if (!user) {
         {refreshing&&<div className="ptr-spinner"/>}
       </div>
 
-      <div key={pageKey} className="page-enter" style={{maxWidth:1200,margin:"0 auto",padding:"16px 14px 16px",paddingBottom:100}}>
+      <div key={pageKey} className="page-enter" role="main" id="main-content" style={{maxWidth:1200,margin:"0 auto",padding:"16px 14px 16px",paddingBottom:100}}>
 
         {/* ════════ DASHBOARD ════════ */}
         {tab==="Dashboard"&&(()=>{
@@ -2851,7 +2851,7 @@ if (!user) {
                 onClick={()=>item.action?item.action():navigateTo(item.tab)}
                 style={{
                   display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-                  gap:4,padding:"10px 4px",borderRadius:14,
+                  gap:4,padding:"10px 4px",borderRadius:14,minHeight:64,
                   background:item.tab&&tab===item.tab?C.purpleDim:C.card,
                   border:`1px solid ${item.tab&&tab===item.tab?C.purple+"60":C.border}`,
                   cursor:"pointer",transition:"all 0.15s",
