@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://fintrack-kohl-tau.vercel.app/sitemap.xml
