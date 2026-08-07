@@ -423,7 +423,14 @@ useEffect(() => {
   const totalOutstanding = useMemo(() => activeDebts.reduce((s,d)=>s+(parseFloat(d.outstanding)||0),0), [activeDebts]);
   const totalCCOut     = useMemo(() => creditCards.reduce((s,c)=>s+(parseFloat(c.outstanding)||0),0), [creditCards]);
   const totalCCEMI     = useMemo(() => (ccEmis||[]).reduce((s,e)=>s+(parseFloat(e.amount)||0),0), [ccEmis]);
-  const effectiveIncome = parseFloat(monthlyIncome) || totalIncome || 0;
+  const currentMonthIncome = useMemo(() => {
+    const n = new Date();
+    return transactions.filter(t=>{
+      const d = parseLocal(t.date);
+      return d && t.type==="income" && d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear();
+    }).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+  }, [transactions]);
+  const effectiveIncome = parseFloat(monthlyIncome) || currentMonthIncome || 0;
   const savingsTotal   = useMemo(() => savings.reduce((s,g)=>s+g.current,0), [savings]);
   const emergencyMonths = useMemo(() => {
     const ef = parseFloat(emergencyFund)||savingsTotal;
@@ -3429,7 +3436,7 @@ if (!user) {
           <div className="card" style={{marginBottom:12}}>
             <div className="stitle">⚙️ Your Numbers</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
-              <div><div className="lbl">Monthly Income ₹</div><input className="inp" type="number" placeholder="e.g. 50000" value={monthlyIncome} onChange={e=>setMonthlyIncome(e.target.value)}/>{totalIncome>0&&<div style={{fontSize:10,color:C.muted,marginTop:3}}>From txns: {fc(totalIncome)}</div>}</div>
+              <div><div className="lbl">Monthly Income ₹</div><input className="inp" type="number" placeholder="e.g. 50000" value={monthlyIncome} onChange={e=>setMonthlyIncome(e.target.value)}/>{currentMonthIncome>0&&<div style={{fontSize:10,color:C.muted,marginTop:3}}>This month's txns: {fc(currentMonthIncome)}</div>}</div>
               <div><div className="lbl">Extra ₹ to Attack Debt/mo</div><input className="inp" type="number" placeholder="e.g. 5000" value={extraFund} onChange={e=>setExtraFund(e.target.value)}/></div>
               <div><div className="lbl">Emergency Fund ₹</div><input className="inp" type="number" placeholder="e.g. 30000" value={emergencyFund} onChange={e=>setEmergencyFund(e.target.value)}/></div>
               <div>
