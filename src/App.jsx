@@ -39,7 +39,7 @@ const MOBILE_TABS = [
   {id:"Plan",         icon:"📊", label:"Plan"},
   {id:"More",         icon:"⋯",  label:"More"},
 ];
-const ALL_TABS = ["Dashboard","Transactions","Insights","Plan","Cards","Budget","Smart","Circles","More","Trips"];
+const ALL_TABS = ["Dashboard","Transactions","Plan","More"];
 const CIRCLE_PURPOSES = ["Bill Payment","Rent","Medical","Groceries","EMI","Utility Bill","Travel","Emergency","Other"];
 const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const EMPTY_CIRCLE = {id:null, person:"", amount:"", purpose:"", borrowedDate:todayStr(), returnDate:"", type:"borrowed", status:"pending", notes:""};
@@ -2848,11 +2848,6 @@ if (!user) {
               {icon:"🎯",label:"Budget",    tab:"Budget"},
               {icon:"💳",label:"Cards",     tab:"Cards"},
               {icon:"📊",label:"Plan",      tab:"Plan"},
-              {icon:"🔍",label:"Insights",  tab:"Insights"},
-              {icon:"⚡",label:"Smart",     tab:"Smart"},
-              {icon:"💸",label:"Circles",   tab:"Circles"},
-              {icon:"⬆",label:"Import",    action:()=>setShowImport(true)},
-              {icon:"⬇",label:"Export",    action:exportTransactions},
             ].map(item=>(
               <button key={item.label}
                 onClick={()=>item.action?item.action():navigateTo(item.tab)}
@@ -6267,16 +6262,12 @@ if (!user) {
             <div style={{fontSize:12,color:C.muted}}>All features in one place</div>
           </div>
 
-          {/* Section grid */}
+          {/* Core features — used daily */}
           {[
-            {icon:"🧳",label:"Trip Expenses",   sub:"Split bills & settle with friends",tab:"Trips"},
+            {icon:"💸",label:"Transactions",    sub:"All income & expenses",        tab:"Transactions"},
+            {icon:"📊",label:"Plan",            sub:"Loans, EMIs, budget & payoff",  tab:"Plan"},
             {icon:"💳",label:"Credit Cards",   sub:"Cards, CC EMIs, utilization",  tab:"Cards"},
             {icon:"🎯",label:"Budget",          sub:"Monthly limits & tracking",    tab:"Budget"},
-            {icon:"⚙️",label:"Smart Settings",  sub:"Salary, recurring bills, accounts", tab:"Smart"},
-            {icon:"🔵",label:"Money Circles",   sub:"Borrow & lend tracking",       tab:"Circles"},
-            {icon:"💸",label:"Transactions",    sub:"All income & expenses",        tab:"Transactions"},
-            {icon:"📈",label:"Insights",        sub:"Charts, calendar, trends",     tab:"Insights"},
-            {icon:"📊",label:"Plan",            sub:"Debt, goals, investments",     tab:"Plan"},
           ].map(item=>(
             <div key={item.tab} className="card" style={{marginBottom:10,cursor:"pointer",padding:"14px 16px"}}
               onClick={()=>navigateTo(item.tab)}>
@@ -6287,6 +6278,27 @@ if (!user) {
                   <div style={{fontSize:11,color:C.muted}}>{item.sub}</div>
                 </div>
                 <div style={{fontSize:18,color:C.muted,flexShrink:0}}>›</div>
+              </div>
+            </div>
+          ))}
+
+          {/* Other features — optional, use if you need them */}
+          <div style={{margin:"18px 0 10px",fontSize:10,color:C.muted,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,letterSpacing:1.2,textTransform:"uppercase"}}>Other Features</div>
+          {[
+            {icon:"📈",label:"Insights",        sub:"Charts, calendar, trends",     tab:"Insights"},
+            {icon:"⚙️",label:"Smart Settings",  sub:"Salary, recurring bills, accounts", tab:"Smart"},
+            {icon:"🔵",label:"Money Circles",   sub:"Borrow & lend tracking",       tab:"Circles"},
+            {icon:"🧳",label:"Trip Expenses",   sub:"Split bills & settle with friends",tab:"Trips"},
+          ].map(item=>(
+            <div key={item.tab} className="card" style={{marginBottom:8,cursor:"pointer",padding:"11px 14px",opacity:0.75}}
+              onClick={()=>navigateTo(item.tab)}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:34,height:34,borderRadius:10,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{item.icon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.text}}>{item.label}</div>
+                  <div style={{fontSize:10,color:C.muted}}>{item.sub}</div>
+                </div>
+                <div style={{fontSize:16,color:C.muted,flexShrink:0}}>›</div>
               </div>
             </div>
           ))}
