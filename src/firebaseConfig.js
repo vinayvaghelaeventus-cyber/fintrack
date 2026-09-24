@@ -23,3 +23,4 @@ export const firebaseConfig = {
 // This is used as a Firestore document path so only your device reads your data.
 // Combined with the PIN lock, this keeps your data private.
 export const FINTRACK_USER_ID = "my_fintrack_data";
+export const FINTRACK_USER_ID = "94kqctQCWAYXf1RImG1QtdeSu3M2";
