@@ -412,6 +412,51 @@ useEffect(() => {
       ccEmis, investments, cibilScore, familyCap,
       trips, tripExpenses, tripSettlements, loaded]);
 
+  // ─── ONE-TIME DATA MIGRATION (old UID → current UID) ─────────────────────
+  // TEMPORARY: use once to recover data after a Firebase Auth UID change,
+  // then this function and its Settings UI can be safely removed.
+  const [migrateStatus, setMigrateStatus] = useState("");
+  async function migrateOldData(oldUid) {
+    if (!oldUid || !oldUid.trim()) { setMigrateStatus("❌ Enter the old UID first"); return; }
+    if (!user) { setMigrateStatus("❌ Not logged in"); return; }
+    setMigrateStatus("⏳ Fetching old data...");
+    try {
+      const data = await loadData(oldUid.trim());
+      if (!data) { setMigrateStatus("❌ No data found for that UID"); return; }
+      // Load every field into current app state (same fields as the normal load effect)
+      if (data.transactions)  setTransactions(data.transactions.map(t=>({...t, amount: parseFloat(t.amount)||0})));
+      if (data.debts)         setDebts(data.debts);
+      if (data.creditCards)   setCreditCards(data.creditCards);
+      if (data.savings)       setSavings(data.savings.map(g=>({...g, current: parseFloat(g.current)||0, goal: parseFloat(g.goal)||0})));
+      if (data.budgets)       setBudgets(data.budgets);
+      if (data.banks)         setBanks(data.banks);
+      if (data.salary)        setSalary(data.salary);
+      if (data.monthlyIncome) setMonthlyIncome(data.monthlyIncome);
+      if (data.extraFund)     setExtraFund(data.extraFund);
+      if (data.familyCap)     setFamilyCap(data.familyCap);
+      if (data.strategy)      setStrategy(data.strategy);
+      if (data.emergencyFund) setEmergencyFund(data.emergencyFund);
+      if (data.darkMode!==undefined) setDarkMode(data.darkMode);
+      if (data.accounts)      setAccounts(data.accounts.map(a=>({...a, balance: parseFloat(a.balance)||0})));
+      if (data.customCats)    setCustomCats(data.customCats);
+      if (data.moneyCircles)  setMoneyCircles(data.moneyCircles);
+      if (data.recurringBills) setRecurringBills(data.recurringBills);
+      if (data.ccEmis)        setCcEmis(data.ccEmis);
+      if (data.investments)   setInvestments(data.investments);
+      if (data.cibilScore)    setCibilScore(data.cibilScore);
+      if (data.trips)         setTrips(data.trips);
+      if (data.tripExpenses)  setTripExpenses(data.tripExpenses);
+      if (data.tripSettlements) setTripSettlements(data.tripSettlements);
+      setMigrateStatus("⏳ Saving to your current account...");
+      // Explicitly save to current UID right away (don't wait for debounced auto-save)
+      const ok = await saveData(user.uid, { ...data, lastUpdated: new Date().toISOString() });
+      setMigrateStatus(ok ? "✅ Data recovered! Refresh the page to confirm." : "❌ Save failed — try again");
+    } catch (e) {
+      console.error(e);
+      setMigrateStatus("❌ Error: " + (e.message||"could not fetch old data"));
+    }
+  }
+
 
 
 
@@ -6566,7 +6611,7 @@ if (!user) {
 
 
       {/* Settings */}
-      {showSettings&&<SettingsModal C={C} banks={banks} setBanks={setBanks} onClose={() => setShowSettings(false)} notifPermission={notifPermission} onEnableNotif={requestNotifPermission} />}
+      {showSettings&&<SettingsModal C={C} banks={banks} setBanks={setBanks} onClose={() => setShowSettings(false)} notifPermission={notifPermission} onEnableNotif={requestNotifPermission} currentUid={user?.uid} onMigrate={migrateOldData} migrateStatus={migrateStatus} />}
 
       {/* ── Category Manager Modal ── */}
       {showCatManager&&(
@@ -6667,13 +6712,26 @@ if (!user) {
 }
 
 // ─── SETTINGS MODAL ──────────────────────────────────────────────────────────
-function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableNotif }) {
+function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableNotif, currentUid, onMigrate, migrateStatus }) {
   const [newBank, setNewBank] = useState("");
+  const [oldUidInput, setOldUidInput] = useState("");
 
   return(
     <div className="modal" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="sheet">
         <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:18}}>⚙️ Settings</div>
+
+        {/* ── TEMPORARY: Data Recovery (old UID → current account) ── */}
+        <div style={{marginBottom:20,padding:"14px 16px",borderRadius:14,border:`1.5px solid ${C.warning}`,background:`${C.warning}08`}}>
+          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.warning,marginBottom:6}}>🔧 Data Recovery</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.6}}>
+            If your data disappeared after a login change, paste your <b>old Firebase UID</b> (from Firebase Console → Authentication) below to pull it back into this account.
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Your current UID: <span style={{color:C.text,fontFamily:"monospace"}}>{currentUid||"—"}</span></div>
+          <input className="inp" placeholder="Paste old UID here" value={oldUidInput} onChange={e=>setOldUidInput(e.target.value)} style={{marginBottom:8,fontFamily:"monospace",fontSize:11}}/>
+          <button className="btn btn-p btn-sm" style={{width:"100%"}} onClick={()=>onMigrate(oldUidInput)}>Recover My Data</button>
+          {migrateStatus&&<div style={{marginTop:8,fontSize:11,color:migrateStatus.startsWith("✅")?C.income:migrateStatus.startsWith("❌")?C.expense:C.muted}}>{migrateStatus}</div>}
+        </div>
 
         <div style={{marginBottom:20,padding:"14px 16px",borderRadius:14,border:`1.5px solid ${notifPermission==="granted"?C.income:C.border}`,background:notifPermission==="granted"?`${C.income}08`:"transparent"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
