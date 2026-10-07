@@ -1844,7 +1844,11 @@ const filterByPeriod = useCallback((txList, period) => {
           const amt=Math.abs(parseFloat(r.amount||r.debit||r.credit||r.value||0));
           const debit=parseFloat(r.debit||0), credit=parseFloat(r.credit||0);
           let type=(r.type||"").toLowerCase().includes("income")||(credit>0&&debit===0)?"income":"expense";
-          return {id:Date.now()+i,date:parseDateStr(r.date||r["transaction date"]||""),type,amount:amt||0,category:guessCategory(note),paymentMode:r.mode||r.paymentmode||"UPI",bank:r.bank||"",note};
+          // Use the file's own Category column when present (preserves accurate categorization
+          // from a prior export); only fall back to keyword-guessing when it's missing/blank.
+          const fileCategory = (r.category||"").trim();
+          const category = fileCategory || guessCategory(note);
+          return {id:Date.now()+i,date:parseDateStr(r.date||r["transaction date"]||""),type,amount:amt||0,category,paymentMode:r.mode||r.paymentmode||"UPI",bank:r.bank||"",note};
         }).filter(r=>r.amount>0);
         if(!mapped.length){setImportMsg("❌ No valid rows found");return;}
         setImportPreview(mapped.slice(0,5));
