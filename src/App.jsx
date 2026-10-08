@@ -158,6 +158,12 @@ function calcCCDetails(cc) {
   return {outstanding,limit,minDue,utilization,interestSavedByFull,idealPayment:outstanding,status,rate,daysLeft:daysUntil(cc.dueDate)};
 }
 
+// ─── STABLE DATA KEY ─────────────────────────────────────────────────────────
+// Firebase Auth UIDs can silently change on re-login/session reset — that's
+// what caused the data-loss incident. Email doesn't change, so it's used as
+// the database key instead. Always lowercased + sanitized for consistency.
+const docKey = (u) => u?.email ? u.email.trim().toLowerCase().replace(/[^a-z0-9]/g, "_") : null;
+
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 export default function App() {
   // ── UI state ──
@@ -244,7 +250,7 @@ export default function App() {
     const onTouchEnd = async () => {
       if (pullY>=60) {
         setRefreshing(true);
-        if (user) { try { const data=await loadData(user.uid); if(data){
+        if (user) { try { const data=await loadData(docKey(user)); if(data){
           if(data.transactions)  setTransactions(data.transactions);
           if(data.creditCards)   setCreditCards(data.creditCards);
           if(data.debts)         setDebts(data.debts);
@@ -350,7 +356,7 @@ useEffect(() => {
   if (!user) return;
     async function load() {
       try {
-        const data = await loadData(user.uid);
+        const data = await loadData(docKey(user));
         if (data) {
           if (data.transactions)  setTransactions(data.transactions.map(t=>({...t, amount: parseFloat(t.amount)||0})));
           if (data.debts)         setDebts(data.debts);
@@ -377,11 +383,13 @@ useEffect(() => {
           if (data.tripSettlements) setTripSettlements(data.tripSettlements);
         }
         setFbStatus("ok");
+        setLoaded(true); // ONLY after a successful load → auto-save is allowed
       } catch (e) {
-        console.error(e);
+        // Load failed (network/permission). Do NOT set loaded=true:
+        // auto-save stays paused so we never overwrite real data with empty defaults.
+        console.error("Load failed — auto-save paused to protect your data:", e);
         setFbStatus("error");
       }
-      setLoaded(true);
     }
     load();
 }, [user]);
@@ -394,16 +402,18 @@ useEffect(() => {
     saveTimeout.current = setTimeout(async () => {
       if (!user) return;
       setSaving(true);
-      const ok = await saveData(user.uid, {
+      const payload = {
         transactions, debts, creditCards, ccEmis, savings, budgets, banks,
         monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
         accounts, customCats, moneyCircles, salary, recurringBills,
         ccEmis, investments, cibilScore, familyCap,
         trips, tripExpenses, tripSettlements,
+        ownerEmail: user.email.trim().toLowerCase(),
         lastUpdated: new Date().toISOString(),
-      });
+      };
+      const ok = await saveData(docKey(user), payload);
       setSaving(false);
-      if (ok) setLastSaved(new Date());
+      if (ok) { setLastSaved(new Date()); maybeCloudSnapshot(payload); }
       else setFbStatus("error");
     }, 1200);
   }, [transactions, debts, creditCards, ccEmis, savings, budgets, banks,
@@ -412,9 +422,9 @@ useEffect(() => {
       ccEmis, investments, cibilScore, familyCap,
       trips, tripExpenses, tripSettlements, loaded]);
 
-  // ─── ONE-TIME DATA MIGRATION (old UID → current UID) ─────────────────────
-  // TEMPORARY: use once to recover data after a Firebase Auth UID change,
-  // then this function and its Settings UI can be safely removed.
+  // ─── ONE-TIME DATA MIGRATION (old key → stable email-based key) ───────────
+  // TEMPORARY: use once to move data onto the new stable key, then this
+  // function and its Settings UI can be safely removed.
   const [migrateStatus, setMigrateStatus] = useState("");
   async function migrateOldData(oldUid) {
     if (!oldUid || !oldUid.trim()) { setMigrateStatus("❌ Enter the old UID first"); return; }
@@ -422,7 +432,7 @@ useEffect(() => {
     setMigrateStatus("⏳ Fetching old data...");
     try {
       const data = await loadData(oldUid.trim());
-      if (!data) { setMigrateStatus("❌ No data found for that UID"); return; }
+      if (!data) { setMigrateStatus("❌ No data found for that key"); return; }
       // Load every field into current app state (same fields as the normal load effect)
       if (data.transactions)  setTransactions(data.transactions.map(t=>({...t, amount: parseFloat(t.amount)||0})));
       if (data.debts)         setDebts(data.debts);
@@ -447,14 +457,127 @@ useEffect(() => {
       if (data.trips)         setTrips(data.trips);
       if (data.tripExpenses)  setTripExpenses(data.tripExpenses);
       if (data.tripSettlements) setTripSettlements(data.tripSettlements);
-      setMigrateStatus("⏳ Saving to your current account...");
-      // Explicitly save to current UID right away (don't wait for debounced auto-save)
-      const ok = await saveData(user.uid, { ...data, lastUpdated: new Date().toISOString() });
+      setMigrateStatus("⏳ Saving to your new stable account key...");
+      // Explicitly save to the new email-based key right away (don't wait for debounced auto-save)
+      const ok = await saveData(docKey(user), { ...data, ownerEmail: user.email.trim().toLowerCase(), lastUpdated: new Date().toISOString() });
       setMigrateStatus(ok ? "✅ Data recovered! Refresh the page to confirm." : "❌ Save failed — try again");
     } catch (e) {
       console.error(e);
       setMigrateStatus("❌ Error: " + (e.message||"could not fetch old data"));
     }
+  }
+
+  // ─── BACKUP & RESTORE (your own copy, independent of Firebase) ───────────
+  const [lastBackupAt, setLastBackupAt] = useState(() => {
+    try { return parseInt(localStorage.getItem("fintrack_last_backup")||"0") || null; } catch { return null; }
+  });
+  const [backupStatus, setBackupStatus] = useState("");
+
+  function buildFullPayload() {
+    return {
+      transactions, debts, creditCards, ccEmis, savings, budgets, banks,
+      monthlyIncome, extraFund, strategy, emergencyFund, darkMode,
+      accounts, customCats, moneyCircles, salary, recurringBills,
+      investments, cibilScore, familyCap,
+      trips, tripExpenses, tripSettlements,
+    };
+  }
+
+  function backupNow() {
+    try {
+      const file = {
+        app: "FinTrack", version: 1,
+        exportedAt: new Date().toISOString(),
+        ownerEmail: user?.email || "",
+        counts: { transactions: transactions.length, loans: debts.length, cards: creditCards.length, accounts: accounts.length },
+        data: buildFullPayload(),
+      };
+      const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `fintrack_backup_${today()}.json`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const now = Date.now();
+      try { localStorage.setItem("fintrack_last_backup", String(now)); } catch {}
+      setLastBackupAt(now);
+      setBackupStatus(`✅ Backup downloaded (${transactions.length} transactions). Save it to Google Drive / email it to yourself.`);
+    } catch (e) {
+      setBackupStatus("❌ Backup failed: " + (e.message || "unknown error"));
+    }
+  }
+
+  function applyDataToState(data) {
+    if (data.transactions)  setTransactions(data.transactions.map(t=>({...t, amount: parseFloat(t.amount)||0})));
+    if (data.debts)         setDebts(data.debts);
+    if (data.creditCards)   setCreditCards(data.creditCards);
+    if (data.savings)       setSavings(data.savings.map(g=>({...g, current: parseFloat(g.current)||0, goal: parseFloat(g.goal)||0})));
+    if (data.budgets)       setBudgets(data.budgets);
+    if (data.banks)         setBanks(data.banks);
+    if (data.salary)        setSalary(data.salary);
+    if (data.monthlyIncome) setMonthlyIncome(data.monthlyIncome);
+    if (data.extraFund)     setExtraFund(data.extraFund);
+    if (data.familyCap)     setFamilyCap(data.familyCap);
+    if (data.strategy)      setStrategy(data.strategy);
+    if (data.emergencyFund) setEmergencyFund(data.emergencyFund);
+    if (data.darkMode!==undefined) setDarkMode(data.darkMode);
+    if (data.accounts)      setAccounts(data.accounts.map(a=>({...a, balance: parseFloat(a.balance)||0})));
+    if (data.customCats)    setCustomCats(data.customCats);
+    if (data.moneyCircles)  setMoneyCircles(data.moneyCircles);
+    if (data.recurringBills) setRecurringBills(data.recurringBills);
+    if (data.ccEmis)        setCcEmis(data.ccEmis);
+    if (data.investments)   setInvestments(data.investments);
+    if (data.cibilScore)    setCibilScore(data.cibilScore);
+    if (data.trips)         setTrips(data.trips);
+    if (data.tripExpenses)  setTripExpenses(data.tripExpenses);
+    if (data.tripSettlements) setTripSettlements(data.tripSettlements);
+  }
+
+  function restoreFromBackup(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        const d = parsed.data || parsed;
+        if (!d || !Array.isArray(d.transactions)) { setBackupStatus("❌ This doesn't look like a FinTrack backup file."); return; }
+        const msg = `Restore this backup?\n\n• ${d.transactions.length} transactions\n• ${(d.debts||[]).length} loans\n• ${(d.creditCards||[]).length} cards\n• ${(d.accounts||[]).length} accounts\n\nThis REPLACES what's currently in the app.`;
+        if (!window.confirm(msg)) { setBackupStatus("Restore cancelled."); return; }
+        applyDataToState(d);
+        // Make sure arrays that are empty in the backup are also emptied in the app
+        if (!d.debts) setDebts([]);
+        if (!d.creditCards) setCreditCards([]);
+        if (!d.accounts) setAccounts([]);
+        if (user) {
+          const ok = await saveData(docKey(user), { ...d, ownerEmail: user.email.trim().toLowerCase(), lastUpdated: new Date().toISOString() });
+          setBackupStatus(ok ? "✅ Backup restored and saved to the cloud." : "⚠️ Restored in the app, but cloud save failed — try again.");
+        } else {
+          setBackupStatus("✅ Backup restored.");
+        }
+      } catch (e) {
+        setBackupStatus("❌ Could not read that file: " + (e.message || "invalid JSON"));
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // Weekly rotating cloud snapshot (4 slots ≈ last 4 weeks) — a second copy inside
+  // Firebase that protects against accidental overwrites. Never snapshots empty state.
+  async function maybeCloudSnapshot(payload) {
+    try {
+      if (!user) return;
+      if (!payload.transactions.length && !payload.debts.length && !payload.accounts.length && !payload.creditCards.length) return;
+      const WEEK = 7 * 864e5;
+      const last = parseInt(localStorage.getItem("fintrack_last_snapshot") || "0");
+      if (Date.now() - last < WEEK) return;
+      const slot = Math.floor(Date.now() / WEEK) % 4;
+      const ok = await saveData(`${docKey(user)}__snap${slot}`, {
+        ...payload,
+        ownerEmail: user.email.trim().toLowerCase(),
+        snapshotOf: docKey(user),
+        snapshotAt: new Date().toISOString(),
+      });
+      if (ok) localStorage.setItem("fintrack_last_snapshot", String(Date.now()));
+    } catch (e) { /* snapshot is best-effort; never block the app */ }
   }
 
 
@@ -2602,7 +2725,7 @@ if (!user) {
       </div>
       {fbNotConfigured&&(
         <div style={{background:"#f59e0b15",borderBottom:`1px solid #f59e0b40`,padding:"8px 16px",fontSize:11,color:"#f59e0b",textAlign:"center"}}>
-          ⚠️ Firebase not configured — data is NOT being saved to cloud. Open <b>src/firebaseConfig.js</b> and add your Firebase keys.
+          ⚠️ Cloud sync problem — saving is paused to protect your existing data. Refresh the page; if it persists, open Settings → <b>Backup Now</b> to keep a safe copy.
         </div>
       )}
 
@@ -2645,6 +2768,16 @@ if (!user) {
           const netBal = pInc - pExp;
 
           return <>
+
+          {/* ── BACKUP REMINDER (only when there's data and no backup in 14+ days) ── */}
+          {transactions.length>0&&(!lastBackupAt||(Date.now()-lastBackupAt)/864e5>=14)&&(
+            <div onClick={()=>setShowSettings(true)} style={{marginBottom:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",background:`${C.warning}12`,border:`1px solid ${C.warning}40`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+              <div style={{fontSize:11,color:C.text,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700}}>
+                💾 {lastBackupAt?`Last backup was ${Math.floor((Date.now()-lastBackupAt)/864e5)} days ago`:"You haven't backed up your data yet"}
+              </div>
+              <span style={{fontSize:11,color:C.warning,fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,whiteSpace:"nowrap"}}>Back up now →</span>
+            </div>
+          )}
 
           {/* ── 1. HERO CARD with period picker ── */}
           <div className="hero-card" style={{marginBottom:14}}>
@@ -6615,7 +6748,7 @@ if (!user) {
 
 
       {/* Settings */}
-      {showSettings&&<SettingsModal C={C} banks={banks} setBanks={setBanks} onClose={() => setShowSettings(false)} notifPermission={notifPermission} onEnableNotif={requestNotifPermission} currentUid={user?.uid} onMigrate={migrateOldData} migrateStatus={migrateStatus} />}
+      {showSettings&&<SettingsModal C={C} banks={banks} setBanks={setBanks} onClose={() => setShowSettings(false)} notifPermission={notifPermission} onEnableNotif={requestNotifPermission} currentUid={user?.uid} stableKey={docKey(user)} onMigrate={migrateOldData} migrateStatus={migrateStatus} onBackup={backupNow} onRestore={restoreFromBackup} backupStatus={backupStatus} lastBackupAt={lastBackupAt} />}
 
       {/* ── Category Manager Modal ── */}
       {showCatManager&&(
@@ -6716,24 +6849,42 @@ if (!user) {
 }
 
 // ─── SETTINGS MODAL ──────────────────────────────────────────────────────────
-function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableNotif, currentUid, onMigrate, migrateStatus }) {
+function SettingsModal({ C, banks, setBanks, onClose, notifPermission, onEnableNotif, currentUid, stableKey, onMigrate, migrateStatus, onBackup, onRestore, backupStatus, lastBackupAt }) {
   const [newBank, setNewBank] = useState("");
-  const [oldUidInput, setOldUidInput] = useState("");
+  const [oldUidInput, setOldUidInput] = useState(currentUid||"");
+  const restoreRef = useRef();
 
   return(
     <div className="modal" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="sheet">
         <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:800,fontSize:17,marginBottom:18}}>⚙️ Settings</div>
 
+        {/* ── BACKUP & RESTORE — your own copy of everything, independent of Firebase ── */}
+        <div style={{marginBottom:20,padding:"14px 16px",borderRadius:14,border:`1.5px solid ${C.income}`,background:`${C.income}08`}}>
+          <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.income,marginBottom:6}}>💾 Backup & Restore</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.6}}>
+            Downloads ALL your data (transactions, loans, cards, accounts, budgets) as one file. Keep a copy in Google Drive or email it to yourself — then your data is safe even if Firebase ever has a problem.
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
+            Last backup: <span style={{color:C.text,fontWeight:700}}>{lastBackupAt?new Date(lastBackupAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}):"never"}</span>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn btn-g btn-sm" style={{flex:1}} onClick={onBackup}>⬇ Backup Now</button>
+            <button className="btn-ghost btn-sm" style={{flex:1}} onClick={()=>restoreRef.current?.click()}>⬆ Restore from file</button>
+            <input ref={restoreRef} type="file" accept=".json,application/json" style={{display:"none"}} onChange={e=>{onRestore(e.target.files[0]); e.target.value="";}}/>
+          </div>
+          {backupStatus&&<div style={{marginTop:8,fontSize:11,color:backupStatus.startsWith("✅")?C.income:backupStatus.startsWith("❌")?C.expense:C.muted}}>{backupStatus}</div>}
+        </div>
+
         {/* ── TEMPORARY: Data Recovery (old UID → current account) ── */}
         <div style={{marginBottom:20,padding:"14px 16px",borderRadius:14,border:`1.5px solid ${C.warning}`,background:`${C.warning}08`}}>
           <div style={{fontFamily:"'Cabinet Grotesk',sans-serif",fontWeight:700,fontSize:13,color:C.warning,marginBottom:6}}>🔧 Data Recovery</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.6}}>
-            If your data disappeared after a login change, paste your <b>old Firebase UID</b> (from Firebase Console → Authentication) below to pull it back into this account.
+            Moves data saved under your OLD key (pre-filled below with your previous account ID) into your new stable email-based key. Only needed once.
           </div>
-          <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Your current UID: <span style={{color:C.text,fontFamily:"monospace"}}>{currentUid||"—"}</span></div>
-          <input className="inp" placeholder="Paste old UID here" value={oldUidInput} onChange={e=>setOldUidInput(e.target.value)} style={{marginBottom:8,fontFamily:"monospace",fontSize:11}}/>
-          <button className="btn btn-p btn-sm" style={{width:"100%"}} onClick={()=>onMigrate(oldUidInput)}>Recover My Data</button>
+          <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Old key (previous UID): <span style={{color:C.text,fontFamily:"monospace"}}>{currentUid||"—"}</span><br/>New stable key: <span style={{color:C.text,fontFamily:"monospace"}}>{stableKey||"—"}</span></div>
+          <input className="inp" placeholder="Old key to move data from" value={oldUidInput} onChange={e=>setOldUidInput(e.target.value)} style={{marginBottom:8,fontFamily:"monospace",fontSize:11}}/>
+          <button className="btn btn-p btn-sm" style={{width:"100%"}} onClick={()=>onMigrate(oldUidInput)}>Move Old Data to New Key</button>
           {migrateStatus&&<div style={{marginTop:8,fontSize:11,color:migrateStatus.startsWith("✅")?C.income:migrateStatus.startsWith("❌")?C.expense:C.muted}}>{migrateStatus}</div>}
         </div>
 
